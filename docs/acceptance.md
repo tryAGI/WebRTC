@@ -21,7 +21,7 @@ self-to-self exchange or green parser tests cannot satisfy that objective.
 | Apple Watch delivery | Same trace through remote audio, backend/decode/delivery, device arrival/playback; before/after distributions and audible acceptance | No new physical evidence |
 | Simli | Owned offer/answer adapter; real face/session, nonempty media, cleanup; preserve WebSocket input/signaling | Existing adapter inspected; migration and provider E2E remain |
 | MIT and source ownership | Pinned file-level origin/license checks and notices for every future port/import; audited graph | Newly authored runtime, no imported runtime code |
-| .NET 10+, trimming/AOT | Whole-library rooting, executed native transport, supported-platform CI, no weakened diagnostics | Expanded whole-library NativeAOT and authenticated UDP smoke passed locally; CI/platform gate pending |
+| .NET 10+, trimming/AOT | Whole-library rooting, executed native transport, supported-platform CI, no weakened diagnostics | Expanded native UDP smoke and Linux/Windows/macOS CI passed for the ICE milestone; final complete transport still requires the same gates |
 
 An inconclusive, skipped, credential-missing or configuration-only test is missing
 evidence, never a pass. Record explicit artifacts and independent-peer versions.
@@ -29,10 +29,10 @@ Provider/hardware credentials must not appear in logs, fixtures or commits.
 
 ## Latency investigation
 
-The inspected Advantage peer waits for all ICE gathering before returning its SDP
-offer and configures a 60-ms audio receive buffer. These are hypotheses for measurement,
+Signaling waits and audio buffering in the voice consumer are hypotheses for measurement,
 not evidence that removing either improves Watch delivery. Preserve authentication,
-replay and existing continuity, source-clock and queue-age tests.
+replay and existing continuity, source-clock and queue-age tests. Keep private consumer
+implementation details and provider credentials out of public fixtures and reports.
 
 Record gather start, first candidate, SDP exchange, selected pair, DTLS completion,
 channel readiness, first authenticated audio, backend playback submission, device
