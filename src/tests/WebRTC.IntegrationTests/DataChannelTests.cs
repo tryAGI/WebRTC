@@ -5,6 +5,13 @@ using tryAGI.WebRTC;
 
 internal static class DataChannelTests
 {
+    internal static async Task PionShutdownBurst(Uri uri)
+    {
+        foreach (var role in Enum.GetValues<DtlsRole>())
+            for (var iteration = 0; iteration < 20; iteration++)
+                try { await Pion(uri, role, false, false, scenario: "close-simultaneous"); }
+                catch (Exception error) { throw new IOException($"Shutdown burst failed at {role}, iteration {iteration}", error); }
+    }
     private static void Check(bool value, string message = "Data-channel assertion failed") => SctpTests.Check(value, message);
     internal static async Task<DataChannel> Accept(DataChannelAssociation channels, CancellationToken ct)
     { await foreach (var channel in channels.AcceptChannelsAsync(ct)) return channel; throw new IOException("Required data channel missing"); }
@@ -121,7 +128,8 @@ internal static class DataChannelTests
                     await channels.OpenChannelAsync(new("oai-events", "json", true, DataChannelReliability.Reliable, 0, 256), timeout.Token);
             }
             if (scenario == "close-malformed") Check(association.GetDiagnostics().RejectedPackets >= 2, "Malformed RE-CONFIG changed reset state or was accepted");
-            Check(await association.Completion.WaitAsync(timeout.Token) == null); return;
+            var closure = await association.Completion.WaitAsync(timeout.Token);
+            Check(closure == null, $"Independent SCTP shutdown failed after {scenario}: {closure}"); return;
         }
         if (scenario == "incoming-loss")
         {

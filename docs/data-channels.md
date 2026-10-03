@@ -4,8 +4,9 @@ The current runtime implements one bounded SCTP association over an authenticate
 nominated DTLS connection, plus ordered and unordered DCEP channels with reliable,
 limited-retransmission and timed reliability.
 This is progress toward the consumer transport, not complete WebRTC support.
-Interleaving, path-MTU probing,
-SDP and actual provider/browser acceptance remain required before migration.
+Interleaving, path-MTU probing, general SDP and actual provider/browser acceptance
+remain required before migration. The [initial peer owner](peer-connection.md)
+already negotiates the bounded Opus/data-channel SDP subset and owns these layers.
 
 ## Lifetime and readers
 
@@ -16,10 +17,16 @@ run a second SCTP reader. Raw consumers needing reset notifications use
 `ReceiveEventsAsync`; `ReceiveMessagesAsync` consumes and filters those notifications.
 Disposal cancels blocked operations and releases the owned reader, leaving the
 lower transport alive. Dispose channels, then SCTP, DTLS, ICE and certificate owners.
-Observe each layer's `Completion` task and propagate failures through the eventual
-peer-connection owner. SCTP `CloseAsync` drains outgoing data and performs the
+Observe each layer's `Completion` task when using the lower-level APIs;
+`PeerConnection` owns their readers and propagates failures. SCTP `CloseAsync`
+drains outgoing data and performs the
 SHUTDOWN/ACK/COMPLETE exchange; abortive disposal is not graceful shutdown.
 Already acknowledged buffered messages remain readable after graceful shutdown.
+Ready authenticated input is processed before timer output. Once a terminal
+shutdown control is accepted, obsolete SACK/reset work is discarded; a required
+final SHUTDOWN-COMPLETE is still sent. A failed send after DTLS closure is accepted
+as graceful completion only after verifying the peer's SHUTDOWN-COMPLETE.
+DTLS closure alone remains an association failure.
 
 ```csharp
 // dtls is already nominated and mutually fingerprint authenticated.
@@ -188,6 +195,8 @@ controls with valid CRC are rejected before a later valid control succeeds. Its
 module graph and original MIT notices are test-only. Closure cases exercise both
 initiators, simultaneous closure and ID reuse in both DTLS roles. CRC-valid duplicate
 and out-of-range reset IDs are rejected before a later valid retry succeeds.
+The full independent suite additionally repeats simultaneous closure twenty times
+in each DTLS role to exercise terminal SCTP/DTLS ordering.
 No Pion implementation is included in the .NET runtime. Tests remain local and key-free.
 
 Standards: [SCTP](https://www.rfc-editor.org/rfc/rfc9260),

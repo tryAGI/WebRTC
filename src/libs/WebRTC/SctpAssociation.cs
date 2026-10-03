@@ -70,7 +70,7 @@ public sealed partial class SctpAssociation : IAsyncDisposable
     private long _retransmissions, _rejected;
     private bool _receiveEnded;
     private Exception? _receiveFailure;
-    private bool _hasRemoteInit, _ready, _closing, _peerShutdown, _shutdownSent, _shutdownAckSent, _finishAfterFlush, _sackNeeded;
+    private bool _hasRemoteInit, _ready, _closing, _peerShutdown, _shutdownSent, _shutdownAckSent, _finishAfterFlush, _sackNeeded, _peerShutdownComplete;
 
     public int MaximumMessageSize => _options.MaximumMessageSize;
     public DtlsRole DtlsRole => _transport.Role;
@@ -254,6 +254,22 @@ public sealed partial class SctpAssociation : IAsyncDisposable
         Exception? reason = null;
         var receive = _transport.ReceiveApplicationDatagramsAsync(_lifetime.Token).GetAsyncEnumerator(_lifetime.Token);
         Task<bool>? next = null;
+        async Task ProcessReadyIncomingAsync()
+        {
+            lock (_gate) if (_finishAfterFlush) return;
+            // Bound each drain by the DTLS application queue capacity. Prefer
+            // already authenticated controls to obsolete timer/wakeup output.
+            for (var count = 0; count < 128 && next?.IsCompleted == true; count++)
+            {
+                if (!await next.ConfigureAwait(false)) throw new IOException("DTLS ended during SCTP.");
+                lock (_gate)
+                {
+                    ProcessPacket(receive.Current);
+                    if (_finishAfterFlush) return;
+                }
+                next = receive.MoveNextAsync().AsTask();
+            }
+        }
         try
         {
             lock (_gate) if (_role == SctpRole.Initiator) SetFlight(Init(1));
@@ -263,17 +279,26 @@ public sealed partial class SctpAssociation : IAsyncDisposable
             var wake = _wake.WaitAsync(_lifetime.Token);
             while (true)
             {
+                await ProcessReadyIncomingAsync().ConfigureAwait(false);
                 List<byte[]> packets; bool finish;
                 lock (_gate) { packets = PrepareOutgoing(); finish = _finishAfterFlush; }
-                foreach (var packet in packets) await _transport.SendApplicationDatagramAsync(packet, _lifetime.Token).ConfigureAwait(false);
+                try
+                {
+                    foreach (var packet in packets) await _transport.SendApplicationDatagramAsync(packet, _lifetime.Token).ConfigureAwait(false);
+                }
+                catch (Exception error) when ((error is OperationCanceledException or InvalidOperationException or IOException) &&
+                    _transport.Completion.IsCompleted && !_lifetime.IsCancellationRequested)
+                {
+                    // DTLS can consume close-notify while its preceding SCTP
+                    // terminal record still awaits this reader. Only verified
+                    // SHUTDOWN-COMPLETE makes stale post-shutdown output optional.
+                    await ProcessReadyIncomingAsync().ConfigureAwait(false);
+                    lock (_gate) { if (!_peerShutdownComplete) throw; finish = true; }
+                }
                 if (finish) break;
                 await Task.WhenAny(next, tick, wake).ConfigureAwait(false);
-                if (next.IsCompleted)
-                {
-                    if (!await next.ConfigureAwait(false)) throw new IOException("DTLS ended during SCTP.");
-                    lock (_gate) ProcessPacket(receive.Current);
-                    next = receive.MoveNextAsync().AsTask();
-                }
+                await ProcessReadyIncomingAsync().ConfigureAwait(false);
+                lock (_gate) if (_finishAfterFlush) continue;
                 if (tick.IsCompleted)
                 {
                     if (!await tick.ConfigureAwait(false)) break;
@@ -307,6 +332,17 @@ public sealed partial class SctpAssociation : IAsyncDisposable
     private List<byte[]> PrepareOutgoing()
     {
         var result = new List<byte[]>();
+        if (_finishAfterFlush)
+        {
+            // Only a required final SHUTDOWN-COMPLETE may remain. Do not
+            // regenerate SACK/reset/expiry work after a terminal control.
+            while (_controls.Count != 0)
+            {
+                var final = _controls.Dequeue();
+                if (final[0] == 14) result.Add(Packet(final));
+            }
+            return result;
+        }
         CompletePeerReset(); StartPendingPeerIncomingReset();
         ExpireMessages(); UpdateForwardFlight();
         while (_controls.Count != 0 && result.Count < 32) result.Add(Packet(_controls.Dequeue()));
@@ -430,9 +466,11 @@ public sealed partial class SctpAssociation : IAsyncDisposable
                     Acknowledge(SctpWire.U32(chunk.Body)); _closing = _peerShutdown = true;
                     if (_outbound.Count == 0) { _shutdownAckSent = true; SetFlight(SctpWire.Chunk(8, 0, [])); }
                     break;
-                case 8 when _shutdownSent && chunk.Body.IsEmpty:
-                    _flight = null; QueueControl(SctpWire.Chunk(14, 0, [])); _finishAfterFlush = true; break;
-                case 14 when _shutdownAckSent && chunk.Body.IsEmpty: _flight = null; _finishAfterFlush = true; break;
+                case 8 when _shutdownSent && chunk.Flags == 0 && chunk.Body.IsEmpty:
+                    _flight = null; _controls.Clear(); _sackNeeded = false;
+                    QueueControl(SctpWire.Chunk(14, 0, [])); _finishAfterFlush = true; return;
+                case 14 when _shutdownAckSent && chunk.Flags == 0 && chunk.Body.IsEmpty:
+                    _flight = null; _controls.Clear(); _sackNeeded = false; _peerShutdownComplete = _finishAfterFlush = true; return;
                 case 9: break; // ERROR is diagnostic, not an instruction to change negotiated features.
                 default:
                     Reject();

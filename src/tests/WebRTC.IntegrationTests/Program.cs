@@ -99,12 +99,20 @@ cases.Add(("Owned peer secure audio flows while SCTP handshake is stalled", () =
 cases.Add(("Owned peer negotiated two-byte MID while SCTP is stalled", () => PeerTests.EarlyMedia(true)));
 cases.Add(("Owned peer rejects authenticated wrong MID/PT/SSRC and malformed RTCP", PeerTests.Routing));
 
-if (args.Length != 0)
+Uri? pionUri = null;
+string? caseFilter = null;
+if (args.Length % 2 != 0) throw new ArgumentException("Expected explicit option/value pairs.");
+for (var option = 0; option < args.Length; option += 2)
 {
-    if (args.Length != 2 || args[0] != "--pion-uri" || !Uri.TryCreate(args[1], UriKind.Absolute, out var pionUri) ||
-        pionUri.Scheme != "http" || pionUri.UserInfo.Length != 0 ||
-        !(pionUri.Host == "localhost" || (IPAddress.TryParse(pionUri.Host, out var address) && IPAddress.IsLoopback(address))))
-        throw new ArgumentException("The independent peer must be an explicit local HTTP endpoint.");
+    if (args[option] == "--case-filter" && caseFilter == null && args[option + 1].Length is > 0 and <= 256) caseFilter = args[option + 1];
+    else if (args[option] == "--pion-uri" && pionUri == null && Uri.TryCreate(args[option + 1], UriKind.Absolute, out var uri) &&
+        uri.Scheme == "http" && uri.UserInfo.Length == 0 &&
+        (uri.Host == "localhost" || IPAddress.TryParse(uri.Host, out var address) && IPAddress.IsLoopback(address))) pionUri = uri;
+    else throw new ArgumentException("Independent peer requires explicit local HTTP; filter requires one bounded literal substring.");
+}
+if (pionUri != null)
+{
+    cases.Add(("Pion SCTP terminal shutdown and DTLS close-notify burst", () => DataChannelTests.PionShutdownBurst(pionUri)));
     foreach (var localOfferer in new[] { false, true })
         foreach (var passiveAnswer in new[] { false, true })
             cases.Add(($"Pion owned peer local offer={localOfferer}, passive answer={passiveAnswer}", () => PeerTests.Pion(pionUri, localOfferer, passiveAnswer)));
@@ -143,6 +151,12 @@ if (args.Length != 0)
         cases.Add(($"Pion SRTP/SRTCP encryption, decryption and E=0: {profile}", () => SrtpInterop.Pion(pionUri, profile)));
 }
 
+if (caseFilter != null)
+{
+    cases.RemoveAll(c => !c.Name.Contains(caseFilter, StringComparison.OrdinalIgnoreCase));
+    if (cases.Count == 0) throw new ArgumentException("Explicit case filter matched no tests.");
+    Console.WriteLine($"Running explicit subset: {cases.Count} cases for {caseFilter}");
+}
 var failed = 0;
 foreach (var (name, run) in cases)
 {

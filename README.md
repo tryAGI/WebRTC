@@ -57,3 +57,8 @@ docker run --rm tryagi-webrtc-interop
 ```
 
 This is real UDP interoperability, not proof of complete media or provider E2E.
+
+For a targeted local diagnosis, the network runner accepts an explicit literal
+`--case-filter "case name fragment"` alongside `--pion-uri` when needed. It prints
+the selected subset and rejects an empty match. Default local/container/CI runs
+execute every applicable case; a selected subset is not full-suite evidence.
