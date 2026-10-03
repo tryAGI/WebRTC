@@ -26,7 +26,9 @@ Ready authenticated input is processed before timer output. Once a terminal
 shutdown control is accepted, obsolete SACK/reset work is discarded; a required
 final SHUTDOWN-COMPLETE is still sent. A failed send after DTLS closure is accepted
 as graceful completion only after verifying the peer's SHUTDOWN-COMPLETE.
-DTLS closure alone remains an association failure.
+Send cancellation can precede DTLS completion publication. The SCTP owner joins
+that shutdown and drains its bounded authenticated tail before deciding whether
+the terminal exchange succeeded. DTLS closure alone remains an association failure.
 
 ```csharp
 // dtls is already nominated and mutually fingerprint authenticated.

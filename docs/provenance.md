@@ -18,7 +18,10 @@ SCTP terminal-shutdown ordering was diagnosed from our own authenticated local
 Pion exchanges: a queued SHUTDOWN-COMPLETE could lose to stale SACK output after
 DTLS close-notify. The authored fix drains ready input before output, suppresses
 post-terminal work and accepts a closed-transport send failure only after a verified
-terminal SHUTDOWN-COMPLETE. No upstream algorithm/source or dependency was added.
+terminal SHUTDOWN-COMPLETE. CI exposed a second publication race: send cancellation
+can precede DTLS completion and scheduling of its queued reader. The owner joins
+transport shutdown and drains that bounded authenticated tail before deciding.
+No upstream algorithm/source or dependency was added.
 The initial peer owner, RTP/MID framing/routing and bounded RTCP framing are newly
 authored from RFC 8285/3550 and the existing authored transport contracts. The
 new independent peer tests invoke our public owner and the existing authored Pion

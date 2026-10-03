@@ -73,6 +73,20 @@ internal static class SctpTests
         var extra = false; await foreach (var message in pair.Right.ReceiveMessagesAsync(timeout.Token)) extra = true;
         Check(!extra);
     }
+    internal static async Task TransportClosureIsFailure()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        await using var pair = await SctpPair.Create(Fast(), timeout.Token);
+        var reader = Read(pair.Left, timeout.Token);
+        // Stop the lower owner without a SCTP terminal exchange. Pending input
+        // and canceled output must not turn this into graceful SCTP completion.
+        await pair.ClientDtls.DisposeAsync();
+        Check(await pair.Left.Completion.WaitAsync(timeout.Token) != null,
+            "Abrupt DTLS disposal masqueraded as graceful SCTP shutdown");
+        try { await reader; throw new InvalidOperationException("Abrupt shutdown delivered a message"); }
+        catch (Exception error) when (error is IOException or ObjectDisposedException or OperationCanceledException) { }
+        Check(pair.Right.IsConnected, "Stopping one DTLS owner changed the other local SCTP owner");
+    }
     internal static async Task LossWithOneDeliverySlot(bool fullByteBudget = false)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));

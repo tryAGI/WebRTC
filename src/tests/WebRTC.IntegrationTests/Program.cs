@@ -52,6 +52,7 @@ cases.Add(("SCTP bounded send/receive backpressure", SctpTests.Backpressure));
 cases.Add(("SCTP malformed packets preserve association", SctpTests.Malformed));
 
 cases.Add(("SCTP shutdown preserves buffered acknowledged messages", SctpTests.ShutdownWithBufferedMessages));
+cases.Add(("SCTP abrupt DTLS closure remains a failure", SctpTests.TransportClosureIsFailure));
 cases.Add(("SCTP gap filling with one delivery slot", () => SctpTests.LossWithOneDeliverySlot()));
 cases.Add(("SCTP gap filling with one full-message byte budget", () => SctpTests.LossWithOneDeliverySlot(true)));
 cases.Add(("SCTP canceled handshake preserves DTLS owner", () => SctpTests.CanceledOrSilent(true)));

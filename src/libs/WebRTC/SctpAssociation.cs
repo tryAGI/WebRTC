@@ -254,14 +254,16 @@ public sealed partial class SctpAssociation : IAsyncDisposable
         Exception? reason = null;
         var receive = _transport.ReceiveApplicationDatagramsAsync(_lifetime.Token).GetAsyncEnumerator(_lifetime.Token);
         Task<bool>? next = null;
-        async Task ProcessReadyIncomingAsync()
+        async Task ProcessReadyIncomingAsync(bool transportEnded = false)
         {
             lock (_gate) if (_finishAfterFlush) return;
             // Bound each drain by the DTLS application queue capacity. Prefer
             // already authenticated controls to obsolete timer/wakeup output.
-            for (var count = 0; count < 128 && next?.IsCompleted == true; count++)
+            // A completed transport cannot produce more input. Its asynchronous
+            // reader may still be scheduled, so await the bounded queued tail.
+            for (var count = 0; count < 129 && (transportEnded || next?.IsCompleted == true); count++)
             {
-                if (!await next.ConfigureAwait(false)) throw new IOException("DTLS ended during SCTP.");
+                if (next == null || !await next.ConfigureAwait(false)) throw new IOException("DTLS ended during SCTP.");
                 lock (_gate)
                 {
                     ProcessPacket(receive.Current);
@@ -287,12 +289,16 @@ public sealed partial class SctpAssociation : IAsyncDisposable
                     foreach (var packet in packets) await _transport.SendApplicationDatagramAsync(packet, _lifetime.Token).ConfigureAwait(false);
                 }
                 catch (Exception error) when ((error is OperationCanceledException or InvalidOperationException or IOException) &&
-                    _transport.Completion.IsCompleted && !_lifetime.IsCancellationRequested)
+                    !_lifetime.IsCancellationRequested &&
+                    (error is OperationCanceledException || !_transport.IsConnected))
                 {
                     // DTLS can consume close-notify while its preceding SCTP
                     // terminal record still awaits this reader. Only verified
                     // SHUTDOWN-COMPLETE makes stale post-shutdown output optional.
-                    await ProcessReadyIncomingAsync().ConfigureAwait(false);
+                    // Send cancellation precedes DTLS Completion publication.
+                    // Join shutdown before draining its final authenticated input.
+                    await _transport.Completion.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+                    await ProcessReadyIncomingAsync(transportEnded: true).ConfigureAwait(false);
                     lock (_gate) { if (!_peerShutdownComplete) throw; finish = true; }
                 }
                 if (finish) break;
