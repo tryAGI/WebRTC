@@ -125,6 +125,8 @@ cases.Add(("TURN deletes acknowledged unsupported allocation family", () => Turn
 cases.Add(("TURN explicit legacy authentication refusal", TurnTests.LegacyRefusal));
 cases.Add(("TURN canceled control preserves subsequent relay exchange", () => TurnTests.Cancellation(false)));
 cases.Add(("TURN disposal joins active control and closes reader", () => TurnTests.Cancellation(true)));
+cases.Add(("TURN forced disposal wakes a stalled control without false deletion ACK", () => TurnTests.Cancellation(true, true)));
+cases.Add(("TURN deletion timeout still completes final owner cleanup", TurnTests.ReleaseTimeout));
 cases.Add(("TURN expired allocation stops readers and pending operations", TurnTests.Expiry));
 cases.Add(("TURN oversized attacker datagram does not stop allocation", TurnTests.Oversized));
 Uri? pionUri = null;

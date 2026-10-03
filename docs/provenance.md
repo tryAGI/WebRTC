@@ -159,3 +159,8 @@ Legacy MD5-derived keys and SHA1 integrity serve explicitly controllable TURN
 interoperability; modern SHA256 key/integrity, nonce features and USERHASH are implemented
 without importing crypto code. Printable ASCII input is explicit until Unicode PRECIS
 preparation is implemented. This is not a security audit or real NAT/consumer proof.
+
+An authored stalled-control regression exposed a deletion TimeoutException escaping
+DisposeAsync before key clearing/join completion. The owner now treats bounded
+deletion timeout as an unacknowledged best-effort release and still completes local
+cleanup; forced-close and unanswered-deletion regressions require honest diagnostics.

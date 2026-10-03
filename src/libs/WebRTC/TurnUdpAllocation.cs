@@ -457,6 +457,7 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
             finally { _operation.Release(); }
         }
         catch (Exception) when (deadline.IsCancellationRequested || _stopped) { }
+        catch (TimeoutException) { }
         catch (SocketException) { }
         catch (IOException) { } // Best effort remote deletion; server expiry remains the fallback.
         finally { Stop(null); }

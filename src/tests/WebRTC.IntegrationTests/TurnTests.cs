@@ -49,22 +49,31 @@ internal static class TurnTests
         catch(NotSupportedException) { }
         Check(fixture.Requests==1);
     }
-    internal static async Task Cancellation(bool dispose)
+    internal static async Task Cancellation(bool dispose, bool blocked=false)
     {
         using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(8)); var ct=deadline.Token;
-        await using var fixture=new TurnFixture {HoldMethod=8,HoldMilliseconds=250};
-        await using var allocation=await TurnUdpAllocation.AllocateAsync(new(IPAddress.Loopback,0),fixture.Server,new(TurnFixture.Username,TurnFixture.Secret),TurnFixture.Fast(),ct);
+        await using var fixture=new TurnFixture {HoldMethod=8,HoldMilliseconds=blocked?4000:250};
+        await using var allocation=await TurnUdpAllocation.AllocateAsync(new(IPAddress.Loopback,0),fixture.Server,new(TurnFixture.Username,TurnFixture.Secret),TurnFixture.Fast() with {Transactions=blocked? new StunGatheringOptions { InitialRetransmissionTimeout=TimeSpan.FromMilliseconds(100),MaximumRequests=7,Timeout=TimeSpan.FromSeconds(5)}:TurnFixture.Fast().Transactions},ct);
         using var cancel=new CancellationTokenSource();
         var pending=allocation.CreatePermissionAsync(fixture.Peer,cancel.Token);
         try { await allocation.RefreshAsync(ct); throw new Exception("Concurrent control operation admitted"); } catch(InvalidOperationException) { }
         await Task.Delay(30,ct);
-        if(dispose) { await allocation.DisposeAsync(); try { await pending; } catch(OperationCanceledException) { } catch(ObjectDisposedException) { } Check(allocation.Completion.IsCompleted); return; }
+        if(dispose) { await allocation.DisposeAsync().AsTask().WaitAsync(ct); try { await pending.WaitAsync(ct); } catch(OperationCanceledException) { } catch(ObjectDisposedException) { } Check(allocation.Completion.IsCompleted); if(blocked) Check(!allocation.GetDiagnostics().GracefulReleaseAcknowledged,"Forced close falsely claimed remote deletion"); return; }
         cancel.Cancel();
         try { await pending; throw new Exception("Canceled control completed"); } catch(OperationCanceledException) { }
         await Task.Delay(300,ct); Check(!allocation.Completion.IsCompleted);
         await allocation.CreatePermissionAsync(fixture.Peer,ct);
         await allocation.SendDatagramAsync(fixture.Peer,"after-cancel"u8.ToArray(),ct);
         await foreach(var packet in allocation.ReceiveDatagramsAsync(ct)) { Check(packet.Data.AsSpan().SequenceEqual("after-cancel"u8)); break; }
+    }
+    internal static async Task ReleaseTimeout()
+    {
+        using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(5)); var ct=deadline.Token;
+        await using var fixture=new TurnFixture();
+        await using var allocation=await TurnUdpAllocation.AllocateAsync(new(IPAddress.Loopback,0),fixture.Server,new(TurnFixture.Username,TurnFixture.Secret),TurnFixture.Fast(),ct);
+        fixture.HoldRefresh=true;
+        await allocation.DisposeAsync().AsTask().WaitAsync(ct);
+        Check(allocation.Completion.IsCompleted && !allocation.GetDiagnostics().AllocationActive && !allocation.GetDiagnostics().GracefulReleaseAcknowledged);
     }
     internal static async Task Expiry()
     {
