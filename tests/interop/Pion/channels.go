@@ -4,8 +4,12 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log"
 	"net"
+	"strings"
+	"time"
 
 	"github.com/pion/datachannel"
 	"github.com/pion/logging"
@@ -14,7 +18,8 @@ import (
 
 func serveChannels(ctx context.Context, connection net.Conn, request offer) {
 	connection = &sctpLossConnection{Conn: connection, incoming: request.ExtensionScenario == "incoming-loss",
-		dropEnabled: request.ExtensionScenario != "", corruptForward: request.ExtensionScenario == "malformed-forward"}
+		dropEnabled: request.ExtensionScenario == "incoming-loss" || request.ExtensionScenario == "peer-loss" || request.ExtensionScenario == "malformed-forward", corruptForward: request.ExtensionScenario == "malformed-forward",
+		corruptReset: request.ExtensionScenario == "close-malformed"}
 	stopClose := context.AfterFunc(ctx, func() { _ = connection.Close() })
 	defer stopClose()
 	logger := logging.NewDefaultLoggerFactory()
@@ -31,6 +36,12 @@ func serveChannels(ctx context.Context, connection net.Conn, request offer) {
 		return
 	}
 	defer association.Close()
+	if strings.HasPrefix(request.ExtensionScenario, "close-") {
+		if err = serveChannelClosure(ctx, association, logger, request); err != nil {
+			log.Printf("DCEP closure %s: %v", request.ExtensionScenario, err)
+		}
+		return
+	}
 	var channel *datachannel.DataChannel
 	if request.PeerOpensChannels {
 		id := uint16(1)
@@ -116,4 +127,87 @@ func serveChannels(ctx context.Context, connection net.Conn, request offer) {
 	if err = association.Shutdown(ctx); err != nil {
 		log.Printf("SCTP shutdown: %v", err)
 	}
+}
+
+// Only public Pion APIs are used. Both generations must close completely before
+// the same stream ID is reused; EOF alone confirms only the incoming direction.
+func serveChannelClosure(ctx context.Context, association *sctp.Association, logger *logging.DefaultLoggerFactory, request offer) error {
+	id := uint16(1)
+	if request.DtlsClient {
+		id = 0
+	}
+	for generation := 0; generation < 2; generation++ {
+		var channel *datachannel.DataChannel
+		var err error
+		if request.PeerOpensChannels {
+			channel, err = datachannel.Dial(association, id, &datachannel.Config{LoggerFactory: logger, Label: "oai-events", Protocol: "json"})
+		} else {
+			channel, err = datachannel.Accept(association, &datachannel.Config{LoggerFactory: logger})
+		}
+		if err != nil {
+			return err
+		}
+		if !request.PeerOpensChannels {
+			id = channel.StreamIdentifier()
+		}
+		stream, err := association.OpenStream(id, sctp.PayloadTypeWebRTCBinary)
+		if err != nil {
+			return err
+		}
+		if request.PeerOpensChannels {
+			opened := make(chan struct{})
+			channel.OnOpen(func() { close(opened) })
+			readDone := make(chan error, 1)
+			go func() { buffer := make([]byte, 1024); _, _, e := channel.ReadDataChannel(buffer); readDone <- e }()
+			select {
+			case <-opened:
+			case e := <-readDone:
+				return fmt.Errorf("opening read: %w", e)
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			if _, err = channel.WriteDataChannel([]byte(fmt.Sprintf("generation:%d", generation)), true); err != nil {
+				return err
+			}
+			if err = channel.Close(); err != nil {
+				return err
+			}
+			select {
+			case e := <-readDone:
+				if e != io.EOF {
+					return fmt.Errorf("closing read: %w", e)
+				}
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		} else {
+			buffer := make([]byte, 1024)
+			n, text, e := channel.ReadDataChannel(buffer)
+			if e != nil || !text || string(buffer[:n]) != fmt.Sprintf("generation:%d", generation) {
+				return fmt.Errorf("generation data: %v", e)
+			}
+			if _, err = channel.WriteDataChannel(buffer[:n], true); err != nil {
+				return err
+			}
+			if request.ExtensionScenario == "close-simultaneous" {
+				if err = channel.Close(); err != nil {
+					return err
+				}
+			}
+			if _, _, err = channel.ReadDataChannel(buffer); err != io.EOF {
+				return fmt.Errorf("reset EOF: %w", err)
+			}
+			if err = channel.Close(); err != nil {
+				return err
+			}
+		}
+		for stream.State() != sctp.StreamStateClosed {
+			select {
+			case <-time.After(time.Millisecond):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+	return association.Shutdown(ctx)
 }

@@ -4,14 +4,16 @@ The current runtime implements one bounded SCTP association over an authenticate
 nominated DTLS connection, plus ordered and unordered DCEP channels with reliable,
 limited-retransmission and timed reliability.
 This is progress toward the consumer transport, not complete WebRTC support.
-Per-channel stream reset/closing, interleaving, path-MTU probing,
+Interleaving, path-MTU probing,
 SDP and actual provider/browser acceptance remain required before migration.
 
 ## Lifetime and readers
 
 `SctpAssociation` consumes the DTLS application-datagram receive stream; do not run
 another application reader on that DTLS instance. SRTP media remains independent.
-`DataChannelAssociation` consumes SCTP messages; do not run a second SCTP reader.
+`DataChannelAssociation` consumes the serialized SCTP data/reset event stream; do not
+run a second SCTP reader. Raw consumers needing reset notifications use
+`ReceiveEventsAsync`; `ReceiveMessagesAsync` consumes and filters those notifications.
 Disposal cancels blocked operations and releases the owned reader, leaving the
 lower transport alive. Dispose channels, then SCTP, DTLS, ICE and certificate owners.
 Observe each layer's `Completion` task and propagate failures through the eventual
@@ -37,8 +39,8 @@ SCTP initiator/responder is explicit and independent of DTLS role. DCEP stream p
 always follows DTLS role: client opens even IDs, server opens odd IDs. Both SCTP
 initiators are supported. Incoming channels are exposed by `AcceptChannelsAsync`.
 Local channel creation waits for DCEP ACK; optimistic early user-data transmission
-has not yet been implemented. Canceled opening retires the stream ID until association
-teardown; it is never reused without the pending stream-reset implementation.
+has not yet been implemented. Canceled opening releases an unadmitted ID immediately;
+after OPEN admission, it initiates reset or retires the ID if reset was not negotiated.
 
 ## Implemented wire behavior
 
@@ -69,7 +71,7 @@ PR-SCTP is advertised through both RFC 3758 Forward-TSN-Supported and RFC 5061
 Supported Extensions (chunk type 192). A peer without the capability can use reliable
 channels; partially reliable sends/OPENs fail explicitly. Invalid DCEP terminates
 its channel owner and signals failure, rather than pretending to reset a stream.
-Proper per-stream reset/rejection remains part of the next milestone.
+Invalid OPEN rejection isolated to one stream remains a future milestone.
 
 ## Partial reliability
 
@@ -93,8 +95,37 @@ not successful delivery; consult `AbandonedMessages` for aggregate diagnostics.
 Receivers reject duplicate/out-of-range stream entries and excessive TSN/SSN jumps
 before state changes. Complete messages stranded by missing earlier sequences are
 preserved and delivered; incomplete skipped fragments are released. Ordered skips
-continue correctly when the application delivery queue is full. Interleaved I-DATA,
-stream reset and arbitrary large receive lookahead are not silently negotiated.
+continue correctly when the application delivery queue is full. Interleaved I-DATA and arbitrary large receive lookahead are not silently negotiated.
+
+## Stream reset and channel closure
+
+RFC 6525 RE-CONFIG (130) is advertised through Supported Extensions. The subset
+originates outgoing SSN reset (13), accepts incoming/outgoing SSN reset (14/13),
+and validates responses (16). Association-wide TSN reset and stream growth are
+explicitly denied. Selected streams or all streams can reset; TSNs continue across
+an SSN reset. Request numbers use initial TSN and serial arithmetic with a 2^31
+lifetime bound. One outgoing reset flight freezes new SSN assignment for its streams.
+Explicit successful results release it; a reciprocal outgoing request alone does
+not prove success. Duplicate requests replay a bounded cached response. Requests
+retry with RTO/backoff; an In-progress result retries without counting peer failure.
+
+Incoming resets wait for the sender's TSN barrier and enqueue their notification
+only after all earlier selected-stream messages enter the serialized receive queue.
+Future DATA for those streams is held until their sequence state resets. A bounded
+notification reservation includes pending and queued resets; default/maximum is
+128 and configurable minimum is two. Payload delivery credit is independent.
+
+`DataChannel.CloseAsync` stops new sends and waits for both directional resets.
+Previously acknowledged messages remain on the old channel object after closure;
+new OPEN may reuse the ID only after both resets complete. A send waiting for
+admission checks its original channel generation before entering the SCTP queue.
+Cancellation stops only the caller's wait, preserving the admitted wire exchange.
+A refused reset leaves the ID reserved and preserves earlier buffered messages.
+`DataChannel.DisposeAsync` explicitly discards unread application messages, returns
+aggregate receive credit and initiates closure; it does not wait for the wire
+exchange. Use `CloseAsync` or `Completion` when confirmed closure is required.
+A peer without stream reset cannot gracefully close/reuse a single channel: the
+close API refuses before changing state, while disposal retires the ID.
 
 ## Bounds and admission
 
@@ -143,14 +174,20 @@ blocked sends. PR cases cover both orderings and policies, TSN wrap, whole fragm
 message abandonment, FORWARD-TSN loss/retry, a two-retransmission budget, expiry before
 admission, cancellation, maximum lifetime and negotiation refusal. The whole-library
 NativeAOT smoke executes zero-window timed abandonment/FORWARD-TSN and all policies
-over a 256-byte DTLS MTU with each SRTP profile.
+over a 256-byte DTLS MTU with each SRTP profile, plus actual channel closure and ID
+reuse. Reset tests cover request/result loss, reciprocal resets, simultaneous close,
+request/SSN wrap, all-stream reset, deferred partial abandonment, bounded notification
+admission, buffered delivery, canceled waiters, explicit buffer disposal, blocked old
+sends and capability refusal.
 
 The independent isolated peer uses pinned Pion SCTP v1.12.0 and datachannel v1.6.3
 public APIs. It exercises DTLS/SCTP roles, local/remote DCEP opening, large/empty/text/
 binary messages and shutdown. Independent bidirectional PR-SCTP loss cases require
 FORWARD-TSN to release the next ordered message; duplicate-stream and excessive-TSN
 controls with valid CRC are rejected before a later valid control succeeds. Its
-module graph and original MIT notices are test-only.
+module graph and original MIT notices are test-only. Closure cases exercise both
+initiators, simultaneous closure and ID reuse in both DTLS roles. CRC-valid duplicate
+and out-of-range reset IDs are rejected before a later valid retry succeeds.
 No Pion implementation is included in the .NET runtime. Tests remain local and key-free.
 
 Standards: [SCTP](https://www.rfc-editor.org/rfc/rfc9260),

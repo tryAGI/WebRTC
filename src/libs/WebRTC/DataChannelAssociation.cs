@@ -10,7 +10,7 @@ public sealed record DataChannelLimits
     public int ReceiveBufferBytes { get; init; } = 1024 * 1024;
 }
 
-/// <summary>Reliable ordered/unordered DCEP channels. Owns the SCTP message reader, not the association lifetime.</summary>
+/// <summary>Bounded DCEP channels and stream closure. Owns the SCTP message reader, not the association lifetime.</summary>
 public sealed class DataChannelAssociation : IAsyncDisposable
 {
     private readonly SctpAssociation _sctp;
@@ -60,21 +60,89 @@ public sealed class DataChannelAssociation : IAsyncDisposable
             if (selected < 0) throw new InvalidOperationException("No available data-channel stream.");
             channel = new(this, (ushort)selected, parameters, _limits.MaximumQueuedMessages); _channels.Add(channel.StreamId, channel);
         }
+        var sent = false;
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         try
         {
-            await _sctp.SendMessageAsync(channel.StreamId, 50, open, cancellationToken: linked.Token).ConfigureAwait(false);
+            await _sctp.SendMessageAsync(channel.StreamId, 50, open, cancellationToken: linked.Token).ConfigureAwait(false); sent = true;
             await channel.Opened.WaitAsync(linked.Token).ConfigureAwait(false); return channel;
         }
-        catch (Exception error) { channel.End(error); throw; } // Retire the ID; reuse requires stream reset.
+        catch (Exception error)
+        {
+            lock (_gate)
+            {
+                channel.OpeningFailure = error; DiscardChannelCore(channel);
+                if (!sent) { _channels.Remove(channel.StreamId); channel.End(error); }
+                else if (_sctp.SupportsStreamReset) StartChannelReset(channel);
+                else channel.End(error); // Retire the ID when the peer cannot reset it.
+            }
+            throw;
+        }
     }
     public IAsyncEnumerable<DataChannel> AcceptChannelsAsync(CancellationToken cancellationToken = default) => _accepted.Reader.ReadAllAsync(cancellationToken);
     internal async ValueTask SendAsync(DataChannel channel, uint ppid, ReadOnlyMemory<byte> bytes, CancellationToken ct)
     {
         lock (_gate) RequireRunning();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
-        await _sctp.SendMessageAsync(channel.StreamId, ppid, bytes, !channel.Parameters.Ordered, linked.Token,
-            new(channel.Parameters.Reliability, channel.Parameters.ReliabilityParameter)).ConfigureAwait(false);
+        await _sctp.SendMessageCoreAsync(channel.StreamId, ppid, bytes, !channel.Parameters.Ordered, linked.Token,
+            new(channel.Parameters.Reliability, channel.Parameters.ReliabilityParameter), () => channel.IsOpen).ConfigureAwait(false);
+    }
+    internal async Task CloseChannelAsync(DataChannel channel, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            if (!channel.Completion.IsCompleted)
+            {
+                RequireRunning();
+                if (!_sctp.SupportsStreamReset) throw new NotSupportedException("The peer did not negotiate stream reset.");
+                channel.BeginClosing(); StartChannelReset(channel);
+            }
+        }
+        var error = await channel.Completion.WaitAsync(ct).ConfigureAwait(false);
+        if (error != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+    }
+    internal void DiscardChannel(DataChannel channel)
+    {
+        lock (_gate)
+        {
+            DiscardChannelCore(channel);
+            if (channel.Completion.IsCompleted) return;
+            if (_disposed != 0 || _completion.Task.IsCompleted) channel.End(new ObjectDisposedException(nameof(DataChannelAssociation)));
+            else if (_sctp.SupportsStreamReset) StartChannelReset(channel);
+            else channel.End(new NotSupportedException("The peer cannot reset the discarded channel; its ID remains retired."));
+        }
+    }
+    private void DiscardChannelCore(DataChannel channel)
+    {
+        _queuedMessages -= channel.DiscardBuffered(out var bytes); _queuedBytes -= bytes;
+        _space.TrySetResult(); _space = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+    private void StartChannelReset(DataChannel channel)
+    {
+        if (channel.ResetTask == null && !channel.OutgoingReset) channel.ResetTask = ResetChannelAsync(channel);
+    }
+    private async Task ResetChannelAsync(DataChannel channel)
+    {
+        try { await _sctp.ResetOutgoingStreamsAsync(new ushort[] { channel.StreamId }, _lifetime.Token).ConfigureAwait(false); }
+        catch (Exception error)
+        {
+            lock (_gate) { channel.DiscardIncoming = true; channel.End(error); } // Preserve acknowledged messages and keep the ID reserved when reset fails.
+        }
+    }
+    private void ProcessReset(SctpStreamReset reset)
+    {
+        lock (_gate)
+        {
+            foreach (var stream in reset.StreamIds)
+            {
+                if (!_channels.TryGetValue(stream, out var channel)) continue;
+                channel.BeginClosing();
+                if (reset.Outgoing) channel.OutgoingReset = true;
+                else { channel.IncomingReset = true; StartChannelReset(channel); }
+                if (channel.IncomingReset && channel.OutgoingReset)
+                { channel.End(channel.OpeningFailure); _channels.Remove(stream); }
+            }
+        }
     }
     internal void ReleaseMessage(int bytes)
     {
@@ -91,13 +159,15 @@ public sealed class DataChannelAssociation : IAsyncDisposable
         Exception? reason = null;
         try
         {
-            await foreach (var message in _sctp.ReceiveMessagesAsync(_lifetime.Token).ConfigureAwait(false))
+            await foreach (var item in _sctp.ReceiveEventsAsync(_lifetime.Token).ConfigureAwait(false))
             {
+                if (item is SctpStreamReset reset) { ProcessReset(reset); continue; }
+                var message = (SctpMessage)item;
                 if (message.PayloadProtocolIdentifier == 50) { await ProcessDcepAsync(message).ConfigureAwait(false); continue; }
                 DataChannel channel;
                 lock (_gate)
                 {
-                    if (!_channels.TryGetValue(message.StreamId, out channel!) || !channel.IsOpen)
+                    if (!_channels.TryGetValue(message.StreamId, out channel!) || (!channel.CanReceive && !channel.DiscardIncoming))
                         throw new IOException("User data on an unopened channel.");
                 }
                 var ppid = message.PayloadProtocolIdentifier;
@@ -113,6 +183,7 @@ public sealed class DataChannelAssociation : IAsyncDisposable
                     Task wait;
                     lock (_gate)
                     {
+                        if (channel.DiscardIncoming) break;
                         if (_queuedMessages < _limits.MaximumQueuedMessages && _queuedBytes + bytes.Length <= _limits.ReceiveBufferBytes)
                         { _queuedMessages++; _queuedBytes += bytes.Length; channel.Deliver(new(text ? DataChannelMessageKind.Text : DataChannelMessageKind.Binary, bytes)); break; }
                         wait = _space.Task;
@@ -127,7 +198,8 @@ public sealed class DataChannelAssociation : IAsyncDisposable
         {
             lock (_gate)
             {
-                foreach (var channel in _channels.Values) channel.End(reason);
+                var channelFailure = reason ?? (_lifetime.IsCancellationRequested ? new ObjectDisposedException(nameof(DataChannelAssociation)) : null);
+                foreach (var channel in _channels.Values) channel.End(channelFailure);
                 _accepted.Writer.TryComplete(reason); _space.TrySetException(reason ?? new IOException("Data channels closed."));
                 _completion.TrySetResult(reason);
             }
@@ -161,6 +233,8 @@ public sealed class DataChannelAssociation : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-        _lifetime.Cancel(); await _pump.ConfigureAwait(false); _lifetime.Dispose();
+        _lifetime.Cancel(); await _pump.ConfigureAwait(false);
+        Task[] resets; lock (_gate) resets = _channels.Values.Select(channel => channel.ResetTask).OfType<Task>().ToArray();
+        await Task.WhenAll(resets).ConfigureAwait(false); _lifetime.Dispose();
     }
 }

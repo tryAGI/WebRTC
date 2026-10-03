@@ -40,7 +40,9 @@ bounded and validated before receive-state changes. Abandonment releases payload
 storage but retains bounded metadata until acknowledgment. See
 [SCTP/data-channel scope](docs/data-channels.md) for limits and missing features.
 CRC32C is not authentication. Observe channel-owner failures and close the eventual
-peer connection; per-stream reset/rejection remains unimplemented.
+peer connection. Stream reset is negotiated and validates parameter framing, unique
+stream IDs, request sequence and bounded TSN barriers before changing state. IDs
+remain reserved until both directions finish; invalid DCEP still terminates its owner.
 
-A full peer connection, stream reset, NAT traversal and consumer
+A full peer connection, NAT traversal and consumer
 acceptance remain unimplemented. Consumers must not migrate on DTLS/SRTP interoperability alone.

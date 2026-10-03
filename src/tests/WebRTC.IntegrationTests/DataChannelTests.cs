@@ -70,6 +70,7 @@ internal static class DataChannelTests
         await left.DisposeAsync();
         try { await producer; throw new InvalidOperationException("Disposed owner left a blocked send active"); }
         catch (OperationCanceledException) { }
+        Check(await channel.Completion is ObjectDisposedException, "Owner disposal masqueraded as graceful channel closure");
         Check(pair.Left.IsConnected && pair.ClientDtls.IsConnected);
     }
     internal static async Task Pion(Uri uri, DtlsRole dtlsRole, bool peerOpens, bool unordered, bool bothInitiate = false,
@@ -97,6 +98,31 @@ internal static class DataChannelTests
             new("oai-events", "json", !unordered, reliability, offer.ReliabilityParameter, 256), timeout.Token);
         Check(channel.Parameters.Label == "oai-events" && channel.Parameters.Ordered == !unordered);
         Check(channel.Parameters.Reliability == reliability);
+        if (scenario.StartsWith("close-", StringComparison.Ordinal))
+        {
+            var id = channel.StreamId;
+            for (var generation = 0; generation < 2; generation++)
+            {
+                Check(channel.StreamId == id, "Independent peer did not reuse the reset ID");
+                if (peerOpens)
+                {
+                    Check((await Read(channel, timeout.Token)).GetText() == $"generation:{generation}");
+                    Check(await channel.Completion.WaitAsync(timeout.Token) == null);
+                }
+                else
+                {
+                    await channel.SendTextAsync($"generation:{generation}", timeout.Token);
+                    // Close before reading the echo to check preservation of buffered data.
+                    await channel.CloseAsync(timeout.Token);
+                    Check((await Read(channel, timeout.Token)).GetText() == $"generation:{generation}");
+                    Check(await channel.Completion == null);
+                }
+                if (generation == 0) channel = peerOpens ? await Accept(channels, timeout.Token) :
+                    await channels.OpenChannelAsync(new("oai-events", "json", true, DataChannelReliability.Reliable, 0, 256), timeout.Token);
+            }
+            if (scenario == "close-malformed") Check(association.GetDiagnostics().RejectedPackets >= 2, "Malformed RE-CONFIG changed reset state or was accepted");
+            Check(await association.Completion.WaitAsync(timeout.Token) == null); return;
+        }
         if (scenario == "incoming-loss")
         {
             var lost = new byte[8192]; Array.Fill(lost, (byte)0xaa);

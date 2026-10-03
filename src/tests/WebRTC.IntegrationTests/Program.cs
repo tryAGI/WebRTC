@@ -72,6 +72,22 @@ foreach (var reliability in new[] { DataChannelReliability.RetransmissionLimited
     foreach (var ordered in new[] { false, true })
         cases.Add(($"DCEP partial reliability {reliability}, ordered={ordered}", () => DataChannelTests.Exchange(ordered, reliability)));
 
+cases.Add(("SCTP stream reset and SSN/request rollover", () => SctpResetTests.Raw(false, false)));
+cases.Add(("SCTP simultaneous directional reset", () => SctpResetTests.Raw(false, true)));
+cases.Add(("SCTP reset all streams", () => SctpResetTests.Raw(true, false)));
+cases.Add(("SCTP reset preserves old messages under backpressure", SctpResetTests.Backpressure));
+cases.Add(("SCTP reset waits for partial message abandonment", SctpResetTests.DeferredAbandonment));
+cases.Add(("SCTP reset request loss", () => SctpResetTests.Loss(false)));
+cases.Add(("SCTP reset response loss", () => SctpResetTests.Loss(true)));
+cases.Add(("DCEP close and reuse retain old channel messages", () => SctpResetTests.Channels(false, false)));
+cases.Add(("DCEP simultaneous close", () => SctpResetTests.Channels(true, false)));
+cases.Add(("DCEP canceled close does not prematurely reuse ID", () => SctpResetTests.Channels(false, true)));
+cases.Add(("SCTP bounded reset notification admission", SctpResetTests.NotificationBudget));
+cases.Add(("DCEP disposal returns closed-channel receive credit", SctpResetTests.DiscardClosedBuffer));
+cases.Add(("DCEP closing survives lost result and peer reciprocal reset", () => SctpResetTests.Channels(false, false, responseLoss: true)));
+cases.Add(("DCEP blocked old send cannot enter reused stream", SctpResetTests.BlockedOldSend));
+cases.Add(("SCTP/DCEP reset capability refusal preserves usability", SctpResetTests.Negotiation));
+
 if (args.Length != 0)
 {
     if (args.Length != 2 || args[0] != "--pion-uri" || !Uri.TryCreate(args[1], UriKind.Absolute, out var pionUri) ||
@@ -95,6 +111,10 @@ if (args.Length != 0)
         cases.Add(($"Pion malformed FORWARD-TSN rejected {role}", () => DataChannelTests.Pion(pionUri, role, true, false,
             reliability: DataChannelReliability.RetransmissionLimited, scenario: "malformed-forward")));
     }
+    foreach (var role in Enum.GetValues<DtlsRole>())
+        foreach (var scenario in new[] { "close-local", "close-peer", "close-simultaneous", "close-malformed" })
+            cases.Add(($"Pion DCEP reset/reuse {scenario}, {role}", () => DataChannelTests.Pion(pionUri, role,
+                scenario is "close-peer" or "close-malformed", false, scenario: scenario)));
     foreach (var role in Enum.GetValues<DtlsRole>())
         foreach (var profile in Enum.GetValues<SrtpProfile>())
             cases.Add(($"Pion DTLS {role} and exporter/SRTP {profile}", () => DtlsTests.Pion(pionUri, role, profile)));

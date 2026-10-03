@@ -157,8 +157,9 @@ internal sealed class SctpProxy : IAsyncDisposable
     private readonly Socket _socket = new(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _worker;
-    private int _leftDrops, _dropped;
+    private int _leftDrops, _rightDrops, _dropped;
     public int DropLeftApplications { set => Volatile.Write(ref _leftDrops, value); }
+    public int DropRightApplications { set => Volatile.Write(ref _rightDrops, value); }
     public int Dropped => Volatile.Read(ref _dropped);
     public IPEndPoint EndPoint => (IPEndPoint)_socket.LocalEndPoint!;
     internal SctpProxy(IPEndPoint left, IPEndPoint right)
@@ -176,6 +177,8 @@ internal sealed class SctpProxy : IAsyncDisposable
                     if (!fromLeft && !result.RemoteEndPoint.Equals(right)) continue;
                     if (fromLeft && bytes[0] == 23 && Volatile.Read(ref _leftDrops) > 0)
                     { Interlocked.Decrement(ref _leftDrops); Interlocked.Increment(ref _dropped); continue; }
+                    if (!fromLeft && bytes[0] == 23 && Volatile.Read(ref _rightDrops) > 0)
+                    { Interlocked.Decrement(ref _rightDrops); Interlocked.Increment(ref _dropped); continue; }
                     await _socket.SendToAsync(bytes.AsMemory(0, result.ReceivedBytes), SocketFlags.None, fromLeft ? right : left, _lifetime.Token);
                 }
             }

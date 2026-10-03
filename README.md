@@ -10,9 +10,10 @@ Directional SRTP/SRTCP contexts implement AES-CM/HMAC-SHA1-80 and AES-GCM
 mutual SHA-256 fingerprint authentication, ECDHE/EMS and SRTP key negotiation,
 with independent Pion interoperability in client and server roles. Bounded SCTP and
 ordered/unordered DCEP channels add large text/binary message delivery with reliable,
-limited-retransmission or lifetime-limited policies.
+limited-retransmission or lifetime-limited policies, negotiated stream reset and
+per-channel closure/reuse.
 
-**Status: transport in development.** ICE gathering/TURN, stream reset,
+**Status: transport in development.** ICE gathering/TURN,
 SDP negotiation and a usable peer connection are not implemented. This library does
 not yet replace SIPSorcery in DId or Advantage. No package is automatically published.
 

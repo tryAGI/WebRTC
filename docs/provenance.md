@@ -58,6 +58,13 @@ before fault-injected partial sends and keeps that synthetic message within its
 initial congestion flight; our own sender also tests abandonment of larger,
 not-yet-transmitted fragmented messages.
 
+RFC 6525 stream reset and RFC 8831 channel closure are newly authored from their
+wire fields and procedures. Closure interoperability uses only the existing pinned
+Pion public Close/Read/State/OPEN APIs; no reset implementation source was inspected
+or imported. Our authored fault injector corrupts duplicate/out-of-range reset IDs
+and recalculates CRC32C with the Go standard library. No dependency graph or notice
+changes are needed for this extension.
+
 These packages run only in an isolated local test peer. None is a dependency of the
 .NET runtime library or its NuGet package. Our MIT license does not replace their
 notices. Regenerate the notice file with `write-notices.sh` in the pinned Go build

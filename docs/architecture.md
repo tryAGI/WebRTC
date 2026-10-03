@@ -39,9 +39,10 @@ connection-state and encoded-frame types when implementing the respective milest
 4. SDP negotiation and RTP/RTCP encoded-media transport, interoperability with a
    separately pinned local browser/Pion peer, including loss/reordering/cancellation.
 5. Ordered/unordered SCTP/DCEP channels with bounded reassembly, flow control,
-   reliable/limited-retransmission/timed policies and independent Pion validation
+   reliable/limited-retransmission/timed policies, directional reset/channel close/reuse
+   and independent Pion validation
    now exist. Complete stream
-   reset/close, interleaving and path behavior, then migrate
+   interleaving and path behavior, then migrate
    DId, Advantage and Simli separately after consumer regressions and acceptance evidence.
 
 No milestone is complete merely because its API compiles. No production migration

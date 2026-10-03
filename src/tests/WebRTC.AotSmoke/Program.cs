@@ -111,9 +111,21 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
         { if (!message.Data.AsSpan().SequenceEqual(application)) return 1; gotPartial = true; break; }
         if (!gotPartial) return 1;
     }
+    await channel.CloseAsync(deadline.Token);
+    if (await channel.Completion != null || await peer.Completion.WaitAsync(deadline.Token) != null) return 1;
+    var reused = await channels.OpenChannelAsync("native-reused", cancellationToken: deadline.Token);
+    DataChannel? reusedPeer = null;
+    await foreach (var opened in peerChannels.AcceptChannelsAsync(deadline.Token)) { reusedPeer = opened; break; }
+    if (reusedPeer == null || reused.StreamId != channel.StreamId || ReferenceEquals(reusedPeer, peer)) return 1;
+    await reused.SendTextAsync("after-native-reset", deadline.Token);
+    var afterReset = false;
+    await foreach (var message in reusedPeer.ReceiveMessagesAsync(deadline.Token))
+    { if (message.GetText() != "after-native-reset") return 1; afterReset = true; break; }
+    if (!afterReset) return 1;
+    await reused.CloseAsync(deadline.Token);
     await outgoing.CloseAsync(deadline.Token);
 }
-Console.WriteLine("NativeAOT fragmented DTLS, negotiated SRTP, SCTP/DCEP and PR-SCTP FORWARD-TSN passed");
+Console.WriteLine("NativeAOT fragmented DTLS, negotiated SRTP, SCTP/DCEP and PR-SCTP FORWARD-TSN and stream-reset/reuse passed");
 return 0;
 
 static async Task<byte[]> Read(IceUdpTransport transport, CancellationToken cancellationToken)

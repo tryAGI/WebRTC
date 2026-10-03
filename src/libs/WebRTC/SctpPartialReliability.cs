@@ -129,6 +129,6 @@ public sealed partial class SctpAssociation
             if (!_forwardSequences.TryGetValue(stream, out var old) || SctpWire.After(sequence, old)) _forwardSequences[stream] = sequence;
             if (!_ordered.ContainsKey(stream)) _ordered[stream] = [];
         }
-        FlushDelivery();
+        FlushDelivery(); CompletePeerReset();
     }
 }

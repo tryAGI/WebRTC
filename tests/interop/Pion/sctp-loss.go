@@ -15,6 +15,8 @@ type sctpLossConnection struct {
 	incoming         bool
 	dropEnabled      bool
 	corruptForward   bool
+	corruptReset     bool
+	resetMutations   atomic.Int32
 	forwardMutations atomic.Int32
 }
 
@@ -115,9 +117,53 @@ func (c *sctpLossConnection) malformedForward(packet []byte) ([]byte, bool) {
 	return packet, false
 }
 
+func (c *sctpLossConnection) malformedReset(packet []byte) []byte {
+	if !c.corruptReset {
+		return packet
+	}
+	for offset := 12; offset+4 <= len(packet); {
+		length := int(binary.BigEndian.Uint16(packet[offset+2:]))
+		padded := (length + 3) &^ 3
+		if length < 4 || offset+padded > len(packet) {
+			return packet
+		}
+		// One-ID reset parameter: its alignment padding can hold a duplicate ID.
+		if packet[offset] == 130 && (length == 22 || length == 24) && binary.BigEndian.Uint16(packet[offset+4:]) == 13 && binary.BigEndian.Uint16(packet[offset+6:]) == 18 {
+			attempt := c.resetMutations.Add(1)
+			if attempt > 2 {
+				return packet
+			}
+			altered := append([]byte(nil), packet...)
+			if attempt == 1 {
+				binary.BigEndian.PutUint16(altered[offset+2:], 24)
+				binary.BigEndian.PutUint16(altered[offset+6:], 20)
+				copy(altered[offset+22:offset+24], packet[offset+20:offset+22])
+			} else {
+				binary.BigEndian.PutUint16(altered[offset+20:], 65535)
+			}
+			for i := 8; i < 12; i++ {
+				altered[i] = 0
+			}
+			binary.LittleEndian.PutUint32(altered[8:], crc32.Checksum(altered, crc32.MakeTable(crc32.Castagnoli)))
+			return altered
+		}
+		offset += padded
+	}
+	return packet
+}
+
 func (c *sctpLossConnection) Write(packet []byte) (int, error) {
+	originalLength := len(packet)
+	packet = c.malformedReset(packet)
 	if !c.dropEnabled || c.incoming {
-		return c.Conn.Write(packet)
+		n, err := c.Conn.Write(packet)
+		if err == nil && n != len(packet) {
+			err = io.ErrShortWrite
+		}
+		if err != nil {
+			return 0, err
+		}
+		return originalLength, nil
 	}
 	kept, dropped := stripLostMessage(packet)
 	mutated, changed := c.malformedForward(kept)
