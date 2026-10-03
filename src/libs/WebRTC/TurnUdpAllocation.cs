@@ -158,6 +158,19 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
         var bytes = await ControlAsync(4, null, null, null, ct).ConfigureAwait(false);
         StunMessage.TryParse(bytes, out var message); lock (_gate) AcceptLifetime(message);
     }
+    // The ICE owner is the sole external control caller. Maintenance shares this semaphore.
+    internal async Task CreateOwnedPermissionAsync(IPEndPoint peer, CancellationToken cancellationToken)
+    {
+        var safe = Admit(peer);
+        await _operation.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            lock (_gate) RequireOpen();
+            await PermissionCoreAsync(safe, cancellationToken).ConfigureAwait(false);
+        }
+        finally { _operation.Release(); }
+    }
+
     public async Task CreatePermissionAsync(IPEndPoint peer, CancellationToken cancellationToken = default)
     {
         var safe = Admit(peer); await EnterAsync(cancellationToken).ConfigureAwait(false);

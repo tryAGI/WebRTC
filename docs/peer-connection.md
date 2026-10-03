@@ -4,7 +4,8 @@
 optional SCTP/DCEP association and receive loops. It supports the initial
 [SDP subset](sdp.md) with a resolved local interface and resolved remote candidates,
 including remote TURN relays. Explicit STUN gathers mappings of this host base.
-It does not gather multiple interfaces, resolve names, own a local TURN allocation,
+Explicit UDP TURN gathering owns up to three local relay paths.
+It does not gather multiple interfaces, resolve names, use TCP/TLS relays,
 implement renegotiation or replace the existing consumer adapters yet.
 
 ## Signaling and lifetime
@@ -25,7 +26,8 @@ var channel = await peer.OpenDataChannelAsync(
 
 ## Local gathering and trickle
 
-The host candidate is available immediately through `GetLocalCandidates()`.
+The host candidate is available immediately through `GetLocalCandidates()` in the
+default policy. With `Ice.RelayOnly`, the snapshot/SDP omits host and srflx candidates.
 The peer advertises `ice-options:trickle` and initially omits `end-of-candidates`.
 Explicit `GatherServerReflexiveCandidateAsync(resolvedServer, options, token)`
 returns a candidate from this same socket and updates `LocalDescription` when one
@@ -40,7 +42,16 @@ candidate snapshot excludes mappings identical to the host and duplicate endpoin
 `CompleteGathering()` adds end markers to accepted sections; it refuses while requests
 are active, and subsequent gathers are refused. At most eight extra mappings/active
 reservations are allowed. Gather cancellation preserves the peer, and disposal cancels
-its pending operations. Multiple interfaces, DNS/mDNS, local TURN and restart remain.
+its pending operations. Multiple interfaces, DNS/mDNS, TURN TCP/TLS and restart remain.
+
+`GatherRelayCandidateAsync(resolvedServer, credentials, options, token)` owns an
+explicit UDP TURN allocation and updates the same initial SDP. Its related base is
+the allocation mapping, not the initial host socket. Gathering may finish after ICE
+starts; trickle its returned attribute through authenticated application signaling.
+The three-allocation and global pair caps also apply. Relay-only peers can create an
+initial empty candidate description, gather explicitly and publish/trickle the relay.
+`CompleteGathering()` still refuses active gathers. Peer disposal joins attached
+allocations and pending permissions; selected relay loss fails the session visibly.
 
 An answerer calls `CreateAnswer(remoteOffer)` and sends the result before starting
 `ConnectAsync`. Signaling errors leave the previous state intact. One instance has

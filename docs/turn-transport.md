@@ -2,9 +2,9 @@
 
 `TurnUdpAllocation` owns one UDP socket and one allocation on an explicitly selected,
 resolved unicast TURN endpoint. It does not resolve a URI, pick a server or contact
-provider endpoints by itself. It is a datagram path prerequisite: it is not yet a local
-candidate path in `IceUdpTransport`/`PeerConnection`. Remote relay candidates supported
-by the initial peer are a separate capability.
+provider endpoints by itself. It is a datagram owner and can now join `IceUdpTransport`/`PeerConnection` as a
+local relay candidate. The ICE owner creates permissions, binds checks and selected
+media to this allocation and joins its lifecycle. Standalone use remains explicit.
 
 ## Authentication and bounds
 
@@ -86,6 +86,7 @@ its allocation count returns to zero. Test server addresses/permissions are loop
 credentials random and ephemeral, and its UDP echo peer is local. This is UDP TURN
 interoperability, not real NAT traversal or provider/device acceptance.
 
-Local-path-aware ICE checklist integration, TURN TCP/TLS, DNS/mDNS/multiple interfaces,
+The ICE integration is covered separately in [ICE scope](ice-transport.md), including
+independent encrypted Opus/data over an owned local relay. TURN TCP/TLS, DNS/mDNS/multiple interfaces,
 ICE restart, browser and real NAT/provider/Watch acceptance remain required. No consumer
 has migrated as a result of this prerequisite.

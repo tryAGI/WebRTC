@@ -11,6 +11,8 @@ namespace tryAGI.WebRTC;
 public sealed record IceUdpTransportOptions
 {
     public int MaximumCandidatePairs { get; init; } = 64;
+    /// <summary>Excludes the host base from connectivity, early checks and selected traffic. Explicit TURN gathering is required.</summary>
+    public bool RelayOnly { get; init; }
     public int MaximumDataDatagramSize { get; init; } = 1200;
     public int ReceiveQueueCapacity { get; init; } = 128;
     public TimeSpan CheckInterval { get; init; } = TimeSpan.FromMilliseconds(50);
@@ -38,12 +40,14 @@ public sealed record IceUdpTransportDiagnostics(
     IceRole Role, int CandidatePairs, IPEndPoint? SelectedRemoteEndPoint,
     TimeSpan? ConnectionTime, TimeSpan? LastCheckRoundTripTime,
     long SentChecks, long Retransmissions, long ValidatedRequests, long RoleConflicts, long DroppedDatagrams,
-    int BufferedEarlyChecks, IceCandidateType? SelectedRemoteCandidateType = null);
+    int BufferedEarlyChecks, IceCandidateType? SelectedRemoteCandidateType = null,
+    IceCandidateType? SelectedLocalCandidateType = null, IPEndPoint? SelectedLocalEndPoint = null,
+    int LocalPaths = 1, int PendingRelayPermissions = 0);
 
 /// <summary>
-/// Single-component UDP ICE connectivity from a host base to resolved remote candidates, including remote relays.
+/// Single-component UDP ICE connectivity over an owned host base and up to three owned UDP TURN allocations.
 /// Datagrams are NOT media-authenticated: DTLS/SRTP must be layered above this transport.
-/// Bounded STUN gathering is available; local TURN routing, mDNS and ICE restart remain separate gates.
+/// Bounded STUN/TURN gathering is explicit; DNS/mDNS, TCP/TLS relays and ICE restart remain separate gates.
 /// </summary>
 public sealed partial class IceUdpTransport : IAsyncDisposable
 {
@@ -73,6 +77,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
     private TimeSpan? _lastRoundTrip;
     private bool _started, _stopped;
     private int _disposed;
+    private Task? _disposeTask;
     private long _sentChecks, _retransmissions, _validatedRequests, _roleConflicts, _droppedDatagrams;
 
     public IPEndPoint LocalEndPoint
@@ -96,6 +101,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
     public IceUdpTransport(IPEndPoint localEndPoint, IceCredentials? credentials = null, IceUdpTransportOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(localEndPoint);
+        _ = new IceCandidate(new(localEndPoint.Address, localEndPoint.Port == 0 ? 1 : localEndPoint.Port));
         _options = options ?? new();
         _options.Validate();
         _localCredentials = credentials ?? IceCredentials.Generate();
@@ -107,9 +113,11 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         catch { _socket.Dispose(); throw; }
         _datagrams = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(_options.ReceiveQueueCapacity)
         {
-            FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = true,
+            FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = false,
             AllowSynchronousContinuations = false,
         }, _ => Interlocked.Increment(ref _droppedDatagrams));
+        _hostPath = new(new IceCandidate(LocalEndPoint), null);
+        _paths.Add(_hostPath);
         _receiver = Task.Run(ReceiveLoopAsync);
         _checker = Task.Run(CheckLoopAsync);
     }
@@ -125,23 +133,26 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         var candidates = remoteCandidates.Take(_options.MaximumCandidatePairs + 1).ToArray();
         if (candidates.Length > _options.MaximumCandidatePairs) throw new ArgumentException("Too many ICE candidate pairs.", nameof(remoteCandidates));
         foreach (var candidate in candidates) ValidateCandidate(candidate);
-        var earlyResponses = new List<(byte[] Packet, IPEndPoint Destination)>();
+        var earlyResponses = new List<(LocalPath Path, byte[] Packet, IPEndPoint Destination)>();
         lock (_gate)
         {
             ThrowIfStopped();
             if (_started) throw new InvalidOperationException("A transport supports one ICE credential generation.");
+            var distinct = candidates.DistinctBy(c => c.TransportEndPoint.ToString()).Count();
+            if (distinct * _paths.Count(p => PathAllowed(p)) > _options.MaximumCandidatePairs)
+                throw new ArgumentException("Too many local/remote ICE candidate pairs.", nameof(remoteCandidates));
             _started = true;
             _startedAt = Stopwatch.GetTimestamp();
             _role = role;
             _remoteKey = Encoding.ASCII.GetBytes(remoteCredentials.Password);
             _outgoingUsername = Encoding.ASCII.GetBytes($"{remoteCredentials.UsernameFragment}:{_localCredentials.UsernameFragment}");
             _incomingUsername = Encoding.ASCII.GetBytes($"{_localCredentials.UsernameFragment}:{remoteCredentials.UsernameFragment}");
-            foreach (var candidate in candidates) AddCandidateCore(candidate);
+            foreach (var candidate in candidates) AddRemoteCandidateCore(candidate);
             foreach (var check in _earlyChecks)
             {
                 if (Elapsed(check.ReceivedAt) > TimeSpan.FromSeconds(2)) continue;
                 // Full remote username/role checks occur only after signaling supplied credentials.
-                if (HandleStun(check.Packet, check.Source) is { } response) earlyResponses.Add((response, check.Source));
+                if (HandleStun(check.Path, check.Packet, check.Source) is { } response) earlyResponses.Add((check.Path, response, check.Source));
             }
             _earlyChecks.Clear();
         }
@@ -149,7 +160,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         {
             foreach (var response in earlyResponses)
             {
-                try { await _socket.SendToAsync(response.Packet, SocketFlags.None, response.Destination, cancellationToken).ConfigureAwait(false); }
+                try { await TrySendPathAsync(response.Path, response.Packet, response.Destination, cancellationToken).ConfigureAwait(false); }
                 catch (SocketException exception) when (IsRemoteNetworkError(exception)) { }
             }
             WakeChecker();
@@ -170,7 +181,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         {
             ThrowIfStopped();
             if (!_started) throw new InvalidOperationException("Start the credential generation before trickling candidates.");
-            AddCandidateCore(candidate);
+            AddRemoteCandidateCore(candidate);
         }
         WakeChecker();
     }
@@ -180,15 +191,15 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
     {
         if (datagram.Length == 0 || datagram.Length > _options.MaximumDataDatagramSize)
             throw new ArgumentOutOfRangeException(nameof(datagram));
-        IPEndPoint destination;
+        Pair selected;
         lock (_gate)
         {
             ThrowIfStopped();
             if (_selected is null || Elapsed(_lastConsentAt) >= _options.ConsentTimeout)
                 throw new InvalidOperationException("A nominated ICE pair with fresh consent is required.");
-            destination = _selected.Candidate.TransportEndPoint;
+            selected = _selected;
         }
-        await _socket.SendToAsync(datagram, SocketFlags.None, destination, cancellationToken).ConfigureAwait(false);
+        await SendPathAsync(selected.Path, datagram, selected.Candidate.TransportEndPoint, cancellationToken).ConfigureAwait(false);
     }
 
     public IAsyncEnumerable<byte[]> ReceiveDatagramsAsync(CancellationToken cancellationToken = default) =>
@@ -200,7 +211,8 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
             return new(_role, _pairs.Count, _selected?.Candidate.EndPoint,
                 _selected is null ? null : Stopwatch.GetElapsedTime(_startedAt, _selectedAt), _lastRoundTrip,
                 _sentChecks, _retransmissions, _validatedRequests, _roleConflicts, Interlocked.Read(ref _droppedDatagrams), _earlyChecks.Count,
-                _selected?.Candidate.Type);
+                _selected?.Candidate.Type, _selected?.Path.Candidate.Type, _selected?.Path.Candidate.EndPoint,
+                _paths.Count(PathAllowed), _paths.Sum(p => p.PendingPermissions.Count));
     }
 
     private void ValidateCandidate(IceCandidate candidate)
@@ -212,12 +224,29 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
             throw new ArgumentException("Remote candidate rejected by the destination policy.", nameof(candidate));
     }
 
-    private Pair AddCandidateCore(IceCandidate candidate)
+    private bool PathAllowed(LocalPath path) => !path.Failed && (!_options.RelayOnly || path.Relay is not null);
+
+    private void AddRemoteCandidateCore(IceCandidate candidate)
     {
-        var existing = _pairs.Find(p => p.Candidate.TransportEndPoint.Equals(candidate.TransportEndPoint));
+        var paths = _paths.Where(PathAllowed).ToArray();
+        var missing = paths.Count(path => !_pairs.Any(p => p.Path == path && p.Candidate.TransportEndPoint.Equals(candidate.TransportEndPoint)));
+        if (_pairs.Count + missing > _options.MaximumCandidatePairs)
+            throw new InvalidOperationException("ICE candidate pair limit exceeded.");
+        foreach (var path in paths) AddCandidateCore(path, candidate);
+        if (!_remoteCandidates.Any(c => c.TransportEndPoint.Equals(candidate.TransportEndPoint)))
+        {
+            if (_remoteCandidates.Count >= _options.MaximumCandidatePairs) throw new InvalidOperationException("ICE remote candidate limit exceeded.");
+            _remoteCandidates.Add(candidate);
+        }
+    }
+
+    private Pair AddCandidateCore(LocalPath path, IceCandidate candidate)
+    {
+        var existing = _pairs.Find(p => p.Path == path && p.Candidate.TransportEndPoint.Equals(candidate.TransportEndPoint));
         if (existing is not null) return existing;
         if (_pairs.Count >= _options.MaximumCandidatePairs) throw new InvalidOperationException("ICE candidate pair limit exceeded.");
-        var pair = new Pair(candidate);
+        var pair = new Pair(path, candidate);
+        QueuePermission(path, candidate.TransportEndPoint);
         _pairs.Add(pair);
         return pair;
     }
@@ -228,11 +257,11 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         {
             while (!_lifetime.IsCancellationRequested)
             {
-                (byte[] Packet, IPEndPoint Destination)? send;
+                (LocalPath Path, byte[] Packet, IPEndPoint Destination)? send;
                 lock (_gate) send = GetNextCheck();
                 if (send is { } next)
                 {
-                    try { await _socket.SendToAsync(next.Packet, SocketFlags.None, next.Destination, _lifetime.Token).ConfigureAwait(false); }
+                    try { await TrySendPathAsync(next.Path, next.Packet, next.Destination, _lifetime.Token).ConfigureAwait(false); }
                     catch (SocketException exception) when (IsRemoteNetworkError(exception) && !_lifetime.IsCancellationRequested)
                     {
                         // A single unreachable candidate or delayed ICMP must not abort the checklist.
@@ -246,7 +275,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         catch (Exception exception) { Stop(exception); }
     }
 
-    private (byte[] Packet, IPEndPoint Destination)? GetNextCheck()
+    private (LocalPath Path, byte[] Packet, IPEndPoint Destination)? GetNextCheck()
     {
         _earlyChecks.RemoveAll(c => Elapsed(c.ReceivedAt) > TimeSpan.FromSeconds(2));
         if (!_started || _stopped) return null;
@@ -269,7 +298,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         {
             foreach (var pair in _pairs.OrderByDescending(PairPriority))
             {
-                if (pair.Failed) continue;
+                if (pair.Failed || !PathAllowed(pair.Path) || !PermissionReady(pair.Path, pair.Candidate.TransportEndPoint)) continue;
                 if (pair.Active is { } active)
                 {
                     if (now < active.NextSendAt) continue;
@@ -296,12 +325,12 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         transaction.NextSendAt = Add(now, _options.InitialRetransmissionTimeout * (1 << Math.Min(transaction.Attempts - 1, 3)));
         _lastCheckSentAt = now;
         _sentChecks++;
-        return (transaction.Packet, transaction.Pair.Candidate.TransportEndPoint);
+        return (transaction.Pair.Path, transaction.Packet, transaction.Pair.Candidate.TransportEndPoint);
     }
 
     private ulong PairPriority(Pair pair)
     {
-        uint local = 2130706431, remote = pair.Candidate.Priority;
+        uint local = pair.Path.Candidate.Priority, remote = pair.Candidate.Priority;
         var g = _role == IceRole.Controlling ? local : remote;
         var d = _role == IceRole.Controlling ? remote : local;
         return ((ulong)Math.Min(g, d) << 32) + 2UL * Math.Max(g, d) + (g > d ? 1UL : 0UL);
@@ -341,45 +370,25 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
                 var source = (IPEndPoint)received.RemoteEndPoint;
                 var length = received.ReceivedBytes;
                 if (length == 0) continue;
-                if (buffer[0] <= 3)
-                {
-                    byte[]? response;
-                    lock (_gate) response = HandleGatheringResponse(buffer.AsSpan(0, length), source) ? null : HandleStun(buffer.AsSpan(0, length), source);
-                    if (response is not null)
-                    {
-                        try { await _socket.SendToAsync(response, SocketFlags.None, source, _lifetime.Token).ConfigureAwait(false); }
-                        catch (SocketException exception) when (IsRemoteNetworkError(exception) && !_lifetime.IsCancellationRequested) { }
-                    }
-                    WakeChecker();
-                }
-                else
-                {
-                    lock (_gate)
-                    {
-                        if (!_stopped && _selected is not null && source.Equals(_selected.Candidate.TransportEndPoint) &&
-                            length <= _options.MaximumDataDatagramSize && Elapsed(_lastConsentAt) < _options.ConsentTimeout)
-                            _datagrams.Writer.TryWrite(buffer[..length]);
-                        else Interlocked.Increment(ref _droppedDatagrams);
-                    }
-                }
+                await HandleDatagramAsync(_hostPath, buffer.AsMemory(0, length), source).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception exception) { Stop(exception); }
     }
 
-    private byte[]? HandleStun(ReadOnlySpan<byte> packet, IPEndPoint source)
+    private byte[]? HandleStun(LocalPath path, ReadOnlySpan<byte> packet, IPEndPoint source)
     {
-        if (_stopped || packet.Length > 2048 || !StunMessage.TryParse(packet, out var message) || !message.VerifyFingerprint())
+        if (_stopped || !PathAllowed(path) || packet.Length > 2048 || !StunMessage.TryParse(packet, out var message) || !message.VerifyFingerprint())
             return null;
         if (!_started)
         {
-            BufferEarlyCheck(message, source);
+            BufferEarlyCheck(path, message, source);
             return null;
         }
         if (message.Type != StunMessage.BindingRequest)
         {
-            HandleResponse(message, source);
+            HandleResponse(path, message, source);
             return null;
         }
         if (!message.TryGetUniqueAttribute(Username, out var username) || !username.SequenceEqual(_incomingUsername) ||
@@ -401,7 +410,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         if (!hasPriority && !hasControlling && !hasControlled && !hasUseCandidate)
         {
             // Pure consent is valid only for the already nominated source.
-            if (_selected is null || !source.Equals(_selected.Candidate.TransportEndPoint)) return null;
+            if (_selected is null || path != _selected.Path || !source.Equals(_selected.Candidate.TransportEndPoint)) return null;
             _validatedRequests++;
             return BuildResponse(message, source, roleConflict: false);
         }
@@ -409,7 +418,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
             !hasPriority || priority.Length != 4 || (hasUseCandidate && (useCandidate.Length != 0 || !hasControlling))) return null;
         var remotePriority = BinaryPrimitives.ReadUInt32BigEndian(priority);
         if (remotePriority == 0 || remotePriority > int.MaxValue) return null;
-        var known = _pairs.Find(p => p.Candidate.TransportEndPoint.Equals(source));
+        var known = _pairs.Find(p => p.Path == path && p.Candidate.TransportEndPoint.Equals(source));
         IceCandidate incoming;
         try { incoming = known?.Candidate ?? new(source, remotePriority, IceCandidateType.PeerReflexive); }
         catch (ArgumentException) { return null; }
@@ -423,7 +432,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
             ChangeRole(_role == IceRole.Controlling ? IceRole.Controlled : IceRole.Controlling);
         }
         Pair pair;
-        try { pair = AddCandidateCore(new IceCandidate(source, remotePriority, IceCandidateType.PeerReflexive)); }
+        try { pair = AddCandidateCore(path, incoming); }
         catch (ArgumentException) { return null; }
         catch (InvalidOperationException) { return null; }
         _validatedRequests++;
@@ -436,11 +445,11 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         return BuildResponse(message, source, roleConflict: false);
     }
 
-    private void HandleResponse(StunMessage message, IPEndPoint source)
+    private void HandleResponse(LocalPath path, StunMessage message, IPEndPoint source)
     {
         if (message.Type is not (BindingSuccess or BindingError) ||
             !_transactions.TryGetValue(Convert.ToHexString(message.TransactionId), out var transaction) ||
-            !source.Equals(transaction.Pair.Candidate.TransportEndPoint) || !message.VerifyMessageIntegritySha1(_remoteKey!)) return;
+            path != transaction.Pair.Path || !source.Equals(transaction.Pair.Candidate.TransportEndPoint) || !message.VerifyMessageIntegritySha1(_remoteKey!)) return;
         if (message.Type == BindingError)
         {
             if (message.TryGetUniqueAttribute(ErrorCode, out var code) && code.Length >= 4 && code[2] == 4 && code[3] == 87)
@@ -464,7 +473,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
             (_role == IceRole.Controlled && transaction.Pair.RemoteNominated)) SelectPair(transaction.Pair);
     }
 
-    private void BufferEarlyCheck(StunMessage message, IPEndPoint source)
+    private void BufferEarlyCheck(LocalPath path, StunMessage message, IPEndPoint source)
     {
         if (message.Type != StunMessage.BindingRequest || !message.TryGetUniqueAttribute(Username, out var username) ||
             !username.StartsWith(_localUsernamePrefix) || !message.VerifyMessageIntegritySha1(_localKey)) return;
@@ -474,9 +483,9 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
             if (!(c is >= (byte)'a' and <= (byte)'z' or >= (byte)'A' and <= (byte)'Z' or >= (byte)'0' and <= (byte)'9' or (byte)'+' or (byte)'/')) return;
         var id = Convert.ToHexString(message.TransactionId);
         _earlyChecks.RemoveAll(c => Elapsed(c.ReceivedAt) > TimeSpan.FromSeconds(2));
-        if (_earlyChecks.Any(c => c.Id == id && c.Source.Equals(source))) return;
+        if (_earlyChecks.Any(c => c.Path == path && c.Id == id && c.Source.Equals(source))) return;
         if (_earlyChecks.Count >= 16) _earlyChecks.RemoveAt(0);
-        _earlyChecks.Add(new(id, message.Data.ToArray(), source, Stopwatch.GetTimestamp()));
+        _earlyChecks.Add(new(path, id, message.Data.ToArray(), source, Stopwatch.GetTimestamp()));
     }
 
     private static int Count(StunMessage message, ushort type)
@@ -556,25 +565,30 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         SocketError.HostUnreachable or SocketError.AddressNotAvailable or SocketError.NetworkDown;
     private static long Add(long timestamp, TimeSpan duration) => timestamp + (long)(duration.TotalSeconds * Stopwatch.Frequency);
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
+    { lock (_gate) return new(_disposeTask ??= DisposeCoreAsync()); }
+
+    private async Task DisposeCoreAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _disposed = 1;
         Stop(new OperationCanceledException("ICE transport disposed."));
         await Task.WhenAll(_receiver, _checker).ConfigureAwait(false);
+        await DisposePathsAsync().ConfigureAwait(false);
         CryptographicOperations.ZeroMemory(_localKey);
         if (_remoteKey is not null) CryptographicOperations.ZeroMemory(_remoteKey);
         _wake.Dispose();
         _lifetime.Dispose();
     }
 
-    private sealed class Pair(IceCandidate candidate)
+    private sealed class Pair(LocalPath path, IceCandidate candidate)
     {
+        public LocalPath Path { get; } = path;
         public IceCandidate Candidate { get; } = candidate;
         public bool Validated, RemoteNominated, Failed;
         public Transaction? Active;
     }
 
-    private sealed record EarlyCheck(string Id, byte[] Packet, IPEndPoint Source, long ReceivedAt);
+    private sealed record EarlyCheck(LocalPath Path, string Id, byte[] Packet, IPEndPoint Source, long ReceivedAt);
 
     private sealed class Transaction(string id, byte[] packet, Pair pair, IceRole role, bool useCandidate, bool consent)
     {

@@ -170,19 +170,28 @@ internal static class PeerTests
         deadline.Cancel();
         await Reject<OperationCanceledException>(() => local); await Reject<OperationCanceledException>(() => remote);
     }
-    internal static async Task Pion(Uri uri, bool offerer, bool passive, bool relay = false, bool trickleRelay = false)
+    internal static async Task Pion(Uri uri, bool offerer, bool passive, bool relay = false, bool trickleRelay = false, bool localRelay = false)
     {
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(9)); var ct = deadline.Token;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(12)); var ct = deadline.Token;
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
         await using var peer = new PeerConnection(Options() with { Sctp = SctpTests.Fast(),
-            CandidateFilter = relay ? c => c.Type == IceCandidateType.Relay : null }); string? id = null;
+            CandidateFilter = relay ? c => c.Type == IceCandidateType.Relay : null,
+            Ice = new() { RelayOnly = localRelay } }); string? id = null; TurnSession? turn = null; IceCandidate? ownedRelay = null;
         try
         {
+            if (localRelay)
+            {
+                using var start = await http.PostAsync(new Uri(uri, "/turn"), null, ct); start.EnsureSuccessStatusCode();
+                turn = (await start.Content.ReadFromJsonAsync(TurnJson.Default.TurnSession, ct))!;
+                ownedRelay = await peer.GatherRelayCandidateAsync(new(IPAddress.Loopback, turn.Port), new(turn.Username, turn.Password), TurnFixture.Fast(), ct);
+                Check(peer.GetLocalCandidates() is { Count: 1 } && peer.GetLocalCandidates()[0].Type == IceCandidateType.Relay);
+                peer.CompleteGathering();
+            }
             var request = new SessionRequest(offerer ? peer.CreateOffer() : "", passive, relay);
             using var response = await http.PostAsJsonAsync(new Uri(uri, offerer ? "/session/answer" : "/session/offer"), request, InteropJson.Default.SessionRequest, ct);
             response.EnsureSuccessStatusCode(); var description = await response.Content.ReadFromJsonAsync(InteropJson.Default.SessionResponse, ct) ?? throw new IOException("Independent peer missing");
             id = description.Id; Check(id.Length is > 0 and <= 20 && id.All(char.IsAsciiDigit));
-            if (relay)
+            if (relay && !localRelay)
             {
                 Check(description.StunPort is > 0 and <= 65535);
                 var baseCandidate = peer.GetLocalCandidates()[0];
@@ -207,6 +216,12 @@ internal static class PeerTests
             await connection;
             if (relay) Check(peer.GetDiagnostics().Ice.SelectedRemoteCandidateType == IceCandidateType.Relay &&
                 remoteCandidates.Any(c => c.GetResolvedUdpCandidate()!.EndPoint.Equals(peer.GetDiagnostics().Ice.SelectedRemoteEndPoint)), "Relay was not the selected destination");
+            if (localRelay)
+            {
+                Check(peer.GetDiagnostics().Ice is { SelectedLocalCandidateType: IceCandidateType.Relay, LocalPaths: 1 });
+                Check(peer.GetDiagnostics().Ice.SelectedLocalEndPoint!.Equals(ownedRelay!.EndPoint));
+                Check((await http.GetFromJsonAsync(new Uri(uri, "/turn/" + turn!.Id), TurnJson.Default.TurnStats, ct))!.Allocations == 1);
+            }
             var channel = offerer ? await peer.OpenDataChannelAsync(Channel(), ct) : await First(peer.AcceptDataChannelsAsync(ct), ct);
             if (!offerer) Check((await First(channel.ReceiveMessagesAsync(ct), ct)).GetText() == "pion:ready");
             await channel.SendTextAsync("owned controls", ct);
@@ -217,9 +232,11 @@ internal static class PeerTests
             Check((await First(channel.ReceiveMessagesAsync(ct), ct)).GetText() == "owned controls");
             var stats = await http.GetFromJsonAsync(new Uri(uri, $"/session/{id}/stats"), InteropJson.Default.SessionStats, ct);
             Check(stats is { Audio: 2, Data: 1, Failures: 0 } && (!relay || stats.RelayAllocations > 0)); await channel.CloseAsync(ct); await peer.CloseAsync(ct);
+            if (localRelay) Check((await http.GetFromJsonAsync(new Uri(uri, "/turn/" + turn!.Id), TurnJson.Default.TurnStats, ct))!.Allocations == 0);
         }
         finally
         {
+            if (turn != null) { using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(2)); using var deleted = await http.DeleteAsync(new Uri(uri, "/turn/" + turn.Id), cleanup.Token); deleted.EnsureSuccessStatusCode(); }
             if (id != null) { using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(2)); using var deleted = await http.DeleteAsync(new Uri(uri, $"/session/{id}"), cleanup.Token); deleted.EnsureSuccessStatusCode(); }
         }
     }

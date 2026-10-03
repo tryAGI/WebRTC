@@ -113,6 +113,18 @@ cases.Add(("STUN gathering bounded admission and owner disposal", GatheringTests
 cases.Add(("Owned peer gathering updates initial SDP and explicit completion", GatheringTests.PeerSignaling));
 
 foreach (var ipv6 in new[] { false, true })
+    foreach (var two in new[] { false, true })
+        cases.Add(($"Relay ICE owned path IPv6={ipv6}, two relays={two}", () => RelayIceTests.Exchange(ipv6, two)));
+cases.Add(("Relay ICE late allocation and trickled candidate", () => RelayIceTests.Exchange(false, false, true)));
+cases.Add(("Relay ICE transactions and media bind the local path", RelayIceTests.PathBinding));
+cases.Add(("Relay ICE nomination cannot cross local paths", RelayIceTests.NominationBinding));
+cases.Add(("Relay ICE gather cancellation and allocation bounds", RelayIceTests.CancellationAndBounds));
+cases.Add(("Relay ICE disposal joins pending permission control", RelayIceTests.PermissionDisposal));
+cases.Add(("Relay ICE selected allocation expiry fails visibly", RelayIceTests.SelectedExpiry));
+cases.Add(("Relay ICE unselected expiry preserves the host path", RelayIceTests.HostSurvivesUnselectedExpiry));
+cases.Add(("Relay ICE late admission respects global pair budget and deletes rejected allocation", RelayIceTests.PairBudget));
+
+foreach (var ipv6 in new[] { false, true })
     foreach (var modern in new[] { false, true })
         foreach (var channel in new[] { false, true })
             cases.Add(($"TURN owned UDP IPv6={ipv6}, SHA256={modern}, channel={channel}", () => TurnFixture.RoundTrip(ipv6, modern, channel)));
@@ -142,6 +154,13 @@ for (var option = 0; option < args.Length; option += 2)
 }
 if (pionUri != null)
 {
+    foreach (var same in new[] { false, true })
+        cases.Add(($"Pion Relay ICE two owned allocations same server={same}", () => RelayIceTests.PionSameServer(pionUri, same)));
+    foreach (var localOfferer in new[] { false, true })
+        foreach (var passiveAnswer in new[] { false, true })
+            foreach (var remoteRelay in new[] { false, true })
+                cases.Add(($"Pion owned peer local relay offer={localOfferer}, passive={passiveAnswer}, remote relay={remoteRelay}",
+                    () => PeerTests.Pion(pionUri, localOfferer, passiveAnswer, relay: remoteRelay, localRelay: true)));
     cases.Add(("Pion owned TURN UDP Send/Data indications and deletion", () => TurnTests.Pion(pionUri, false)));
     cases.Add(("Pion owned TURN UDP ChannelData and deletion", () => TurnTests.Pion(pionUri, true)));
     cases.Add(("Pion SCTP terminal shutdown and DTLS close-notify burst", () => DataChannelTests.PionShutdownBurst(pionUri)));

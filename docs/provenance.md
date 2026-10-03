@@ -27,6 +27,13 @@ authored from RFC 8285/3550 and the existing authored transport contracts. The
 new independent peer tests invoke our public owner and the existing authored Pion
 HTTP harness. No upstream implementation/example/fixture or new dependency is added.
 
+The UDP relay ICE integration is newly authored from RFC 8445/8838 and existing owned
+TURN contracts. Each authenticated transaction, early check, consent and selected
+media admission retains local path identity. New tests exercise our public API and
+the existing Pion HTTP service; no upstream implementation, example, fixture or new
+module was imported. This remains authored interoperability evidence, not a formal
+clean-room or security audit.
+
 ## Independent test peer
 
 STUN gathering and candidate metadata are newly authored from RFC 8489/8445/8838;

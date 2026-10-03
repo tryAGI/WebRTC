@@ -1,11 +1,12 @@
 # UDP ICE transport scope
 
 `IceUdpTransport` binds a caller-selected IP/port and performs regular nomination
-for one RTP component from a host base to resolved remote endpoints. It supports
+for one RTP component from a host base and up to three owned UDP TURN allocations
+to resolved remote endpoints. It supports
 controlling/controlled roles, authenticated peer-reflexive learning, trickle input,
 role-conflict convergence and bounded exponential STUN retransmission. Remote relay
 candidates are admitted as UDP destinations: the remote peer owns its TURN allocation.
-Our local TURN allocation/routing is not implemented. The independent peer is forced
+Explicit local allocation/routing is also supported. The independent peer can be forced
 to relay-only policy, with loopback-only TURN permissions and an active allocation;
 it exchanges encoded Opus and data in both offer/answer and DTLS roles, including trickle.
 
@@ -21,8 +22,8 @@ Up to 16 authenticated requests arriving before remote credentials are applied m
 be buffered for at most two seconds. They receive no response or nomination before
 signaling, and the full remote username and role are checked again when applied.
 This avoids dropping a first check during answer processing and waiting for its RTO.
-Responses require a live transaction ID, expected source and valid authentication.
-Unselected-source datagrams are dropped, but selected-source data remains untrusted
+Responses require a live transaction ID, expected source, the same local path and valid authentication.
+Unselected-source or unselected-local-path datagrams are dropped, but selected-pair data remains untrusted
 and must be authenticated by DTLS/SRTP above this class.
 
 Default pacing is 50 ms, initial retransmission timeout 500 ms, at most seven sends
@@ -71,5 +72,51 @@ disposal and subsequent ICE after cancellation. Pion's local TURN service indepe
 answers Binding; native smoke executes gathering on the public peer's owned socket.
 
 This is not yet a complete RFC 8445 implementation: multi-interface gathering, mDNS,
-local TURN, restart, extended checklist policies and unknown-required-attribute error
+TURN TCP/TLS, restart, extended checklist policies and unknown-required-attribute error
 responses remain. See [the acceptance matrix](acceptance.md).
+
+## Explicit owned relay paths
+
+`GatherRelayCandidateAsync(resolvedServer, credentials, options, token)` binds a separate
+socket on the selected interface and attaches an owned `TurnUdpAllocation`. No server
+is contacted by default. Successful gathering returns the immutable relay/mapped-base
+candidate; its base can differ from the initial host socket. Up to three relay slots
+include pending gathers and failed attached allocations. Late gathering pairs the new
+path with existing signaled candidates before publishing it. Global pair admission
+remains bounded at 64; an over-budget attachment deletes/closes its new owner.
+
+Each pair identifies both the local path and remote endpoint. Transactions, buffered
+early requests, nomination, consent responses/requests and data admission retain that
+identity. Incoming role checks learn a peer-reflexive candidate only on their own path.
+Replies and selected ciphertext use that path; authentication is never silently moved
+to another socket. Relay failure removes its checks; failure of the nominated relay
+stops the entire transport. Failure of an unselected relay preserves other paths.
+
+A bounded per-path queue serializes permission creation outside the ICE monitor,
+sharing TURN control admission with maintenance. Checks wait for acknowledged IP
+permissions. Incoming checks before readiness are not sent a reply until a retry;
+TURN IP permissions do not replace endpoint/path-bound ICE integrity or DTLS/SRTP.
+Denied permissions fail matching pairs; the generation deadline bounds nomination.
+TURN's explicit peer policy and retained-address limits still apply. Inner datagram
+storage is raised to at least 2048 bytes for ICE checks; TURN's maximum 16384-byte cap
+also applies to relay traffic. No channel binding is required for this integration.
+
+`RelayOnly` excludes host checks, host early requests, host consent and host media.
+It allows no automatic direct fallback. The initial host socket still exists for
+explicit Binding/lifecycle, but a gathered relay is required for ICE connectivity.
+This is path policy, not a guarantee that SDP's related mapped address is hidden.
+Use destination policy and authenticate signaling separately.
+
+Canceling an unattached gather rolls back only its new allocation. Disposal cancels,
+joins gathers/readers/permission workers and disposes every allocation with its bounded
+best-effort deletion. Diagnostics expose selected local type/endpoint, active permitted
+local paths and pending permission count without passwords.
+
+Authored tests cover IPv4/IPv6, relay-to-relay, late attachment/trickle, permission
+readiness/disposal, global pair/three-allocation bounds, selected/unselected expiry,
+and correctly authenticated responses/consent/media on the wrong local socket.
+Independent Pion uses local relay-only signaling with encrypted Opus/data in both
+signaling and DTLS roles; two owned allocations on the same or distinct independent
+TURN servers exchange datagrams and return allocation counts to zero. Rooted NativeAOT
+executes relay-carried DTLS/SRTP/SCTP for all supported SRTP profiles. These are local
+interoperability tests, not browser, real NAT, provider or Watch E2E evidence.

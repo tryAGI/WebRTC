@@ -30,7 +30,7 @@ public sealed record PeerConnectionDiagnostics(PeerConnectionState State, TimeSp
     long RejectedAudioPackets, long RejectedControlPackets, long DroppedAudioPackets, long DroppedControlPackets,
     IceUdpTransportDiagnostics Ice, DtlsSrtpDiagnostics? Dtls);
 
-/// <summary>Owns initial Opus/data BUNDLE with a resolved host base, bounded STUN gathering and remote relay candidates. No local TURN, video, codec engine or jitter buffer.</summary>
+/// <summary>Owns initial Opus/data BUNDLE with a resolved host base, bounded explicit STUN/UDP TURN gathering. No TCP/TLS relays, video, codec engine or jitter buffer.</summary>
 public sealed class PeerConnection : IAsyncDisposable
 {
     private readonly object _gate = new();
@@ -92,13 +92,21 @@ public sealed class PeerConnection : IAsyncDisposable
         { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = false, SingleWriter = true }, _ => Interlocked.Increment(ref _droppedControl));
     }
     private SdpLocalTransport LocalTransport() => new(_ice.LocalCredentials, _identity.GetFingerprintSha256(), _endpoint,
-        _options.Sctp.LocalPort, Math.Min(_options.Sctp.MaximumMessageSize, _options.Channels.ReceiveBufferBytes), _localCandidates, _gatheringComplete, true);
+        _options.Sctp.LocalPort, Math.Min(_options.Sctp.MaximumMessageSize, _options.Channels.ReceiveBufferBytes), _localCandidates, _gatheringComplete, true, _options.Ice.RelayOnly);
     public IReadOnlyList<IceCandidate> GetLocalCandidates()
     { lock (_gate) { RequireOpen(); return LocalTransport().Candidates; } }
     public StunGatheringDiagnostics GetGatheringDiagnostics() => _ice.GetGatheringDiagnostics();
     /// <summary>Explicit resolved STUN server only. Caller cancellation stops this gather, preserving the peer and its socket.</summary>
-    public async Task<IceCandidate> GatherServerReflexiveCandidateAsync(IPEndPoint server, StunGatheringOptions? options = null,
-        CancellationToken cancellationToken = default)
+    public Task<IceCandidate> GatherServerReflexiveCandidateAsync(IPEndPoint server, StunGatheringOptions? options = null,
+        CancellationToken cancellationToken = default) => GatherCandidateAsync(
+            ct => _ice.GatherServerReflexiveCandidateAsync(server, options, ct), cancellationToken);
+
+    /// <summary>Owns one explicit UDP TURN allocation and updates this generation's SDP. Caller cancellation preserves previously attached paths.</summary>
+    public Task<IceCandidate> GatherRelayCandidateAsync(IPEndPoint server, TurnCredentials credentials, TurnUdpOptions? options = null,
+        CancellationToken cancellationToken = default) => GatherCandidateAsync(
+            ct => _ice.GatherRelayCandidateAsync(server, credentials, options, ct), cancellationToken);
+
+    private async Task<IceCandidate> GatherCandidateAsync(Func<CancellationToken, Task<IceCandidate>> gather, CancellationToken cancellationToken)
     {
         lock (_gate)
         {
@@ -109,7 +117,8 @@ public sealed class PeerConnection : IAsyncDisposable
         }
         try
         {
-            var candidate = await _ice.GatherServerReflexiveCandidateAsync(server, options, cancellationToken).ConfigureAwait(false);
+            using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+            var candidate = await gather(lifetime.Token).ConfigureAwait(false);
             lock (_gate)
             {
                 RequireOpen();

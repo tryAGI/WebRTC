@@ -16,7 +16,8 @@ No private signing key is committed.
 STUN MESSAGE-INTEGRITY uses the HMAC-SHA1 wire algorithm required for existing ICE
 interoperability. Hashing is performed by .NET cryptography, and integrity comparisons
 use CryptographicOperations.FixedTimeEquals. The caller must supply the correctly
-derived credential key; long-term credential derivation is not implemented. FINGERPRINT
+derived credential key. The owned TURN allocation implements bounded ASCII long-term
+credential derivation and negotiated SHA256/legacy integrity; see [TURN scope](docs/turn-transport.md). FINGERPRINT
 is a CRC for protocol identification and corruption detection, not authentication.
 
 SRTP/SRTCP contexts authenticate before returning decrypted packets, enforce replay
@@ -58,5 +59,12 @@ peer connection. Stream reset is negotiated and validates parameter framing, uni
 stream IDs, request sequence and bounded TSN barriers before changing state. IDs
 remain reserved until both directions finish; invalid DCEP still terminates its owner.
 
-A general peer connection, NAT traversal and consumer
-acceptance remain unimplemented. Consumers must not migrate on DTLS/SRTP interoperability alone.
+UDP relay integration binds authenticated ICE transactions, early checks, nomination,
+consent and selected ciphertext to the exact local path and remote endpoint. TURN IP
+permissions are routing admission, not peer authentication. A failed selected relay
+closes its owner rather than moving authentication to another path. Relay-only excludes
+host connectivity; SDP related mapped addresses can still disclose address metadata.
+See [ICE path scope](docs/ice-transport.md).
+
+General negotiation, complete NAT traversal and real consumer acceptance remain
+unimplemented. Consumers must not migrate on DTLS/SRTP interoperability alone.

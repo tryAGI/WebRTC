@@ -47,11 +47,13 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
 Console.WriteLine("NativeAOT SRTP/SRTCP profiles and encrypted ICE network smoke passed");
 foreach (var profile in Enum.GetValues<SrtpProfile>())
 {
-    await using var left = new IceUdpTransport(new(IPAddress.Loopback, 0));
+    await using var relayServer = new TurnFixture(modern: true);
+    await using var left = new IceUdpTransport(new(IPAddress.Loopback, 0), options: new() { RelayOnly = true });
     await using var right = new IceUdpTransport(new(IPAddress.Loopback, 0));
     using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var localRelay = await left.GatherRelayCandidateAsync(relayServer.Server, new(TurnFixture.Username, TurnFixture.Secret), TurnFixture.Fast(), deadline.Token);
     using var clientIdentity = DtlsIdentity.Generate(); using var serverIdentity = DtlsIdentity.Generate();
-    var localOffer = SdpSessionDescription.Parse(SdpNegotiation.CreateOpusOffer(new(left.LocalCredentials, clientIdentity.GetFingerprintSha256(), left.LocalEndPoint, maximumMessageSize: 16384), 3));
+    var localOffer = SdpSessionDescription.Parse(SdpNegotiation.CreateOpusOffer(new(left.LocalCredentials, clientIdentity.GetFingerprintSha256(), left.LocalEndPoint, maximumMessageSize: 16384, additionalCandidates: [localRelay], relayOnly: true), 3));
     var localAnswer = SdpSessionDescription.Parse(SdpNegotiation.CreateOpusAnswer(localOffer, new(right.LocalCredentials, serverIdentity.GetFingerprintSha256(), right.LocalEndPoint, maximumMessageSize: 16384), 4, preferredSetup: SdpSetup.Passive));
     var localSession = SdpNegotiation.ValidateOpusAnswer(localOffer, localAnswer, true);
     var remoteSession = SdpNegotiation.ValidateOpusAnswer(localOffer, localAnswer, false);
@@ -131,7 +133,10 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
     if (!afterReset) return 1;
     await reused.CloseAsync(deadline.Token);
     await outgoing.CloseAsync(deadline.Token);
+    if (left.GetDiagnostics() is not { SelectedLocalCandidateType: IceCandidateType.Relay, LocalPaths: 1 }) return 1;
+    await left.DisposeAsync(); if (relayServer.Deletes != 1) return 1;
 }
+Console.WriteLine("NativeAOT owned relay ICE carries encrypted DTLS/SRTP/SCTP with all profiles and releases allocation");
 Console.WriteLine("NativeAOT SDP-driven encoded Opus, fragmented DTLS, negotiated SRTP, SCTP/DCEP and PR-SCTP FORWARD-TSN and stream-reset/reuse passed");
 foreach (var profile in Enum.GetValues<SrtpProfile>())
 {

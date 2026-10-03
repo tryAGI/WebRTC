@@ -31,7 +31,8 @@ connection-state and encoded-frame types when implementing the respective milest
    Same-socket bounded STUN srflx gathering and remote relay admission now have
    independent local Pion Opus/data evidence. Destination policy covers discovered
    sources. Complete multiple-interface gathering and minimal mDNS/DNS with
-   deadlines and bounded name resolution. Then local TURN UDP/TCP/TLS and its lifecycle.
+   deadlines and bounded name resolution. Owned UDP TURN now joins ICE with path-bound transactions, consent and selected media.
+   Complete TURN TCP/TLS and real NAT lifecycle coverage.
 3. DTLS handshake and SRTP/SRTCP: fingerprint binding, certificate policy, key
    derivation, authentication before delivery, replay and rollover tests. SRTP/SRTCP
    directional key contexts and independent profile tests are implemented. Bounded
@@ -79,5 +80,7 @@ test assets is a separate import with separate attribution requirements.
 The resolved-server UDP allocation owner now supplies authentication, permissions,
 Send/Data and ChannelData, lifetime maintenance, bounded queues and deletion.
 Its path is independently exercised against pinned Pion. Local-path-aware ICE pair
-selection must integrate it before an owned peer can select its local relay candidate.
+selection now integrates up to three owned allocations; encrypted Opus/data uses the
+selected local relay in both signaling/DTLS roles. Selected relay expiry fails visibly
+and unselected relay expiry preserves a healthy host pair.
 See [TURN scope](turn-transport.md). TCP/TLS and real NAT/consumer acceptance remain.

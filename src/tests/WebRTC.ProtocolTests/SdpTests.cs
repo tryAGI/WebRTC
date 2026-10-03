@@ -127,6 +127,28 @@ internal static class SdpTests
         Check(videoAnswer.Media[0].IsRejected && videoAnswer.Media[1].Mid == "audio");
         Check(SdpNegotiation.ValidateOpusAnswer(videoOffer, videoAnswer, true).AudioCodec!.Name == "opus");
     }
+    internal static void RelayCandidates()
+    {
+        var host = new IPEndPoint(IPAddress.Loopback, 49152);
+        var mapped = new IPEndPoint(IPAddress.Parse("192.0.2.10"), 45000);
+        var relay = new IceCandidate(new(IPAddress.Parse("192.0.2.20"), 46000), 16777215, IceCandidateType.Relay, mapped);
+        var reflexive = new IceCandidate(new(IPAddress.Parse("192.0.2.30"), 47000), 1694498815, IceCandidateType.ServerReflexive, host);
+        var transport = new SdpLocalTransport(new("local012", new string('a', 22)), Fingerprint, host,
+            additionalCandidates: [relay, reflexive], gatheringComplete: false, supportsTrickle: true, relayOnly: true);
+        var description = SdpSessionDescription.Parse(SdpNegotiation.CreateOpusOffer(transport, 1234));
+        Check(description.Media.All(m => m.Candidates is { Count: 1 } && m.Candidates[0].Type == IceCandidateType.Relay));
+        Check(transport.Candidates[0].RelatedEndPoint!.Equals(mapped));
+        Check(SdpNegotiation.CreateOpusOffer(transport, 1234).Contains("raddr 192.0.2.10 rport 45000", StringComparison.Ordinal));
+        Check(!SdpNegotiation.CreateOpusOffer(transport, 1234).Contains("typ host", StringComparison.Ordinal));
+        foreach (var invalid in new[] {
+            new IceCandidate(mapped, 1694498815, IceCandidateType.ServerReflexive, mapped),
+            new IceCandidate(new(IPAddress.IPv6Loopback, 49154), 16777215, IceCandidateType.Relay, new(IPAddress.IPv6Loopback, 49155)),
+            new IceCandidate(mapped, 16777215, IceCandidateType.Relay) })
+        {
+            try { _ = new SdpLocalTransport(transport.Credentials, Fingerprint, host, additionalCandidates: [invalid]); throw new IOException("Invalid local relay metadata accepted"); }
+            catch (ArgumentException) { }
+        }
+    }
     internal static void HostileCorpus()
     {
         var random = new Random(8217); var seed = Offer();

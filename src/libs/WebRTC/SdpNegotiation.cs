@@ -6,7 +6,7 @@ using System.Text;
 
 namespace tryAGI.WebRTC;
 
-/// <summary>One local resolved host base, optional gathered srflx candidates and authenticated signaling material. Does not perform I/O.</summary>
+/// <summary>One local resolved host base, optional gathered srflx/relay candidates and authenticated signaling material. Does not perform I/O.</summary>
 public sealed class SdpLocalTransport
 {
     public IceCredentials Credentials { get; }
@@ -19,17 +19,19 @@ public sealed class SdpLocalTransport
     public int MaximumMessageSize { get; }
     public SdpLocalTransport(IceCredentials credentials, ReadOnlySpan<byte> fingerprintSha256, IPEndPoint candidate,
         ushort sctpPort = 5000, int maximumMessageSize = 262144,
-        IEnumerable<IceCandidate>? additionalCandidates = null, bool gatheringComplete = true, bool supportsTrickle = false)
+        IEnumerable<IceCandidate>? additionalCandidates = null, bool gatheringComplete = true, bool supportsTrickle = false, bool relayOnly = false)
     {
         ArgumentNullException.ThrowIfNull(credentials);
         if (fingerprintSha256.Length != 32 || sctpPort == 0 || maximumMessageSize is < 1 or > 1048576) throw new ArgumentOutOfRangeException(nameof(fingerprintSha256));
         Credentials = credentials; FingerprintSha256 = Convert.ToHexString(fingerprintSha256);
         Candidate = new(candidate); SctpPort = sctpPort; MaximumMessageSize = maximumMessageSize;
         var extras = additionalCandidates?.Take(9).ToArray() ?? [];
-        if (extras.Length > 8 || extras.Any(c => c == null || c.Type != IceCandidateType.ServerReflexive ||
-            c.RelatedEndPoint == null || !c.RelatedEndPoint.Equals(Candidate.EndPoint)))
-            throw new ArgumentException("Additional local candidates must be at most eight srflx mappings of this host base.", nameof(additionalCandidates));
-        Candidates = Array.AsReadOnly(new[] { Candidate }.Concat(extras).DistinctBy(c => c.EndPoint.ToString()).ToArray());
+        if (extras.Length > 8 || extras.Any(c => c == null || c.EndPoint.AddressFamily != Candidate.EndPoint.AddressFamily ||
+            c.RelatedEndPoint == null || c.Type is not (IceCandidateType.ServerReflexive or IceCandidateType.Relay) ||
+            c.Type == IceCandidateType.ServerReflexive && !c.RelatedEndPoint.Equals(Candidate.EndPoint)))
+            throw new ArgumentException("Additional local candidates must be at most eight same-family srflx mappings or relay allocations with their related base.", nameof(additionalCandidates));
+        Candidates = Array.AsReadOnly(new[] { Candidate }.Concat(extras).Where(c => !relayOnly || c.Type == IceCandidateType.Relay)
+            .DistinctBy(c => c.EndPoint.ToString()).ToArray());
         GatheringComplete = gatheringComplete;
         SupportsTrickle = supportsTrickle;
     }

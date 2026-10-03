@@ -9,7 +9,8 @@ including remote TURN relays. Explicit STUN Binding gathers srflx mappings on th
 same owned socket; cancellation preserves that socket for subsequent ICE.
 An owned UDP TURN allocation path adds long-term SHA256/legacy authentication,
 permissions, Send/Data and ChannelData, automatic renewal and bounded deletion.
-Local TURN integration with the ICE checklist is still in development.
+Owned allocations now join a bounded local-path-aware ICE checklist, with explicit
+relay-only policy, permission readiness and selected-path lifetime enforcement.
 Directional SRTP/SRTCP contexts implement AES-CM/HMAC-SHA1-80 and AES-GCM
 128/256, with authenticated replay and bounded per-source state. DTLS 1.2 adds
 mutual SHA-256 fingerprint authentication, ECDHE/EMS and SRTP key negotiation,
@@ -26,8 +27,8 @@ authenticated audio by negotiated payload/MID/source, exposes bounded receive
 queues and preserves RTP sequence, timestamp and SSRC metadata. Secure media readiness
 is separate from SCTP/data readiness.
 
-**Status: transport in development.** Multiple interfaces, DNS/mDNS, local TURN
-candidate integration and TCP/TLS, ICE restart, general SDP/JSEP,
+**Status: transport in development.** Multiple interfaces, DNS/mDNS, TURN TCP/TLS,
+ICE restart, general SDP/JSEP,
 video and automatic RTCP feedback remain incomplete. This library does
 not yet replace SIPSorcery in DId or Advantage. No package is automatically published.
 

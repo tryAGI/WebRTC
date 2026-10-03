@@ -10,6 +10,7 @@ var tests = new (string Name, Action Run)[]
     ("TURN mapped/relayed/peer IPv4/IPv6 address framing", TurnTests.Addresses),
     ("RFC8285 one/two-byte MID framing and hostile elements", MediaTests.Extensions),
     ("RTCP compound/reduced-size framing and report bounds", MediaTests.Control),
+    ("SDP local relay provenance and relay-only inventory", SdpTests.RelayCandidates),
     ("SDP bounded syntax, inheritance and immutable models", SdpTests.Syntax),
     ("SDP duplicate/security/framing/size rejection", SdpTests.Malformed),
     ("SDP DTLS/ICE roles and effective media directions", SdpTests.RolesAndDirections),
