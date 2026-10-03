@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net"
@@ -15,6 +17,11 @@ import (
 )
 
 type offer struct {
+	Secure      bool   `json:"secure"`
+	DtlsClient  bool   `json:"dtlsClient"`
+	Fingerprint string `json:"fingerprint"`
+	Profile     uint16 `json:"profile"`
+	Mtu         int    `json:"mtu"`
 	Controlling bool   `json:"controlling"`
 	Fragment    string `json:"fragment"`
 	Password    string `json:"password"`
@@ -22,11 +29,12 @@ type offer struct {
 }
 
 type description struct {
-	Fragment string `json:"fragment"`
-	Password string `json:"password"`
-	Address  string `json:"address"`
-	Port     int    `json:"port"`
-	Priority uint32 `json:"priority"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+	Fragment    string `json:"fragment"`
+	Password    string `json:"password"`
+	Address     string `json:"address"`
+	Port        int    `json:"port"`
+	Priority    uint32 `json:"priority"`
 }
 
 func main() {
@@ -59,6 +67,23 @@ func main() {
 			release()
 			http.Error(w, "invalid offer", 400)
 			return
+		}
+		var certificate tls.Certificate
+		var fingerprint string
+		if request.Secure {
+			raw, e := hex.DecodeString(request.Fingerprint)
+			if e != nil || len(raw) != 32 || (request.Profile != 1 && request.Profile != 7 && request.Profile != 8) || request.Mtu < 256 || request.Mtu > 1200 {
+				release()
+				http.Error(w, "invalid secure offer", 400)
+				return
+			}
+			var e2 error
+			certificate, fingerprint, e2 = identity()
+			if e2 != nil {
+				release()
+				http.Error(w, "identity creation failed", 500)
+				return
+			}
 		}
 		remote, err := ice.UnmarshalCandidate(request.Candidate)
 		if err != nil || !net.ParseIP(remote.Address()).IsLoopback() {
@@ -133,6 +158,10 @@ func main() {
 			if connectionErr != nil {
 				return
 			}
+			if request.Secure {
+				serveSecure(ctx, connection, certificate, request)
+				return
+			}
 			buffer := make([]byte, 1200)
 			n, readErr := connection.Read(buffer)
 			if readErr == nil {
@@ -140,7 +169,7 @@ func main() {
 			}
 		}()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(description{fragment, password, local.Address(), local.Port(), local.Priority()})
+		json.NewEncoder(w).Encode(description{Fingerprint: fingerprint, Fragment: fragment, Password: password, Address: local.Address(), Port: local.Port(), Priority: local.Priority()})
 	})
 	server := &http.Server{Addr: "127.0.0.1:8080", Handler: mux, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second}
 	if err := server.ListenAndServe(); err != nil {

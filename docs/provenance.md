@@ -17,7 +17,7 @@ This describes code provenance, not a formal clean-room or security-audit claim.
 
 ## Independent test peer
 
-The isolated test peer is newly authored Go code calling the public Pion ICE API;
+The isolated test peer is newly authored Go code calling the public Pion ICE/DTLS/SRTP APIs;
 it is not a port or copy of Pion example code. `github.com/pion/ice/v4 v4.4.5` is
 pinned to upstream commit `54a22240c3afddd0b32f5420a62f253f000c225c`; its original
 root LICENSE is MIT. The complete Go module graph and hashes are in the peer's
@@ -29,6 +29,13 @@ The newly authored SRTP test harness also calls `github.com/pion/srtp/v3 v3.1.3`
 Pion RTP v1.10.5 and RTCP v1.2.19, and selects transport/v5 v5.1.1; all three retain
 their MIT notices. This graph is entirely test-only. Runtime SRTP/SRTCP code is
 newly authored against RFC 3711/7714/6188 using platform cryptographic primitives.
+
+The newly authored DTLS test harness calls `github.com/pion/dtls/v3 v3.1.9`
+(MIT, immutable commit `678003b36515a142197dcfac5cc7f845ccfb1f7c`). This version
+was already present in the linked test graph; it is now a direct test dependency.
+Regenerating linked-module notices produced no change. No Pion DTLS implementation
+or example is copied or translated into the runtime. DTLS uses .NET AES-GCM,
+ECDH/ECDSA/RSA, certificate and HMAC primitives against the cited wire standards.
 
 These packages run only in an isolated local test peer. None is a dependency of the
 .NET runtime library or its NuGet package. Our MIT license does not replace their

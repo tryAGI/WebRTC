@@ -44,6 +44,30 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
     if (!sender.TryProtectRtcp(control, secure, out _) || !receiver.TryUnprotectRtcp(secure, new byte[control.Length], out _)) return 1;
 }
 Console.WriteLine("NativeAOT SRTP/SRTCP profiles and encrypted ICE network smoke passed");
+foreach (var profile in Enum.GetValues<SrtpProfile>())
+{
+    await using var left = new IceUdpTransport(new(IPAddress.Loopback, 0));
+    await using var right = new IceUdpTransport(new(IPAddress.Loopback, 0));
+    using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    await Task.WhenAll(left.ConnectAsync(right.LocalCredentials, IceRole.Controlling, [new(right.LocalEndPoint)], deadline.Token),
+        right.ConnectAsync(left.LocalCredentials, IceRole.Controlled, [new(left.LocalEndPoint)], deadline.Token));
+    using var clientIdentity = DtlsIdentity.Generate(); using var serverIdentity = DtlsIdentity.Generate();
+    var options = new DtlsSrtpOptions { Profiles = [profile], MaximumDatagramSize = 256 };
+    await using var client = new DtlsSrtpTransport(left, clientIdentity, DtlsRole.Client, serverIdentity.GetFingerprintSha256(), options);
+    await using var server = new DtlsSrtpTransport(right, serverIdentity, DtlsRole.Server, clientIdentity.GetFingerprintSha256(), options);
+    await Task.WhenAll(client.ConnectAsync(deadline.Token), server.ConnectAsync(deadline.Token));
+    await client.SendApplicationDatagramAsync("native-dtls"u8.ToArray(), deadline.Token);
+    var receivedApp = false;
+    await foreach (var packet in server.ReceiveApplicationDatagramsAsync(deadline.Token))
+    { if (!packet.AsSpan().SequenceEqual("native-dtls"u8)) return 1; receivedApp = true; break; }
+    if (!receivedApp) return 1;
+    await client.SendRtpAsync(data, deadline.Token);
+    var receivedMedia = false;
+    await foreach (var packet in server.ReceiveMediaDatagramsAsync(deadline.Token))
+    { if (packet.Kind != SecureMediaKind.Rtp || !packet.Data.AsSpan().SequenceEqual(data)) return 1; receivedMedia = true; break; }
+    if (!receivedMedia) return 1;
+}
+Console.WriteLine("NativeAOT fragmented authenticated DTLS and negotiated SRTP profiles passed");
 return 0;
 
 static async Task<byte[]> Read(IceUdpTransport transport, CancellationToken cancellationToken)

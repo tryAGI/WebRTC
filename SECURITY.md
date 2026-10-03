@@ -21,12 +21,17 @@ is a CRC for protocol identification and corruption detection, not authenticatio
 
 SRTP/SRTCP contexts authenticate before returning decrypted packets, enforce replay
 windows and refuse sender index reuse. They require fresh directional key generations;
-they do not yet authenticate peers or negotiate keys. See [SRTP/SRTCP scope](docs/srtp.md).
+standalone contexts do not authenticate peers or negotiate keys. See [SRTP/SRTCP scope](docs/srtp.md).
 The independent peer and synthetic vectors establish profile interoperability, not an
-independent security audit. DTLS fingerprint/exporter binding remains a prerequisite.
+independent security audit. `DtlsSrtpTransport` authenticates both peer fingerprints,
+verifies handshake signatures/Finished and derives directional SRTP material.
+Signaled fingerprints must come from trusted signaling. DTLS supports only a bounded
+DTLS 1.2/EMS/P-256/AES-GCM subset; unsupported negotiations fail closed.
+See [DTLS scope and key limits](docs/dtls.md).
 
 No untrusted packet may trigger unbounded allocation, reassembly, retry loops or network
 destinations. Add explicit limits when each stateful transport component is introduced.
 SDP-provided ICE servers, DNS answers, candidates and datagrams remain untrusted input.
 
-Consumers must not use this initial foundation to establish secure WebRTC sessions.
+A full peer connection, data channels, NAT traversal and consumer acceptance remain
+unimplemented. Consumers must not migrate on DTLS/SRTP interoperability alone.

@@ -28,12 +28,31 @@ var cases = new List<(string Name, Func<Task> Run)>
 foreach (var profile in Enum.GetValues<SrtpProfile>())
     cases.Add(($"Encrypted ICE datagrams: {profile}", () => SrtpInterop.Network(profile)));
 
+foreach (var profile in Enum.GetValues<SrtpProfile>())
+    cases.Add(($"DTLS exporter and bidirectional protected media: {profile}", () => DtlsTests.Exchange(profile)));
+cases.Add(("DTLS cancellation cleans up a pending reader", DtlsTests.Cancel));
+cases.Add(("DTLS malformed fragment flood preserves handshake state", DtlsTests.MalformedFlood));
+cases.Add(("DTLS reordered server handshake messages", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, fault: "reorder")));
+cases.Add(("DTLS encrypted Finished before ChangeCipherSpec", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, fault: "ccs-reorder")));
+cases.Add(("DTLS cookie exchange", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, cookie: true)));
+cases.Add(("DTLS fragmented certificates with loss", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, mtu: 256, fault: "fragment-loss")));
+cases.Add(("DTLS lost initial ClientHello", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, fault: "hello-loss")));
+cases.Add(("DTLS lost final server flight", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, fault: "final-loss")));
+cases.Add(("DTLS tamper and replay rejection", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, fault: "app-replay")));
+cases.Add(("DTLS wrong certificate fingerprint", () => DtlsTests.Rejection("fingerprint")));
+cases.Add(("DTLS tampered handshake signature", () => DtlsTests.Rejection("signature")));
+cases.Add(("DTLS timeout preserves pending-reader failure", DtlsTests.Timeout));
+
 if (args.Length != 0)
 {
     if (args.Length != 2 || args[0] != "--pion-uri" || !Uri.TryCreate(args[1], UriKind.Absolute, out var pionUri) ||
         pionUri.Scheme != "http" || pionUri.UserInfo.Length != 0 ||
         !(pionUri.Host == "localhost" || (IPAddress.TryParse(pionUri.Host, out var address) && IPAddress.IsLoopback(address))))
         throw new ArgumentException("The independent peer must be an explicit local HTTP endpoint.");
+    foreach (var role in Enum.GetValues<DtlsRole>())
+        foreach (var profile in Enum.GetValues<SrtpProfile>())
+            cases.Add(($"Pion DTLS {role} and exporter/SRTP {profile}", () => DtlsTests.Pion(pionUri, role, profile)));
+    cases.Add(("Pion DTLS fragmented certificate interoperability", () => DtlsTests.Pion(pionUri, DtlsRole.Server, SrtpProfile.AeadAes128Gcm, 256)));
     cases.Add(("Pion controlled peer interoperability", () => Pion(pionUri, IceRole.Controlling)));
     cases.Add(("Pion controlling peer interoperability", () => Pion(pionUri, IceRole.Controlled)));
     cases.Add(("Pion early authenticated checks survive signaling delay", () => Pion(pionUri, IceRole.Controlled, waitForEarlyCheck: true)));
@@ -305,6 +324,8 @@ internal sealed record PeerOffer(bool Controlling, string Fragment, string Passw
 internal sealed record PeerResponse(string Fragment, string Password, string Address, int Port, uint Priority);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(DtlsOffer))]
+[JsonSerializable(typeof(DtlsDescription))]
 [JsonSerializable(typeof(PeerOffer))]
 [JsonSerializable(typeof(PeerResponse))]
 internal partial class InteropJson : JsonSerializerContext;

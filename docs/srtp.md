@@ -23,7 +23,8 @@ extensions are not implemented.
 ## Ownership and bounds
 
 Use independent key/salt material for sending and receiving, derived from an
-authenticated DTLS exporter. This exporter/handshake is not yet implemented.
+authenticated DTLS exporter. `DtlsSrtpTransport` now performs that handshake and
+exporter binding; see [DTLS scope](dtls.md).
 Never recreate a send context with previously used keys, reset indices, reuse an
 SSRC's sequence space or evict its state within the same key generation. Re-key
 with fresh material before limits are reached. Disposal closes the context and
@@ -67,7 +68,9 @@ The isolated Pion peer independently encrypts/decrypts the same synthetic packet
 series, including RTP rollover, reordered delivery and E=0 SRTCP. Exact ciphertext
 comparison checks key derivation, nonce, authenticated header and trailer layout.
 The NativeAOT smoke executes all three profiles and encrypted local ICE datagrams.
-None of these fixtures contains provider credentials or negotiates DTLS keys.
+The standalone synthetic fixtures contain no provider credentials or DTLS keys.
+The DTLS integration lane independently negotiates directional keys, then exchanges
+protected media with Pion in both roles. NativeAOT also executes negotiated SRTP.
 
 Standards: [RFC 3711](https://www.rfc-editor.org/rfc/rfc3711.html),
 [RFC 7714](https://www.rfc-editor.org/rfc/rfc7714.html),
