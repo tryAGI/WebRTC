@@ -38,8 +38,9 @@ connection-state and encoded-frame types when implementing the respective milest
    Do not treat fresh protocol glue as a reason to invent cryptographic primitives.
 4. SDP negotiation and RTP/RTCP encoded-media transport, interoperability with a
    separately pinned local browser/Pion peer, including loss/reordering/cancellation.
-5. Reliable ordered/unordered SCTP/DCEP channels with bounded reassembly,
-   flow control and independent Pion validation now exist. Complete PR-SCTP, stream
+5. Ordered/unordered SCTP/DCEP channels with bounded reassembly, flow control,
+   reliable/limited-retransmission/timed policies and independent Pion validation
+   now exist. Complete stream
    reset/close, interleaving and path behavior, then migrate
    DId, Advantage and Simli separately after consumer regressions and acceptance evidence.
 
@@ -55,6 +56,7 @@ or MIT relicensing of restricted source is part of this initial foundation.
 - RFC 8825 / RFC 8826 / RFC 8827: WebRTC protocol and security architecture
 - RFC 5764 / RFC 3711 / RFC 7714 / RFC 6188: DTLS-SRTP / SRTP / AES-GCM / AES-256 KDF
 - RFC 6347 / RFC 5246 / RFC 7627 / RFC 8422 / RFC 5289 / RFC 5705: DTLS 1.2 / TLS / EMS / ECC / GCM / exporters
+- RFC 9260 / RFC 8261 / RFC 3758 / RFC 5061 / RFC 6525: SCTP / SCTP over DTLS / partial reliability / extension negotiation / stream reset
 - RFC 8831 / RFC 8832 / RFC 8833: data channels / DCEP / DTLS usage
 
 Implement the wire contracts from these standards. Copying RFC code components or

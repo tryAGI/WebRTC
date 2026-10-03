@@ -8,6 +8,7 @@ namespace tryAGI.WebRTC;
 public enum SctpRole { Initiator, Responder }
 public sealed record SctpOptions
 {
+    public bool EnablePartialReliability { get; init; } = true;
     public ushort LocalPort { get; init; } = 5000;
     public ushort RemotePort { get; init; } = 5000;
     public ushort Streams { get; init; } = 128;
@@ -24,10 +25,11 @@ public sealed record SctpOptions
 }
 public sealed record SctpMessage(ushort StreamId, uint PayloadProtocolIdentifier, bool Unordered, byte[] Data);
 public sealed record SctpDiagnostics(long Retransmissions, long RejectedPackets, int BufferedSendBytes,
-    int BufferedReceiveBytes, int OutstandingChunks, int CongestionWindowBytes, uint PeerAdvertisedWindowBytes, TimeSpan RetransmissionTimeout);
+    int BufferedReceiveBytes, int OutstandingChunks, int CongestionWindowBytes, uint PeerAdvertisedWindowBytes, TimeSpan RetransmissionTimeout,
+    long AbandonedMessages = 0);
 
-/// <summary>One bounded, single-path reliable SCTP association over authenticated DTLS datagrams.</summary>
-public sealed class SctpAssociation : IAsyncDisposable
+/// <summary>One bounded, single-path SCTP/PR-SCTP association over authenticated DTLS datagrams.</summary>
+public sealed partial class SctpAssociation : IAsyncDisposable
 {
     private const int MaximumChunks = 4096;
     private readonly DtlsSrtpTransport _transport;
@@ -119,13 +121,16 @@ public sealed class SctpAssociation : IAsyncDisposable
     public SctpDiagnostics GetDiagnostics()
     {
         lock (_gate) return new(Interlocked.Read(ref _retransmissions), Interlocked.Read(ref _rejected), _sendBytes,
-            _receiveBytes, _outbound.Count, _cwnd, _peerWindow, _rto);
+            _receiveBytes, _outbound.Count, _cwnd, _peerWindow, _rto, _abandonedMessages);
     }
 
-    /// <summary>Queues one complete reliable message, waiting for bounded local buffer admission. It does not wait for acknowledgment.</summary>
+    /// <summary>Queues one complete message with optional partial reliability. Timed lifetime starts at this call, including admission. Does not wait for acknowledgment.</summary>
     public async ValueTask SendMessageAsync(ushort streamId, uint payloadProtocolIdentifier, ReadOnlyMemory<byte> data,
-        bool unordered = false, CancellationToken cancellationToken = default)
+        bool unordered = false, CancellationToken cancellationToken = default, SctpReliability? reliability = null)
     {
+        var policy = reliability ?? SctpReliability.Reliable;
+        ValidateReliability(policy);
+        var created = Stopwatch.GetTimestamp();
         if (data.Length == 0 || data.Length > _options.MaximumMessageSize) throw new ArgumentOutOfRangeException(nameof(data));
         var maximum = (_options.MaximumPacketSize - 28) & ~3;
         var chunks = (data.Length + maximum - 1) / maximum;
@@ -137,14 +142,18 @@ public sealed class SctpAssociation : IAsyncDisposable
             lock (_gate)
             {
                 RequireReady();
+                linked.Token.ThrowIfCancellationRequested();
+                if (policy.Mode != DataChannelReliability.Reliable && !SupportsPartialReliability)
+                    throw new NotSupportedException("The peer did not negotiate PR-SCTP.");
                 if (_closing) throw new InvalidOperationException("SCTP is shutting down.");
                 if (streamId >= _outgoingStreams) throw new ArgumentOutOfRangeException(nameof(streamId));
+                if (Expired(policy, created)) { _abandonedMessages++; return; }
                 if (_sendBytes + data.Length <= _options.SendBufferBytes && _outbound.Count + chunks <= MaximumChunks)
                 {
                     if (unchecked(_nextTsn - _initialTsn) > int.MaxValue - (uint)chunks)
                         throw new InvalidOperationException("SCTP serial-number lifetime exhausted; establish a fresh association.");
                     var sequence = unordered ? (ushort)0 : _sendSequences.GetValueOrDefault(streamId);
-                    var created = Stopwatch.GetTimestamp();
+                    var message = new OutboundMessage(streamId, sequence, unordered, policy, created);
                     for (var offset = 0; offset < data.Length; offset += maximum)
                     {
                         var size = Math.Min(maximum, data.Length - offset);
@@ -152,7 +161,7 @@ public sealed class SctpAssociation : IAsyncDisposable
                         var body = new byte[12 + size]; var tsn = _nextTsn++;
                         SctpWire.U32(body, tsn); SctpWire.U16(body.AsSpan(4), streamId); SctpWire.U16(body.AsSpan(6), sequence);
                         SctpWire.U32(body.AsSpan(8), payloadProtocolIdentifier); data.Span.Slice(offset, size).CopyTo(body.AsSpan(12));
-                        _outbound.Add(tsn, new(SctpWire.Chunk(0, flags, body), size, created));
+                        _outbound.Add(tsn, new(SctpWire.Chunk(0, flags, body), size, message));
                     }
                     if (!unordered) _sendSequences[streamId] = unchecked((ushort)(sequence + 1));
                     _sendBytes += data.Length;
@@ -161,7 +170,20 @@ public sealed class SctpAssociation : IAsyncDisposable
                 }
                 wait = _space.Task;
             }
-            await wait.WaitAsync(linked.Token).ConfigureAwait(false);
+            if (policy.Mode == DataChannelReliability.Timed)
+            {
+                var remaining = TimeSpan.FromMilliseconds(policy.Parameter) - Stopwatch.GetElapsedTime(created);
+                if (remaining <= TimeSpan.Zero) { linked.Token.ThrowIfCancellationRequested(); lock (_gate) _abandonedMessages++; return; }
+                var timeout = TimeSpan.FromMilliseconds(Math.Min(remaining.TotalMilliseconds, uint.MaxValue - 1));
+                try { await wait.WaitAsync(timeout, linked.Token).ConfigureAwait(false); }
+                catch (TimeoutException)
+                {
+                    linked.Token.ThrowIfCancellationRequested();
+                    if (!Expired(policy, created)) continue;
+                    lock (_gate) _abandonedMessages++; return;
+                }
+            }
+            else await wait.WaitAsync(linked.Token).ConfigureAwait(false);
         }
     }
 
@@ -259,16 +281,20 @@ public sealed class SctpAssociation : IAsyncDisposable
     private List<byte[]> PrepareOutgoing()
     {
         var result = new List<byte[]>();
+        ExpireMessages(); UpdateForwardFlight();
         while (_controls.Count != 0 && result.Count < 32) result.Add(Packet(_controls.Dequeue()));
         if (_sackNeeded && _hasRemoteInit) { _sackNeeded = false; result.Add(Packet(Sack())); }
         if (!_ready || _shutdownAckSent || _finishAfterFlush) return result;
-        var flightBytes = _outbound.Values.Where(x => x.Sent && !x.GapAcknowledged).Sum(x => x.Chunk.Length);
-        var peerFlightBytes = _outbound.Values.Where(x => x.Sent && !x.GapAcknowledged).Sum(x => x.Size);
+        var flightBytes = _outbound.Values.Where(x => x.Sent && !x.GapAcknowledged && !x.Message.Abandoned).Sum(x => x.Chunk.Length);
+        var peerFlightBytes = _outbound.Values.Where(x => x.Sent && !x.GapAcknowledged && !x.Message.Abandoned).Sum(x => x.Size);
         var expedited = false;
         foreach (var pair in _outbound.OrderBy(x => unchecked(x.Key - _acknowledgedTsn)))
         {
             var item = pair.Value;
-            if (item.GapAcknowledged || (item.Sent && !item.Retransmit)) continue;
+            if (item.Message.Abandoned || item.GapAcknowledged || (item.Sent && !item.Retransmit)) continue;
+            if (item.Sent && item.Retransmit && item.Message.Policy.Mode == DataChannelReliability.RetransmissionLimited &&
+                (uint)item.Retransmissions >= item.Message.Policy.Parameter)
+            { Abandon(item.Message); continue; }
             var probe = !item.Sent && flightBytes == 0 && _peerWindow == 0 &&
                 (_lastProbeAt == 0 || Stopwatch.GetElapsedTime(_lastProbeAt) >= _rto);
             if (_timeoutRecovery && pair.Key != _timeoutRecoveryTsn) continue;
@@ -303,7 +329,8 @@ public sealed class SctpAssociation : IAsyncDisposable
             QueueControl(_flight); _flightAt = Stopwatch.GetTimestamp(); _flightRto = TimeSpan.FromSeconds(Math.Min(60, 2 * _flightRto.TotalSeconds));
             Interlocked.Increment(ref _retransmissions);
         }
-        var oldest = _outbound.Values.Where(x => x.Sent && !x.GapAcknowledged).OrderBy(x => x.SentAt).FirstOrDefault();
+        RetryForwardFlight();
+        var oldest = _outbound.Values.Where(x => x.Sent && !x.GapAcknowledged && !x.Message.Abandoned).OrderBy(x => x.SentAt).FirstOrDefault();
         if (oldest != null && !oldest.Retransmit && Stopwatch.GetElapsedTime(oldest.SentAt) >= _rto)
         {
             _threshold = Math.Max(_cwnd / 2, 4 * _maximumChunkSize); _cwnd = _maximumChunkSize; _partialAcked = 0;
@@ -316,10 +343,18 @@ public sealed class SctpAssociation : IAsyncDisposable
 
     private byte[] Init(byte type, byte[]? cookie = null)
     {
-        var body = new byte[16 + (cookie == null ? 0 : 4 + cookie.Length)];
+        var body = new byte[16 + (cookie == null ? 0 : 4 + cookie.Length) + (_options.EnablePartialReliability ? 12 : 0)];
         SctpWire.U32(body, _localTag); SctpWire.U32(body.AsSpan(4), (uint)_options.ReceiveBufferBytes);
         SctpWire.U16(body.AsSpan(8), type == 2 ? _outgoingStreams : _options.Streams); SctpWire.U16(body.AsSpan(10), _options.Streams); SctpWire.U32(body.AsSpan(12), _initialTsn);
         if (cookie != null) { SctpWire.U16(body.AsSpan(16), 7); SctpWire.U16(body.AsSpan(18), (ushort)(4 + cookie.Length)); cookie.CopyTo(body, 20); }
+        if (_options.EnablePartialReliability)
+        {
+            var offset = body.Length - 12;
+            SctpWire.U16(body.AsSpan(offset), 0xc000); SctpWire.U16(body.AsSpan(offset + 2), 4);
+            // Advertise the same capability through RFC 5061 Supported Extensions.
+            // Pion uses this parameter, including FORWARD-TSN chunk type 192.
+            SctpWire.U16(body.AsSpan(offset + 4), 0x8008); SctpWire.U16(body.AsSpan(offset + 6), 5); body[offset + 8] = 192;
+        }
         return SctpWire.Chunk(type, 0, body);
     }
 
@@ -351,6 +386,7 @@ public sealed class SctpAssociation : IAsyncDisposable
                 case 11 when !_ready && _peerCookie != null && chunk.Body.IsEmpty: Establish(); break;
                 case 0 when _ready: ProcessData(chunk.Flags, chunk.Body); break;
                 case 3 when _ready: ProcessSack(chunk.Body); break;
+                case 192 when _ready && SupportsPartialReliability: ProcessForwardTsn(chunk.Body); break;
                 case 4 when _ready:
                     if (chunk.Body.Length < 4 || chunk.Body.Length + 16 > _options.MaximumPacketSize ||
                         SctpWire.U16(chunk.Body) != 1 || SctpWire.U16(chunk.Body[2..]) != chunk.Body.Length) { Reject(); break; }
@@ -384,7 +420,8 @@ public sealed class SctpAssociation : IAsyncDisposable
         if (body.Length < 16 || SctpWire.U32(body) == 0 || SctpWire.U32(body[4..]) < 1500 ||
             SctpWire.U16(body[8..]) == 0 || SctpWire.U16(body[10..]) == 0 || (acknowledgment && SctpWire.U16(body[8..]) > _options.Streams))
         { Reject(); return; }
-        byte[]? cookie = null; var parameters = body[16..];
+        byte[]? cookie = null; var parameters = body[16..]; var partialReliability = false;
+        var forwardParameter = false; var extensionsParameter = false;
         while (!parameters.IsEmpty)
         {
             if (parameters.Length < 4) { Reject(); return; }
@@ -392,12 +429,22 @@ public sealed class SctpAssociation : IAsyncDisposable
             if (length < 4 || length > parameters.Length || (padded > parameters.Length && length != parameters.Length)) { Reject(); return; }
             if (type == 7)
             { if (!acknowledgment || cookie != null || length is < 5 or > 1024) { Reject(); return; } cookie = parameters.Slice(4, length - 4).ToArray(); }
+            else if (type == 0xc000)
+            { if (length != 4 || forwardParameter) { Reject(); return; } forwardParameter = partialReliability = true; }
+            else if (type == 0x8008)
+            {
+                if (length > 260 || extensionsParameter) { Reject(); return; }
+                extensionsParameter = true;
+                if (parameters.Slice(4, length - 4).Contains((byte)192)) partialReliability = true;
+            }
             else if (type is not (5 or 6 or 9 or 11 or 12) && (type & 0x8000) == 0) { Reject(); return; }
             parameters = padded >= parameters.Length ? [] : parameters[padded..];
         }
         if (acknowledgment && (cookie == null || cookie.Length + 16 > _options.MaximumPacketSize)) { Reject(); return; }
         var tag = SctpWire.U32(body); var tsn = SctpWire.U32(body[12..]);
         if (_hasRemoteInit && (tag != _remoteTag || tsn != _remoteInitialTsn)) { Reject(); return; }
+        if (_ready && partialReliability != _peerPartialReliability) { Reject(); return; }
+        _peerPartialReliability = partialReliability;
         if (!_hasRemoteInit)
         {
             _remoteTag = tag; _remoteInitialTsn = tsn; _receiveTsn = unchecked(tsn - 1);
@@ -438,15 +485,16 @@ public sealed class SctpAssociation : IAsyncDisposable
         // RFC 9260 section 6.2: when byte storage is exhausted, a gap-filling
         // DATA chunk may replace the highest undelivered, gap-acknowledged TSNs.
         // Never revoke cumulative acknowledgments or messages released to the ULP.
-        if (tsn == unchecked(_receiveTsn + 1) && _receiveBytes + body.Length - 12 > _options.ReceiveBufferBytes)
+        if (tsn == unchecked(_receiveTsn + 1) && (_receiveBytes + body.Length - 12 > _options.ReceiveBufferBytes ||
+            _fragments.Count + _retainedMessages >= MaximumChunks))
         {
             foreach (var held in _gaps.Where(_fragments.ContainsKey).OrderByDescending(value => unchecked(value - _receiveTsn)).ToArray())
             {
-                if (_receiveBytes + body.Length - 12 <= _options.ReceiveBufferBytes) break;
+                if (_receiveBytes + body.Length - 12 <= _options.ReceiveBufferBytes && _fragments.Count + _retainedMessages < MaximumChunks) break;
                 _receiveBytes -= _fragments[held].Data.Length; _fragments.Remove(held); _gaps.Remove(held);
             }
         }
-        if (unchecked(tsn - _receiveTsn) > MaximumChunks || _fragments.Count >= MaximumChunks ||
+        if (unchecked(tsn - _receiveTsn) > MaximumChunks || _fragments.Count + _retainedMessages >= MaximumChunks ||
             _gaps.Count >= MaximumChunks || _receiveBytes + body.Length - 12 > _options.ReceiveBufferBytes ||
             _retainedMessages >= MaximumChunks ||
             (_retainedMessages >= _options.MaximumQueuedMessages && tsn != unchecked(_receiveTsn + 1))) { Reject(); return; }
@@ -502,9 +550,14 @@ public sealed class SctpAssociation : IAsyncDisposable
         foreach (var (stream, queue) in _ordered)
         {
             var expected = _receiveSequences.GetValueOrDefault(stream);
-            while (_deliveredMessages < _options.MaximumQueuedMessages && queue.Remove(expected, out var ready))
-            { Deliver(ready); expected++; }
+            while (_deliveredMessages < _options.MaximumQueuedMessages)
+            {
+                if (queue.Remove(expected, out var ready)) { Deliver(ready); expected++; }
+                else if (_forwardSequences.TryGetValue(stream, out var skipped) && !SctpWire.After(expected, skipped)) expected++;
+                else break;
+            }
             _receiveSequences[stream] = expected;
+            if (_forwardSequences.TryGetValue(stream, out var through) && SctpWire.After(expected, through)) _forwardSequences.Remove(stream);
         }
     }
     private void Deliver(SctpMessage message)
@@ -558,18 +611,22 @@ public sealed class SctpAssociation : IAsyncDisposable
             if (start == 0 || start > end || start <= last || SctpWire.After(unchecked(cumulative + end), _highestSentTsn)) { Reject(); return; }
             ranges[i] = (start, end); last = end;
         }
-        var advanced = SctpWire.After(cumulative, _acknowledgedTsn);
-        var oldFlight = _outbound.Values.Where(x => x.Sent && !x.GapAcknowledged).Sum(x => x.Chunk.Length);
+        var oldFlight = _outbound.Values.Where(x => x.Sent && !x.GapAcknowledged && !x.Message.Abandoned).Sum(x => x.Chunk.Length);
         var fullyUsed = oldFlight + _maximumChunkSize >= _cwnd;
         var newlyAcked = Acknowledge(cumulative);
         var top = unchecked(cumulative + last); var newTop = SctpWire.After(top, _lastGapTop); if (newTop) _lastGapTop = top;
         var newFastRetransmission = false;
         foreach (var pair in _outbound)
         {
-            var item = pair.Value; if (!item.Sent) continue;
+            var item = pair.Value; if (!item.Sent || item.Message.Abandoned) continue;
             var offset = unchecked(pair.Key - cumulative);
             var gap = ranges.Any(range => offset >= range.Start && offset <= range.End);
-            if (gap && !item.GapAcknowledged) newlyAcked += item.Chunk.Length;
+            if (gap && !item.GapAcknowledged)
+            {
+                newlyAcked += item.Chunk.Length;
+                if (item.Retransmissions == 0 && !item.RttSampled)
+                { MeasureRtt(Stopwatch.GetElapsedTime(item.SentAt).TotalSeconds); item.RttSampled = true; }
+            }
             if (_timeoutRecovery && pair.Key == _timeoutRecoveryTsn && gap) _timeoutRecovery = false;
             if (!gap && item.GapAcknowledged) item.Retransmit = true;
             item.GapAcknowledged = gap;
@@ -578,7 +635,7 @@ public sealed class SctpAssociation : IAsyncDisposable
         }
         _peerWindow = SctpWire.U32(body[4..]);
         if (_fastRecovery && !SctpWire.After(_fastRecoveryExit, cumulative)) _fastRecovery = false;
-        if (newlyAcked > 0 && advanced && fullyUsed && !_fastRecovery)
+        if (newlyAcked > 0 && fullyUsed && !_fastRecovery)
         {
             if (_cwnd <= _threshold) _cwnd = Math.Min(_options.SendBufferBytes, _cwnd + Math.Min(newlyAcked, _maximumChunkSize));
             else { _partialAcked += newlyAcked; if (_partialAcked >= _cwnd) { _partialAcked -= _cwnd; _cwnd = Math.Min(_options.SendBufferBytes, _cwnd + _maximumChunkSize); } }
@@ -595,12 +652,17 @@ public sealed class SctpAssociation : IAsyncDisposable
         foreach (var tsn in _outbound.Keys.Where(tsn => !SctpWire.After(tsn, cumulative)).ToArray())
         {
             var item = _outbound[tsn];
-            if (!item.Sent) throw new IOException("Peer acknowledged unsent SCTP data.");
-            if (!item.GapAcknowledged) bytes += item.Chunk.Length;
-            if (item.Retransmissions == 0) MeasureRtt(Stopwatch.GetElapsedTime(item.SentAt).TotalSeconds);
-            _sendBytes -= item.Size; _outbound.Remove(tsn); removed++;
+            if (!item.Sent && !item.Message.Abandoned) throw new IOException("Peer acknowledged unsent SCTP data.");
+            if (!item.Message.Abandoned)
+            {
+                if (!item.GapAcknowledged) bytes += item.Chunk.Length;
+                if (item.Retransmissions == 0 && !item.RttSampled) MeasureRtt(Stopwatch.GetElapsedTime(item.SentAt).TotalSeconds);
+                _sendBytes -= item.Size;
+            }
+            _outbound.Remove(tsn); removed++;
         }
         _acknowledgedTsn = cumulative;
+        if (_forwardFlight != null && !SctpWire.After(_forwardPoint, cumulative)) _forwardFlight = null;
         if (_timeoutRecovery && !SctpWire.After(_timeoutRecoveryTsn, cumulative)) _timeoutRecovery = false;
         if (_outbound.Count == 0) _drained.TrySetResult();
         if (removed != 0) { _space.TrySetResult(); _space = NewSignal(); }
@@ -624,18 +686,18 @@ public sealed class SctpAssociation : IAsyncDisposable
         {
             _receiveEnded = true; _receiveFailure = new ObjectDisposedException(nameof(SctpAssociation));
             CompleteReceiveIfPossible();
-            _outbound.Clear(); _fragments.Clear(); _gaps.Clear(); _ordered.Clear(); _controls.Clear(); _unorderedPending.Clear();
+            _outbound.Clear(); _fragments.Clear(); _gaps.Clear(); _ordered.Clear(); _controls.Clear(); _unorderedPending.Clear(); _forwardSequences.Clear();
             CryptographicOperations.ZeroMemory(_cookieKey); if (_cookie != null) CryptographicOperations.ZeroMemory(_cookie);
         }
         _lifetime.Dispose();
     }
-    private sealed class Outbound(byte[] chunk, int size, long created)
+    private sealed class Outbound(byte[] chunk, int size, OutboundMessage message)
     {
-        internal readonly byte[] Chunk = chunk;
+        internal byte[] Chunk = chunk;
         internal readonly int Size = size;
-        internal readonly long CreatedAt = created;
+        internal readonly OutboundMessage Message = message;
         internal long SentAt;
-        internal bool Sent, GapAcknowledged, Retransmit, FastRetransmitted;
+        internal bool Sent, GapAcknowledged, Retransmit, FastRetransmitted, RttSampled;
         internal int Retransmissions, MissingReports;
     }
     private sealed record Fragment(ushort Stream, ushort Sequence, uint Ppid, byte Flags, byte[] Data);

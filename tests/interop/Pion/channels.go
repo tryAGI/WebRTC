@@ -13,6 +13,10 @@ import (
 )
 
 func serveChannels(ctx context.Context, connection net.Conn, request offer) {
+	connection = &sctpLossConnection{Conn: connection, incoming: request.ExtensionScenario == "incoming-loss",
+		dropEnabled: request.ExtensionScenario != "", corruptForward: request.ExtensionScenario == "malformed-forward"}
+	stopClose := context.AfterFunc(ctx, func() { _ = connection.Close() })
+	defer stopClose()
 	logger := logging.NewDefaultLoggerFactory()
 	config := sctp.Config{LoggerFactory: logger, NetConn: connection, MTU: 1152, MaxMessageSize: 262144, MaxReceiveBufferSize: 1048576, BlockWrite: true}
 	var association *sctp.Association
@@ -33,14 +37,11 @@ func serveChannels(ctx context.Context, connection net.Conn, request offer) {
 		if request.DtlsClient {
 			id = 0
 		}
-		kind := datachannel.ChannelTypeReliable
+		kind := datachannel.ChannelType(request.Reliability)
 		if request.Unordered {
-			kind = datachannel.ChannelTypeReliableUnordered
+			kind |= 128
 		}
-		channel, err = datachannel.Dial(association, id, &datachannel.Config{LoggerFactory: logger, Label: "oai-events", Protocol: "json", ChannelType: kind})
-		if err == nil {
-			_, err = channel.WriteDataChannel([]byte("pion:ready"), true)
-		}
+		channel, err = datachannel.Dial(association, id, &datachannel.Config{LoggerFactory: logger, Label: "oai-events", Protocol: "json", ChannelType: kind, ReliabilityParameter: request.ReliabilityParameter})
 	} else {
 		channel, err = datachannel.Accept(association, &datachannel.Config{LoggerFactory: logger})
 	}
@@ -48,17 +49,69 @@ func serveChannels(ctx context.Context, connection net.Conn, request offer) {
 		log.Printf("DCEP open: %v", err)
 		return
 	}
-	buffer := make([]byte, 262144)
-	for i := 0; i < 4; i++ {
-		n, text, e := channel.ReadDataChannel(buffer)
-		if e != nil {
-			log.Printf("DCEP read: %v", e)
+	opened := make(chan struct{})
+	if request.PeerOpensChannels {
+		channel.OnOpen(func() { close(opened) })
+	}
+	// Reading processes DCEP ACK. PR-SCTP fault injection must start only after
+	// that ACK; RFC 8832 requires messages sent before it to remain reliable.
+	readDone := make(chan error, 1)
+	go func() {
+		buffer := make([]byte, 262144)
+		count := 4
+		if request.ExtensionScenario != "" {
+			count = 1
+		}
+		for i := 0; i < count; i++ {
+			n, text, e := channel.ReadDataChannel(buffer)
+			if e != nil {
+				readDone <- e
+				return
+			}
+			if request.ExtensionScenario == "peer-loss" || request.ExtensionScenario == "malformed-forward" {
+				continue
+			}
+			if _, e = channel.WriteDataChannel(buffer[:n], text); e != nil {
+				readDone <- e
+				return
+			}
+		}
+		readDone <- nil
+	}()
+	if request.PeerOpensChannels {
+		if request.ExtensionScenario == "peer-loss" || request.ExtensionScenario == "malformed-forward" {
+			select {
+			case <-opened:
+			case err = <-readDone:
+				log.Printf("DCEP ACK: %v", err)
+				return
+			case <-ctx.Done():
+				return
+			}
+			// Keep the synthetic lost message within the initial congestion flight.
+			lost := make([]byte, 2000)
+			for i := range lost {
+				lost[i] = 0xaa
+			}
+			if _, err = channel.WriteDataChannel(lost, false); err == nil {
+				_, err = channel.WriteDataChannel([]byte("after-skip"), true)
+			}
+		} else {
+			_, err = channel.WriteDataChannel([]byte("pion:ready"), true)
+		}
+		if err != nil {
+			log.Printf("DCEP write: %v", err)
 			return
 		}
-		if _, e = channel.WriteDataChannel(buffer[:n], text); e != nil {
-			log.Printf("DCEP write: %v", e)
+	}
+	select {
+	case err = <-readDone:
+		if err != nil {
+			log.Printf("DCEP read: %v", err)
 			return
 		}
+	case <-ctx.Done():
+		return
 	}
 	if err = association.Shutdown(ctx); err != nil {
 		log.Printf("SCTP shutdown: %v", err)

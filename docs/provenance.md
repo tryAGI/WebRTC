@@ -47,6 +47,17 @@ standard `hash/crc32`, not copied from upstream tests. The bounded four-byte ACK
 exception is based on pinned Pion wire behavior; `message_channel_ack.go` at that
 commit was inspected with its MIT file header to diagnose it, not imported or ported.
 
+PR-SCTP is newly authored against RFC 3758 and extension negotiation against RFC 5061.
+Our `sctp-loss.go` fault injector uses Go's standard CRC32C implementation to remove
+synthetic all-0xaa DATA and corrupt selected FORWARD-TSN controls without altering
+unrelated chunks. It imports no upstream test fixture or implementation. Capability
+negotiation was diagnosed from authenticated test wire parameters. Pion's MIT
+`datachannel.go` at the pinned commit was inspected to diagnose its ACK/public-API
+lifecycle; no source was copied or translated. The test sender waits for DCEP ACK
+before fault-injected partial sends and keeps that synthetic message within its
+initial congestion flight; our own sender also tests abandonment of larger,
+not-yet-transmitted fragmented messages.
+
 These packages run only in an isolated local test peer. None is a dependency of the
 .NET runtime library or its NuGet package. Our MIT license does not replace their
 notices. Regenerate the notice file with `write-notices.sh` in the pinned Go build

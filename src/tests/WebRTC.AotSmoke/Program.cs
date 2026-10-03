@@ -66,9 +66,26 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
     await foreach (var packet in server.ReceiveMediaDatagramsAsync(deadline.Token))
     { if (packet.Kind != SecureMediaKind.Rtp || !packet.Data.AsSpan().SequenceEqual(data)) return 1; receivedMedia = true; break; }
     if (!receivedMedia) return 1;
-    await using var outgoing = new SctpAssociation(client, SctpRole.Initiator, new() { MaximumPacketSize = 200 });
-    await using var incoming = new SctpAssociation(server, SctpRole.Responder, new() { MaximumPacketSize = 200 });
+    var sctpOptions = new SctpOptions { MaximumPacketSize = 200, MaximumMessageSize = 16384, ReceiveBufferBytes = 16384, MaximumQueuedMessages = 1 };
+    await using var outgoing = new SctpAssociation(client, SctpRole.Initiator, sctpOptions);
+    await using var incoming = new SctpAssociation(server, SctpRole.Responder, sctpOptions);
     await Task.WhenAll(outgoing.ConnectAsync(deadline.Token), incoming.ConnectAsync(deadline.Token));
+    if (!outgoing.SupportsPartialReliability || !incoming.SupportsPartialReliability) return 1;
+    // Hold a complete maximum-size message, closing the receiver window. The
+    // next timed message must expire, signal FORWARD-TSN and unblock later data.
+    await outgoing.SendMessageAsync(1, 53, new byte[16384], cancellationToken: deadline.Token);
+    await outgoing.DrainAsync(deadline.Token);
+    await outgoing.SendMessageAsync(1, 53, new byte[8192], cancellationToken: deadline.Token,
+        reliability: new(DataChannelReliability.Timed, 60));
+    await outgoing.DrainAsync(deadline.Token);
+    if (outgoing.GetDiagnostics().AbandonedMessages != 1) return 1;
+    var held = false;
+    await foreach (var message in incoming.ReceiveMessagesAsync(deadline.Token)) { if (message.Data.Length != 16384) return 1; held = true; break; }
+    if (!held) return 1;
+    await outgoing.SendMessageAsync(1, 51, "after-native-forward"u8.ToArray(), cancellationToken: deadline.Token);
+    var afterForward = false;
+    await foreach (var message in incoming.ReceiveMessagesAsync(deadline.Token)) { if (!message.Data.AsSpan().SequenceEqual("after-native-forward"u8)) return 1; afterForward = true; break; }
+    if (!afterForward) return 1;
     await using var channels = new DataChannelAssociation(outgoing);
     await using var peerChannels = new DataChannelAssociation(incoming);
     var channel = await channels.OpenChannelAsync("oai-events", cancellationToken: deadline.Token);
@@ -81,9 +98,22 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
     await foreach (var message in peer.ReceiveMessagesAsync(deadline.Token))
     { if (!message.Data.AsSpan().SequenceEqual(application)) return 1; receivedChannel = true; break; }
     if (!receivedChannel) return 1;
+    foreach (var reliability in new[] { DataChannelReliability.RetransmissionLimited, DataChannelReliability.Timed })
+    {
+        var partial = await channels.OpenChannelAsync(new("native-partial", "", reliability == DataChannelReliability.Timed,
+            reliability, reliability == DataChannelReliability.Timed ? 3000u : 0u, 256), deadline.Token);
+        DataChannel? accepted = null;
+        await foreach (var opened in peerChannels.AcceptChannelsAsync(deadline.Token)) { accepted = opened; break; }
+        if (accepted == null || accepted.Parameters.Reliability != reliability) return 1;
+        await partial.SendBinaryAsync(application, deadline.Token);
+        var gotPartial = false;
+        await foreach (var message in accepted.ReceiveMessagesAsync(deadline.Token))
+        { if (!message.Data.AsSpan().SequenceEqual(application)) return 1; gotPartial = true; break; }
+        if (!gotPartial) return 1;
+    }
     await outgoing.CloseAsync(deadline.Token);
 }
-Console.WriteLine("NativeAOT fragmented authenticated DTLS, negotiated SRTP and SCTP/DCEP channels passed");
+Console.WriteLine("NativeAOT fragmented DTLS, negotiated SRTP, SCTP/DCEP and PR-SCTP FORWARD-TSN passed");
 return 0;
 
 static async Task<byte[]> Read(IceUdpTransport transport, CancellationToken cancellationToken)

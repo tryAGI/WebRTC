@@ -60,6 +60,17 @@ cases.Add(("DCEP disposal cancels blocked sends", DataChannelTests.CancelBlocked
 cases.Add(("DCEP ordered text/binary/empty and independent streams", () => DataChannelTests.Exchange(true)));
 cases.Add(("DCEP unordered reliable channels", () => DataChannelTests.Exchange(false)));
 cases.Add(("DCEP bounded reliable receive backpressure", DataChannelTests.Backpressure));
+foreach (var ordered in new[] { false, true })
+    foreach (var timed in new[] { false, true })
+        cases.Add(($"PR-SCTP fragmented abandonment ordered={ordered}, timed={timed}", () => SctpExtensionTests.FragmentAbandonment(ordered, timed, wrap: true)));
+cases.Add(("PR-SCTP retransmission budget excludes first send", SctpExtensionTests.RetransmissionBudget));
+cases.Add(("PR-SCTP lifetime expires during bounded admission", SctpExtensionTests.AdmissionExpiry));
+cases.Add(("PR-SCTP negotiation does not silently enable features", SctpExtensionTests.Negotiation));
+cases.Add(("PR-SCTP reliable FORWARD-TSN retransmission", () => SctpExtensionTests.ForwardLoss(false)));
+cases.Add(("PR-SCTP timed FORWARD-TSN retransmission", () => SctpExtensionTests.ForwardLoss(true)));
+foreach (var reliability in new[] { DataChannelReliability.RetransmissionLimited, DataChannelReliability.Timed })
+    foreach (var ordered in new[] { false, true })
+        cases.Add(($"DCEP partial reliability {reliability}, ordered={ordered}", () => DataChannelTests.Exchange(ordered, reliability)));
 
 if (args.Length != 0)
 {
@@ -71,6 +82,19 @@ if (args.Length != 0)
         foreach (var peerOpens in new[] { false, true })
             cases.Add(($"Pion SCTP/DCEP {role}, remote OPEN={peerOpens}", () => DataChannelTests.Pion(pionUri, role, peerOpens, unordered: peerOpens)));
     cases.Add(("Pion SCTP simultaneous INIT with DCEP", () => DataChannelTests.Pion(pionUri, DtlsRole.Client, false, false, bothInitiate: true)));
+    foreach (var reliability in new[] { DataChannelReliability.RetransmissionLimited, DataChannelReliability.Timed })
+        foreach (var role in Enum.GetValues<DtlsRole>())
+            foreach (var peerOpens in new[] { false, true })
+                cases.Add(($"Pion partial DCEP {reliability}, {role}, remote OPEN={peerOpens}", () => DataChannelTests.Pion(pionUri, role, peerOpens, peerOpens, reliability: reliability)));
+    foreach (var role in Enum.GetValues<DtlsRole>())
+    {
+        cases.Add(($"Pion receives our FORWARD-TSN {role}", () => DataChannelTests.Pion(pionUri, role, false, false,
+            reliability: DataChannelReliability.RetransmissionLimited, scenario: "incoming-loss")));
+        cases.Add(($"Pion sends independent FORWARD-TSN {role}", () => DataChannelTests.Pion(pionUri, role, true, false,
+            reliability: DataChannelReliability.RetransmissionLimited, scenario: "peer-loss")));
+        cases.Add(($"Pion malformed FORWARD-TSN rejected {role}", () => DataChannelTests.Pion(pionUri, role, true, false,
+            reliability: DataChannelReliability.RetransmissionLimited, scenario: "malformed-forward")));
+    }
     foreach (var role in Enum.GetValues<DtlsRole>())
         foreach (var profile in Enum.GetValues<SrtpProfile>())
             cases.Add(($"Pion DTLS {role} and exporter/SRTP {profile}", () => DtlsTests.Pion(pionUri, role, profile)));

@@ -38,11 +38,17 @@ public sealed class DataChannelAssociation : IAsyncDisposable
         _pump = RunAsync();
     }
 
-    public async Task<DataChannel> OpenChannelAsync(string label, bool ordered = true, string protocol = "", ushort priority = 256,
-        CancellationToken cancellationToken = default)
+    public Task<DataChannel> OpenChannelAsync(string label, bool ordered = true, string protocol = "", ushort priority = 256,
+        CancellationToken cancellationToken = default) =>
+        OpenChannelAsync(new(label, protocol, ordered, DataChannelReliability.Reliable, 0, priority), cancellationToken);
+
+    public async Task<DataChannel> OpenChannelAsync(DataChannelParameters parameters, CancellationToken cancellationToken = default)
     {
-        var parameters = new DataChannelParameters(label, protocol, ordered, DataChannelReliability.Reliable, 0, priority);
+        ArgumentNullException.ThrowIfNull(parameters);
+        if (parameters.Reliability == DataChannelReliability.Reliable) parameters = parameters with { ReliabilityParameter = 0 };
         var open = DataChannelProtocol.EncodeOpen(parameters); DataChannel channel;
+        if (parameters.Reliability != DataChannelReliability.Reliable && !_sctp.SupportsPartialReliability)
+            throw new NotSupportedException("The peer did not negotiate PR-SCTP.");
         lock (_gate)
         {
             RequireRunning();
@@ -67,7 +73,8 @@ public sealed class DataChannelAssociation : IAsyncDisposable
     {
         lock (_gate) RequireRunning();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
-        await _sctp.SendMessageAsync(channel.StreamId, ppid, bytes, !channel.Parameters.Ordered, linked.Token).ConfigureAwait(false);
+        await _sctp.SendMessageAsync(channel.StreamId, ppid, bytes, !channel.Parameters.Ordered, linked.Token,
+            new(channel.Parameters.Reliability, channel.Parameters.ReliabilityParameter)).ConfigureAwait(false);
     }
     internal void ReleaseMessage(int bytes)
     {
@@ -136,8 +143,8 @@ public sealed class DataChannelAssociation : IAsyncDisposable
             return;
         }
         if (!DataChannelProtocol.TryParseOpen(message.Data, out var parameters)) throw new IOException("Malformed DCEP OPEN.");
-        if (parameters!.Reliability != DataChannelReliability.Reliable)
-            throw new IOException("Partial reliability requires the pending PR-SCTP extension.");
+        if (parameters!.Reliability != DataChannelReliability.Reliable && !_sctp.SupportsPartialReliability)
+            throw new IOException("Partial reliability was not negotiated.");
         var localParity = _sctp.DtlsRole == DtlsRole.Client ? 0 : 1;
         if ((message.StreamId & 1) == localParity || message.StreamId >= _sctp.OutgoingStreams)
             throw new IOException("Invalid DCEP stream parity or bounds.");

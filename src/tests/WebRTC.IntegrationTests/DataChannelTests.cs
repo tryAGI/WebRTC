@@ -10,15 +10,17 @@ internal static class DataChannelTests
     { await foreach (var channel in channels.AcceptChannelsAsync(ct)) return channel; throw new IOException("Required data channel missing"); }
     internal static async Task<DataChannelMessage> Read(DataChannel channel, CancellationToken ct)
     { await foreach (var message in channel.ReceiveMessagesAsync(ct)) return message; throw new IOException("Required data-channel message missing"); }
-    internal static async Task Exchange(bool ordered)
+    internal static async Task Exchange(bool ordered, DataChannelReliability reliability = DataChannelReliability.Reliable)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
         await using var pair = await SctpPair.Create(SctpTests.Fast(), timeout.Token);
         await using var left = new DataChannelAssociation(pair.Left); await using var right = new DataChannelAssociation(pair.Right);
-        var local = await left.OpenChannelAsync("oai-events", ordered, "json", cancellationToken: timeout.Token);
+        var local = await left.OpenChannelAsync(new("oai-events", "json", ordered, reliability,
+            reliability == DataChannelReliability.Timed ? 3000u : reliability == DataChannelReliability.RetransmissionLimited ? 2u : 0u, 256), timeout.Token);
         var remote = await Accept(right, timeout.Token);
         Check((local.StreamId & 1) == 0 && remote.StreamId == local.StreamId);
         Check(remote.Parameters.Label == "oai-events" && remote.Parameters.Protocol == "json" && remote.Parameters.Ordered == ordered);
+        Check(remote.Parameters.Reliability == reliability && remote.Parameters.ReliabilityParameter == local.Parameters.ReliabilityParameter);
         await local.SendTextAsync("{\"text\":\"Привет\"}", timeout.Token);
         Check((await Read(remote, timeout.Token)).GetText() == "{\"text\":\"Привет\"}");
         var binary = new byte[262144]; RandomNumberGenerator.Fill(binary);
@@ -70,7 +72,8 @@ internal static class DataChannelTests
         catch (OperationCanceledException) { }
         Check(pair.Left.IsConnected && pair.ClientDtls.IsConnected);
     }
-    internal static async Task Pion(Uri uri, DtlsRole dtlsRole, bool peerOpens, bool unordered, bool bothInitiate = false)
+    internal static async Task Pion(Uri uri, DtlsRole dtlsRole, bool peerOpens, bool unordered, bool bothInitiate = false,
+        DataChannelReliability reliability = DataChannelReliability.Reliable, string scenario = "")
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(9));
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
@@ -78,7 +81,8 @@ internal static class DataChannelTests
         var endpoint = ice.LocalEndPoint;
         var offer = new ChannelOffer(true, true, dtlsRole == DtlsRole.Server, Convert.ToHexString(identity.GetFingerprintSha256()),
             7, 1200, ice.LocalCredentials.UsernameFragment, ice.LocalCredentials.Password,
-            $"1 1 udp 2130706431 {endpoint.Address} {endpoint.Port} typ host", true, dtlsRole == DtlsRole.Server || bothInitiate, peerOpens, unordered);
+            $"1 1 udp 2130706431 {endpoint.Address} {endpoint.Port} typ host", true, dtlsRole == DtlsRole.Server || bothInitiate, peerOpens, unordered,
+            (int)reliability, scenario.Length != 0 ? 0u : reliability == DataChannelReliability.Timed ? 3000u : 2u, scenario);
         using var response = await http.PostAsJsonAsync(new Uri(uri, "/peer"), offer, InteropJson.Default.ChannelOffer, timeout.Token);
         response.EnsureSuccessStatusCode();
         var remote = await response.Content.ReadFromJsonAsync(InteropJson.Default.DtlsDescription, timeout.Token) ?? throw new IOException("Missing independent peer");
@@ -89,8 +93,26 @@ internal static class DataChannelTests
         await using var association = new SctpAssociation(dtls, dtlsRole == DtlsRole.Client ? SctpRole.Initiator : SctpRole.Responder, SctpTests.Fast());
         await association.ConnectAsync(timeout.Token);
         await using var channels = new DataChannelAssociation(association);
-        var channel = peerOpens ? await Accept(channels, timeout.Token) : await channels.OpenChannelAsync("oai-events", !unordered, "json", cancellationToken: timeout.Token);
+        var channel = peerOpens ? await Accept(channels, timeout.Token) : await channels.OpenChannelAsync(
+            new("oai-events", "json", !unordered, reliability, offer.ReliabilityParameter, 256), timeout.Token);
         Check(channel.Parameters.Label == "oai-events" && channel.Parameters.Ordered == !unordered);
+        Check(channel.Parameters.Reliability == reliability);
+        if (scenario == "incoming-loss")
+        {
+            var lost = new byte[8192]; Array.Fill(lost, (byte)0xaa);
+            await channel.SendBinaryAsync(lost, timeout.Token); await channel.SendTextAsync("after-skip", timeout.Token);
+            Check((await Read(channel, timeout.Token)).GetText() == "after-skip");
+            Check(association.GetDiagnostics().AbandonedMessages == 1, "Independent receiver did not require our complete message abandonment");
+            Check(await association.Completion.WaitAsync(timeout.Token) == null); return;
+        }
+        if (scenario is "peer-loss" or "malformed-forward")
+        {
+            try { Check((await Read(channel, timeout.Token)).GetText() == "after-skip", "Independent FORWARD-TSN left data blocked or leaked a partial message"); }
+            catch (OperationCanceledException error) { throw new IOException($"Independent PR-SCTP receive stalled: {association.GetDiagnostics()}", error); }
+            if (scenario == "malformed-forward") Check(association.GetDiagnostics().RejectedPackets >= 2, "Malformed FORWARD-TSN changed receive state or was accepted");
+            await channel.SendTextAsync("after-skip", timeout.Token);
+            Check(await association.Completion.WaitAsync(timeout.Token) == null); return;
+        }
         if (peerOpens) Check((await Read(channel, timeout.Token)).GetText() == "pion:ready");
         await channel.SendTextAsync("{\"type\":\"session.update\"}", timeout.Token);
         Check((await Read(channel, timeout.Token)).GetText() == "{\"type\":\"session.update\"}");
@@ -104,4 +126,5 @@ internal static class DataChannelTests
     }
 }
 internal sealed record ChannelOffer(bool Controlling, bool Secure, bool DtlsClient, string Fingerprint, ushort Profile, int Mtu,
-    string Fragment, string Password, string Candidate, bool DataChannels, bool SctpClient, bool PeerOpensChannels, bool Unordered);
+    string Fragment, string Password, string Candidate, bool DataChannels, bool SctpClient, bool PeerOpensChannels, bool Unordered,
+    int Reliability = 0, uint ReliabilityParameter = 0, string ExtensionScenario = "");

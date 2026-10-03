@@ -17,19 +17,22 @@ import (
 )
 
 type offer struct {
-	DataChannels      bool   `json:"dataChannels"`
-	SctpClient        bool   `json:"sctpClient"`
-	PeerOpensChannels bool   `json:"peerOpensChannels"`
-	Unordered         bool   `json:"unordered"`
-	Secure            bool   `json:"secure"`
-	DtlsClient        bool   `json:"dtlsClient"`
-	Fingerprint       string `json:"fingerprint"`
-	Profile           uint16 `json:"profile"`
-	Mtu               int    `json:"mtu"`
-	Controlling       bool   `json:"controlling"`
-	Fragment          string `json:"fragment"`
-	Password          string `json:"password"`
-	Candidate         string `json:"candidate"`
+	DataChannels         bool   `json:"dataChannels"`
+	SctpClient           bool   `json:"sctpClient"`
+	Reliability          int    `json:"reliability"`
+	ReliabilityParameter uint32 `json:"reliabilityParameter"`
+	ExtensionScenario    string `json:"extensionScenario"`
+	PeerOpensChannels    bool   `json:"peerOpensChannels"`
+	Unordered            bool   `json:"unordered"`
+	Secure               bool   `json:"secure"`
+	DtlsClient           bool   `json:"dtlsClient"`
+	Fingerprint          string `json:"fingerprint"`
+	Profile              uint16 `json:"profile"`
+	Mtu                  int    `json:"mtu"`
+	Controlling          bool   `json:"controlling"`
+	Fragment             string `json:"fragment"`
+	Password             string `json:"password"`
+	Candidate            string `json:"candidate"`
 }
 
 type description struct {

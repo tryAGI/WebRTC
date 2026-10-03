@@ -1,9 +1,10 @@
-# SCTP and reliable DCEP data channels
+# SCTP and DCEP data channels
 
 The current runtime implements one bounded SCTP association over an authenticated,
-nominated DTLS connection, plus reliable ordered and unordered DCEP channels.
+nominated DTLS connection, plus ordered and unordered DCEP channels with reliable,
+limited-retransmission and timed reliability.
 This is progress toward the consumer transport, not complete WebRTC support.
-PR-SCTP/FORWARD-TSN, per-channel stream reset/closing, interleaving, path-MTU probing,
+Per-channel stream reset/closing, interleaving, path-MTU probing,
 SDP and actual provider/browser acceptance remain required before migration.
 
 ## Lifetime and readers
@@ -57,17 +58,43 @@ teardown; it is never reused without the pending stream-reset implementation.
   SCTP heartbeats and PLPMTUD/path-change congestion reset remain; ICE consent and
   DTLS closure currently drive transport failure detection.
 - DCEP OPEN/ACK on ordered reliable PPID 50, strict UTF-8 label/protocol decoding,
-  reliable ordered/unordered modes, text/binary and empty PPIDs 51/53/56/57.
+  all six channel types, text/binary and empty PPIDs 51/53/56/57.
   Empty payloads ignore the single placeholder byte on receipt. Obsolete partial
   string/binary PPIDs are not accepted.
 - Canonical one-byte DCEP ACK is sent. Exactly `02 00 00 00` is also accepted because
   pinned Pion datachannel v1.6.3 emits it. Other trailing forms are rejected. This
   compatibility exception does not relax DTLS authentication, PPID or stream checks.
 
-DCEP decoding recognizes all six channel types; the current channel owner refuses
-partially reliable OPENs because PR-SCTP is not implemented. Invalid DCEP terminates
+PR-SCTP is advertised through both RFC 3758 Forward-TSN-Supported and RFC 5061
+Supported Extensions (chunk type 192). A peer without the capability can use reliable
+channels; partially reliable sends/OPENs fail explicitly. Invalid DCEP terminates
 its channel owner and signals failure, rather than pretending to reset a stream.
 Proper per-stream reset/rejection remains part of the next milestone.
+
+## Partial reliability
+
+Use the typed `OpenChannelAsync(DataChannelParameters, cancellationToken)` overload
+with `RetransmissionLimited` or `Timed`. Retransmission limits exclude the original
+transmission; zero means send once. Timed parameters are milliseconds and cover the
+full uint range. Lifetime starts when the send API is called, including waiting for
+local admission. If it expires before admission, no TSN or ordered stream sequence
+is consumed. Cancellation is distinct from expiration. Reliable channels normalize
+their wire parameter to zero; DCEP OPEN/ACK always remain ordered and reliable.
+
+Once admitted, all fragments of an expired/exhausted message are abandoned together,
+including fragments not yet transmitted. Payload credit is released immediately;
+bounded TSN/stream metadata remains until the peer acknowledges FORWARD-TSN.
+Abandonment is counted once per message and never earns congestion-window credit.
+FORWARD-TSN advances only across contiguous abandoned chunks after the actual
+cumulative acknowledgment, and retries until acknowledged. `DrainAsync` includes
+that acknowledgment. Send completion indicates admission or lifetime expiration,
+not successful delivery; consult `AbandonedMessages` for aggregate diagnostics.
+
+Receivers reject duplicate/out-of-range stream entries and excessive TSN/SSN jumps
+before state changes. Complete messages stranded by missing earlier sequences are
+preserved and delivered; incomplete skipped fragments are released. Ordered skips
+continue correctly when the application delivery queue is full. Interleaved I-DATA,
+stream reset and arbitrary large receive lookahead are not silently negotiated.
 
 ## Bounds and admission
 
@@ -112,12 +139,18 @@ DCEP channel types, Unicode/invalid UTF-8 and deterministic hostile input.
 Local UDP cases cover 256 KiB bidirectional fragmented messages, TSN rollover,
 packet/INIT loss, ordered/unordered delivery, buffer backpressure, malformed input,
 canceled/silent peers, DCEP text/binary/empty/multiple streams and cancellation of
-blocked sends. The whole-library NativeAOT smoke executes SCTP/DCEP over a 256-byte
-DTLS MTU with each SRTP profile.
+blocked sends. PR cases cover both orderings and policies, TSN wrap, whole fragmented
+message abandonment, FORWARD-TSN loss/retry, a two-retransmission budget, expiry before
+admission, cancellation, maximum lifetime and negotiation refusal. The whole-library
+NativeAOT smoke executes zero-window timed abandonment/FORWARD-TSN and all policies
+over a 256-byte DTLS MTU with each SRTP profile.
 
 The independent isolated peer uses pinned Pion SCTP v1.12.0 and datachannel v1.6.3
 public APIs. It exercises DTLS/SCTP roles, local/remote DCEP opening, large/empty/text/
-binary messages and shutdown. Its module graph and original MIT notices are test-only.
+binary messages and shutdown. Independent bidirectional PR-SCTP loss cases require
+FORWARD-TSN to release the next ordered message; duplicate-stream and excessive-TSN
+controls with valid CRC are rejected before a later valid control succeeds. Its
+module graph and original MIT notices are test-only.
 No Pion implementation is included in the .NET runtime. Tests remain local and key-free.
 
 Standards: [SCTP](https://www.rfc-editor.org/rfc/rfc9260),
