@@ -29,7 +29,7 @@ public ref struct StunMessageWriter
     /// <summary>Appends an attribute; integrity and fingerprint must be written by TryComplete.</summary>
     public bool TryAddAttribute(ushort type, scoped ReadOnlySpan<byte> value)
     {
-        if (_finished || type is StunMessage.MessageIntegrity or StunMessage.Fingerprint || value.Length > ushort.MaxValue)
+        if (_finished || type is StunMessage.MessageIntegrity or StunMessage.MessageIntegritySha256 or StunMessage.Fingerprint || value.Length > ushort.MaxValue)
             return false;
         var padded = (value.Length + 3) & ~3;
         if (!HasSpace(4 + padded)) return false;
@@ -56,8 +56,12 @@ public ref struct StunMessageWriter
         return TryAddAttribute(type, bytes);
     }
 
-    public bool TryAddXorMappedAddress(IPEndPoint endpoint)
+    public bool TryAddXorMappedAddress(IPEndPoint endpoint) => TryAddXorAddress(StunMessage.XorMappedAddress, endpoint);
+
+    /// <summary>Writes a STUN XOR address (mapped, relayed or peer).</summary>
+    public bool TryAddXorAddress(ushort type, IPEndPoint endpoint)
     {
+        if (type is not (0x0020 or 0x0012 or 0x0016)) return false;
         if (_length < StunMessage.HeaderLength || _finished) return false;
         ArgumentNullException.ThrowIfNull(endpoint);
         Span<byte> value = stackalloc byte[20];
@@ -67,27 +71,29 @@ public ref struct StunMessageWriter
         value[1] = (byte)(addressLength == 4 ? 1 : 2);
         BinaryPrimitives.WriteUInt16BigEndian(value[2..], (ushort)(endpoint.Port ^ 0x2112));
         for (var i = 0; i < addressLength; i++) value[4 + i] ^= _buffer[4 + i];
-        return TryAddAttribute(StunMessage.XorMappedAddress, value[..(addressLength + 4)]);
+        return TryAddAttribute(type, value[..(addressLength + 4)]);
     }
 
     /// <summary>
     /// Finishes atomically on insufficient capacity. An empty key omits authentication;
     /// ICE requires a nonempty credential key and a fingerprint.
     /// </summary>
-    public bool TryComplete(ReadOnlySpan<byte> integrityKey, bool fingerprint, out int written)
+    public bool TryComplete(ReadOnlySpan<byte> integrityKey, bool fingerprint, out int written, bool sha256 = false)
     {
         written = 0;
-        var extra = (integrityKey.IsEmpty ? 0 : 24) + (fingerprint ? 8 : 0);
+        var integrityLength = sha256 ? 36 : 24;
+        var extra = (integrityKey.IsEmpty ? 0 : integrityLength) + (fingerprint ? 8 : 0);
         if (_finished || !HasSpace(extra) || integrityKey.Overlaps(_buffer)) return false;
         if (!integrityKey.IsEmpty)
         {
-            BinaryPrimitives.WriteUInt16BigEndian(_buffer[2..], (ushort)(_length + 24 - StunMessage.HeaderLength));
-            Span<byte> hash = stackalloc byte[20];
-            HMACSHA1.HashData(integrityKey, _buffer[.._length], hash);
-            BinaryPrimitives.WriteUInt16BigEndian(_buffer[_length..], StunMessage.MessageIntegrity);
-            BinaryPrimitives.WriteUInt16BigEndian(_buffer[(_length + 2)..], 20);
+            BinaryPrimitives.WriteUInt16BigEndian(_buffer[2..], (ushort)(_length + integrityLength - StunMessage.HeaderLength));
+            Span<byte> hash = stackalloc byte[sha256 ? 32 : 20];
+            if (sha256) HMACSHA256.HashData(integrityKey, _buffer[.._length], hash);
+            else HMACSHA1.HashData(integrityKey, _buffer[.._length], hash);
+            BinaryPrimitives.WriteUInt16BigEndian(_buffer[_length..], sha256 ? StunMessage.MessageIntegritySha256 : StunMessage.MessageIntegrity);
+            BinaryPrimitives.WriteUInt16BigEndian(_buffer[(_length + 2)..], (ushort)hash.Length);
             hash.CopyTo(_buffer[(_length + 4)..]);
-            _length += 24;
+            _length += integrityLength;
         }
         BinaryPrimitives.WriteUInt16BigEndian(_buffer[2..], (ushort)(_length + (fingerprint ? 8 : 0) - StunMessage.HeaderLength));
         if (fingerprint)

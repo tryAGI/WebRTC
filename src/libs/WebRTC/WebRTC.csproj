@@ -5,7 +5,7 @@
     <PackageId>tryAGI.WebRTC</PackageId>
     <Version>0.1.0-alpha.1</Version>
     <Authors>tryAGI and contributors</Authors>
-    <Description>Independent .NET 10 initial Opus/data peer with bounded SDP, UDP ICE, fingerprint-bound DTLS/SRTP and reliable/partial SCTP/DCEP channels. Gathering/TURN, video and general negotiation remain in development.</Description>
+    <Description>Independent .NET 10 initial Opus/data peer with bounded SDP, UDP ICE, fingerprint-bound DTLS/SRTP and reliable/partial SCTP/DCEP channels. Same-socket STUN and an owned UDP TURN allocation path are available; local relay ICE integration, video and general negotiation remain in development.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <IsAotCompatible>true</IsAotCompatible>

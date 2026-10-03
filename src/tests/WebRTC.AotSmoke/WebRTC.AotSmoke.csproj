@@ -10,4 +10,7 @@
     <ProjectReference Include="../../libs/WebRTC/WebRTC.csproj" />
     <TrimmerRootAssembly Include="tryAGI.WebRTC" />
   </ItemGroup>
+<ItemGroup>
+    <Compile Include="../WebRTC.IntegrationTests/TurnFixture.cs" Link="TurnFixture.cs" />
+  </ItemGroup>
 </Project>

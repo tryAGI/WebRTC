@@ -166,6 +166,8 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
 }
 Console.WriteLine("NativeAOT owned peer Opus/data lifecycle and all SRTP profiles passed");
 Console.WriteLine("NativeAOT same-socket STUN gathering and explicit SDP completion passed");
+await TurnFixture.RoundTrip(modern:true,channel:true);
+Console.WriteLine("NativeAOT owned TURN allocation, SHA256 auth, ChannelData, renewal and deletion passed");
 return 0;
 
 static async Task NativeStun(Socket server, CancellationToken ct)

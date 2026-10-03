@@ -7,6 +7,9 @@ implements regular nomination, role conflicts, trickle/peer-reflexive candidates
 retransmission and consent expiry from a host base to resolved remote candidates,
 including remote TURN relays. Explicit STUN Binding gathers srflx mappings on the
 same owned socket; cancellation preserves that socket for subsequent ICE.
+An owned UDP TURN allocation path adds long-term SHA256/legacy authentication,
+permissions, Send/Data and ChannelData, automatic renewal and bounded deletion.
+Local TURN integration with the ICE checklist is still in development.
 Directional SRTP/SRTCP contexts implement AES-CM/HMAC-SHA1-80 and AES-GCM
 128/256, with authenticated replay and bounded per-source state. DTLS 1.2 adds
 mutual SHA-256 fingerprint authentication, ECDHE/EMS and SRTP key negotiation,
@@ -24,7 +27,7 @@ queues and preserves RTP sequence, timestamp and SSRC metadata. Secure media rea
 is separate from SCTP/data readiness.
 
 **Status: transport in development.** Multiple interfaces, DNS/mDNS, local TURN
-allocation/routing, ICE restart, general SDP/JSEP,
+candidate integration and TCP/TLS, ICE restart, general SDP/JSEP,
 video and automatic RTCP feedback remain incomplete. This library does
 not yet replace SIPSorcery in DId or Advantage. No package is automatically published.
 
@@ -37,6 +40,7 @@ source has been imported. See [source provenance](docs/provenance.md),
 [architecture and milestones](docs/architecture.md), [completion gates](docs/acceptance.md),
 [UDP ICE scope](docs/ice-transport.md), [DTLS scope](docs/dtls.md), [SCTP/data-channel scope](docs/data-channels.md), [SRTP/SRTCP scope](docs/srtp.md) and [security scope](SECURITY.md).
 See [SDP/Opus negotiation scope](docs/sdp.md) for supported signaling and its limits.
+See [owned UDP TURN scope](docs/turn-transport.md) for authentication, lifecycle and integration gaps.
 See [initial peer API](docs/peer-connection.md) for lifecycle, media timing and ownership.
 
 ## Build and validate

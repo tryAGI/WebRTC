@@ -142,3 +142,20 @@ verify each selected file and its own origin before importing it.
 Current SIPSorcery package source is excluded from copying or translation due to its
 additional use restriction. It may be an isolated interoperability peer; reference
 implementation behavior is evidence, not permission to copy implementation code.
+
+## Authored UDP TURN owner
+
+TURN allocation, long-term authentication, permission/channel lifetimes, relay framing,
+maintenance and disposal are newly authored from RFC8656/8489 prose/wire contracts.
+No source, algorithm example, fixture or RFC code component is imported. The new
+SHA256 STUN vector is independently constructed from synthetic strings and fields
+using Python struct/hashlib/hmac/binascii; its header length, HMAC and CRC are authored
+independently of the runtime writer. Shared malformed/lifecycle/native test fixtures
+are authored protocol responders; the positive interop gate uses the existing pinned
+MIT Pion TURN public APIs only. The new local HTTP service exposes random isolated
+credentials only to the local test caller, reports allocation count and closes its
+server/socket at session end. Go module versions/hashes/notices remain unchanged.
+Legacy MD5-derived keys and SHA1 integrity serve explicitly controllable TURN
+interoperability; modern SHA256 key/integrity, nonce features and USERHASH are implemented
+without importing crypto code. Printable ASCII input is explicit until Unicode PRECIS
+preparation is implemented. This is not a security audit or real NAT/consumer proof.

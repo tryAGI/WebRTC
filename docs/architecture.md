@@ -73,3 +73,11 @@ or MIT relicensing of restricted source is part of this initial foundation.
 
 Implement the wire contracts from these standards. Copying RFC code components or
 test assets is a separate import with separate attribution requirements.
+
+## Owned TURN prerequisite
+
+The resolved-server UDP allocation owner now supplies authentication, permissions,
+Send/Data and ChannelData, lifetime maintenance, bounded queues and deletion.
+Its path is independently exercised against pinned Pion. Local-path-aware ICE pair
+selection must integrate it before an owned peer can select its local relay candidate.
+See [TURN scope](turn-transport.md). TCP/TLS and real NAT/consumer acceptance remain.

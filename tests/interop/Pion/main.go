@@ -51,6 +51,7 @@ func main() {
 	}
 	slots := make(chan struct{}, 4)
 	mux := http.NewServeMux()
+	registerTurnService(mux, slots)
 	registerSrtp(mux)
 	registerPeerConnections(mux, slots)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })

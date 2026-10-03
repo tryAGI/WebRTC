@@ -112,6 +112,21 @@ cases.Add(("STUN gather deadline preserves subsequent ICE", () => GatheringTests
 cases.Add(("STUN gathering bounded admission and owner disposal", GatheringTests.AdmissionAndDisposal));
 cases.Add(("Owned peer gathering updates initial SDP and explicit completion", GatheringTests.PeerSignaling));
 
+foreach (var ipv6 in new[] { false, true })
+    foreach (var modern in new[] { false, true })
+        foreach (var channel in new[] { false, true })
+            cases.Add(($"TURN owned UDP IPv6={ipv6}, SHA256={modern}, channel={channel}", () => TurnFixture.RoundTrip(ipv6, modern, channel)));
+foreach (var modern in new[] { false, true })
+    cases.Add(($"TURN timestamp-style colon username SHA256={modern}", () => TurnFixture.RoundTrip(modern: modern, colonUsername: true)));
+cases.Add(("TURN allocation automatically renews server lifetime", TurnTests.Lifetime));
+cases.Add(("TURN bounded peer policy and channel zero-length data", TurnTests.PolicyAndBounds));
+cases.Add(("TURN rejects stripped modern authentication algorithms", () => TurnTests.DowngradeOrAddress(false)));
+cases.Add(("TURN deletes acknowledged unsupported allocation family", () => TurnTests.DowngradeOrAddress(true)));
+cases.Add(("TURN explicit legacy authentication refusal", TurnTests.LegacyRefusal));
+cases.Add(("TURN canceled control preserves subsequent relay exchange", () => TurnTests.Cancellation(false)));
+cases.Add(("TURN disposal joins active control and closes reader", () => TurnTests.Cancellation(true)));
+cases.Add(("TURN expired allocation stops readers and pending operations", TurnTests.Expiry));
+cases.Add(("TURN oversized attacker datagram does not stop allocation", TurnTests.Oversized));
 Uri? pionUri = null;
 string? caseFilter = null;
 if (args.Length % 2 != 0) throw new ArgumentException("Expected explicit option/value pairs.");
@@ -125,6 +140,8 @@ for (var option = 0; option < args.Length; option += 2)
 }
 if (pionUri != null)
 {
+    cases.Add(("Pion owned TURN UDP Send/Data indications and deletion", () => TurnTests.Pion(pionUri, false)));
+    cases.Add(("Pion owned TURN UDP ChannelData and deletion", () => TurnTests.Pion(pionUri, true)));
     cases.Add(("Pion SCTP terminal shutdown and DTLS close-notify burst", () => DataChannelTests.PionShutdownBurst(pionUri)));
     foreach (var localOfferer in new[] { false, true })
         foreach (var passiveAnswer in new[] { false, true })

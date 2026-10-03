@@ -5,6 +5,9 @@ using tryAGI.WebRTC;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("TURN/STUN independent SHA256 integrity vector and tampering", TurnTests.Integrity),
+    ("TURN/STUN SHA256 framing/capacity/duplicate bounds", TurnTests.Bounds),
+    ("TURN mapped/relayed/peer IPv4/IPv6 address framing", TurnTests.Addresses),
     ("RFC8285 one/two-byte MID framing and hostile elements", MediaTests.Extensions),
     ("RTCP compound/reduced-size framing and report bounds", MediaTests.Control),
     ("SDP bounded syntax, inheritance and immutable models", SdpTests.Syntax),

@@ -11,6 +11,7 @@ public readonly ref struct StunMessage
     public const uint MagicCookie = 0x2112A442;
     public const ushort BindingRequest = 0x0001;
     public const ushort MessageIntegrity = 0x0008;
+    public const ushort MessageIntegritySha256 = 0x001C;
     public const ushort XorMappedAddress = 0x0020;
     public const ushort Fingerprint = 0x8028;
 
@@ -87,8 +88,15 @@ public readonly ref struct StunMessage
     /// Verifies the ICE-compatible HMAC-SHA1 attribute using the caller's credential key.
     /// This strict envelope permits only a final FINGERPRINT after MESSAGE-INTEGRITY.
     /// </summary>
-    public bool VerifyMessageIntegritySha1(ReadOnlySpan<byte> key)
+    public bool VerifyMessageIntegritySha1(ReadOnlySpan<byte> key) => VerifyIntegrity(key, false);
+
+    /// <summary>Verifies one full 32-byte SHA256 integrity envelope, with only an optional final fingerprint after it.</summary>
+    public bool VerifyMessageIntegritySha256(ReadOnlySpan<byte> key) => VerifyIntegrity(key, true);
+
+    private bool VerifyIntegrity(ReadOnlySpan<byte> key, bool sha256)
     {
+        var hashLength = sha256 ? 32 : 20;
+        var attributeType = sha256 ? MessageIntegritySha256 : MessageIntegrity;
         if (_data.IsEmpty || key.IsEmpty)
         {
             return false;
@@ -99,15 +107,16 @@ public readonly ref struct StunMessage
         var attributes = GetAttributes();
         while (attributes.MoveNext())
         {
-            if (attributes.Type == MessageIntegrity)
+            if (attributes.Type == attributeType)
             {
-                if (offset >= 0 || attributes.Value.Length != 20)
+                if (offset >= 0 || attributes.Value.Length != hashLength)
                 {
                     return false;
                 }
                 offset = attributes.Offset;
                 expected = attributes.Value;
             }
+            else if (attributes.Type is MessageIntegrity or MessageIntegritySha256) return false;
             else if (offset >= 0 && (attributes.Type != Fingerprint ||
                      attributes.Value.Length != 4 || attributes.Offset + 8 != _data.Length))
             {
@@ -123,12 +132,12 @@ public readonly ref struct StunMessage
         _data[..HeaderLength].CopyTo(header);
         // The header length covers the integrity attribute, but the HMAC input
         // stops immediately before that attribute (RFC 8489 section 14.5).
-        BinaryPrimitives.WriteUInt16BigEndian(header[2..], (ushort)(offset + 24 - HeaderLength));
-        using var hmac = IncrementalHash.CreateHMAC(HashAlgorithmName.SHA1, key);
+        BinaryPrimitives.WriteUInt16BigEndian(header[2..], (ushort)(offset + hashLength + 4 - HeaderLength));
+        using var hmac = IncrementalHash.CreateHMAC(sha256 ? HashAlgorithmName.SHA256 : HashAlgorithmName.SHA1, key);
         hmac.AppendData(header);
         hmac.AppendData(_data.Slice(HeaderLength, offset - HeaderLength));
-        Span<byte> actual = stackalloc byte[20];
-        return hmac.TryGetHashAndReset(actual, out var written) && written == 20 &&
+        Span<byte> actual = stackalloc byte[hashLength];
+        return hmac.TryGetHashAndReset(actual, out var written) && written == hashLength &&
                CryptographicOperations.FixedTimeEquals(actual, expected);
     }
 
@@ -158,10 +167,13 @@ public readonly ref struct StunMessage
     }
 
     /// <summary>Decodes a unique IPv4 or IPv6 XOR-MAPPED-ADDRESS without performing DNS or I/O.</summary>
-    public bool TryGetXorMappedEndpoint(out IPEndPoint? endpoint)
+    public bool TryGetXorMappedEndpoint(out IPEndPoint? endpoint) => TryGetXorEndpoint(XorMappedAddress, out endpoint);
+
+    /// <summary>Decodes a unique mapped, relayed or peer XOR address without I/O.</summary>
+    public bool TryGetXorEndpoint(ushort type, out IPEndPoint? endpoint)
     {
         endpoint = null;
-        if (!TryGetUniqueAttribute(XorMappedAddress, out var value) || value.Length < 4 || value[0] != 0)
+        if (type is not (0x0020 or 0x0012 or 0x0016) || !TryGetUniqueAttribute(type, out var value) || value.Length < 4 || value[0] != 0)
         {
             return false;
         }
