@@ -71,7 +71,7 @@ internal sealed class TurnFixture : IAsyncDisposable
         {
             while (true)
             {
-                var bytes = new byte[2048]; var read = await Control.ReceiveFromAsync(bytes, SocketFlags.None, new IPEndPoint(Server.Address, 0), _lifetime.Token);
+                var bytes = new byte[2048]; var read = await ReceiveAsync(Control, bytes);
                 var packet = bytes[..read.ReceivedBytes]; var source = (IPEndPoint)read.RemoteEndPoint;
                 if (_client != null && !source.Equals(_client)) continue;
                 _client = source;
@@ -120,9 +120,26 @@ internal sealed class TurnFixture : IAsyncDisposable
         }
         catch (Exception) when (_lifetime.IsCancellationRequested) { }
     }
+    private async ValueTask<SocketReceiveFromResult> ReceiveAsync(Socket socket, Memory<byte> buffer)
+    {
+        while (true)
+        {
+            try
+            {
+                return await socket.ReceiveFromAsync(buffer, SocketFlags.None, new IPEndPoint(Server.Address, 0), _lifetime.Token);
+            }
+            catch (SocketException error) when (!_lifetime.IsCancellationRequested &&
+                error.SocketErrorCode is SocketError.ConnectionReset or SocketError.ConnectionRefused)
+            {
+                // Windows can surface a previous reply's ICMP port-unreachable on
+                // the next UDP receive after its peer closed. It is not a failure
+                // of this multi-peer synthetic server or its next transaction.
+            }
+        }
+    }
     private async Task EchoLoop()
     {
-        try { while (true) { var bytes=new byte[2048]; var read=await Echo.ReceiveFromAsync(bytes,SocketFlags.None,new IPEndPoint(Server.Address,0),_lifetime.Token); await Echo.SendToAsync(bytes.AsMemory(0,read.ReceivedBytes),SocketFlags.None,read.RemoteEndPoint,_lifetime.Token); } }
+        try { while (true) { var bytes=new byte[2048]; var read=await ReceiveAsync(Echo, bytes); await Echo.SendToAsync(bytes.AsMemory(0,read.ReceivedBytes),SocketFlags.None,read.RemoteEndPoint,_lifetime.Token); } }
         catch (Exception) when (_lifetime.IsCancellationRequested) { }
     }
     private async Task RelayLoop()
@@ -131,7 +148,7 @@ internal sealed class TurnFixture : IAsyncDisposable
         {
             while (true)
             {
-                var bytes=new byte[2048]; var read=await Relay.ReceiveFromAsync(bytes,SocketFlags.None,new IPEndPoint(Server.Address,0),_lifetime.Token);
+                var bytes=new byte[2048]; var read=await ReceiveAsync(Relay, bytes);
                 var source=(IPEndPoint)read.RemoteEndPoint; if (_peer==null || !source.Address.Equals(_peer.Address) || _client==null) continue;
                 var reply=new byte[64+read.ReceivedBytes];
                 if (_channel!=0)
