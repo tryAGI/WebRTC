@@ -32,6 +32,14 @@ See [DTLS scope and key limits](docs/dtls.md).
 No untrusted packet may trigger unbounded allocation, reassembly, retry loops or network
 destinations. Add explicit limits when each stateful transport component is introduced.
 SDP-provided ICE servers, DNS answers, candidates and datagrams remain untrusted input.
+The SDP parser bounds UTF-8 bytes, lines, media sections, attributes, candidates,
+codecs and extensions. It performs no network/DNS work. Initial Opus/data negotiation
+validates accepted media, BUNDLE credentials, fingerprint, DTLS roles and extension
+directions before the caller starts transport. Trusted signaling must authenticate
+those credentials and fingerprints. Parsing a hostname does not authorize resolving
+it; candidate destination policy remains the transport caller's responsibility.
+SDES/plaintext keys are rejected. Unsupported active media fails negotiation.
+See [SDP limits](docs/sdp.md); these checks are not a complete JSEP/security audit.
 
 SCTP validates CRC32C, verification tags, framing and bounded state over DTLS.
 DCEP channels have aggregate byte/count admission and strict UTF-8/control

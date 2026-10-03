@@ -2,7 +2,7 @@ FROM golang:1.26-bookworm@sha256:a688600ca24f8a4d3ca77f95b0dd40704a9fc787c826660
 WORKDIR /peer
 COPY tests/interop/Pion/go.mod tests/interop/Pion/go.sum ./
 RUN go mod download
-COPY tests/interop/Pion/main.go tests/interop/Pion/srtp.go tests/interop/Pion/dtls.go tests/interop/Pion/channels.go tests/interop/Pion/sctp-loss.go tests/interop/Pion/write-notices.sh tests/interop/Pion/THIRD_PARTY_NOTICES.txt ./
+COPY tests/interop/Pion/main.go tests/interop/Pion/peer.go tests/interop/Pion/srtp.go tests/interop/Pion/dtls.go tests/interop/Pion/channels.go tests/interop/Pion/sctp-loss.go tests/interop/Pion/write-notices.sh tests/interop/Pion/THIRD_PARTY_NOTICES.txt ./
 RUN cp THIRD_PARTY_NOTICES.txt /tmp/expected-notices.txt && sh write-notices.sh && cmp /tmp/expected-notices.txt THIRD_PARTY_NOTICES.txt && CGO_ENABLED=0 go build -trimpath -o /pion-peer .
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0-noble-aot

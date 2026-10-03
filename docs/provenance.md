@@ -70,6 +70,30 @@ These packages run only in an isolated local test peer. None is a dependency of 
 notices. Regenerate the notice file with `write-notices.sh` in the pinned Go build
 stage after any test-peer dependency change and inspect the full changed graph.
 
+The full SDP/Opus/data-channel harness (`peer.go`) is newly authored using public
+Pion WebRTC v4.2.22 APIs (MIT, commit `ef0e4301807de30cf4dbf2c11a5ae15829c4ed89`).
+Its graph adds interceptor v0.1.49 (MIT, commit
+`a921ef919ccc48c693f30f7847325b2cb4c7212d`) and sdp/v3 v3.0.20 (MIT, commit
+`8921edc83d51945017b2e1a987733a23bb9a9004`). Their pinned root licenses were
+inspected and original notices retained. No implementation, examples or fixtures
+were ported. RTP v1.10.5 is now directly imported by our harness; its version is unchanged.
+The Go MVS graph selects x/net v0.57.0, x/crypto v0.56.0 and x/sys v0.47.0,
+retaining BSD notices. Updated x/net fixes reachable DNS-parser GO-2026-5942;
+x/crypto also includes the SSH fixes identified by the module scan. Govulncheck
+v1.8.0 against Go 1.26.8 reports zero affected symbols and zero imported-package
+vulnerabilities. The module-level GO-2026-5932 OpenPGP advisory remains without an
+upstream fix; `go list -deps` verifies no OpenPGP packages are linked by this peer.
+This residual is not a zero-vulnerability claim for every package in those modules.
+
+The 60-byte Opus packet in the authored integration/AOT tests is encoded from our
+synthetic 440 Hz sine with local FFmpeg 8.0/libopus, not taken from an upstream fixture.
+Recipe: `ffmpeg -f lavfi -i sine=frequency=440:sample_rate=48000:duration=0.08
+-ac 1 -c:a libopus -b:a 24000 -vbr off -frame_duration 20 -f ogg synthetic.ogg`.
+An authored scratch reader extracts the first audio packet after the Ogg headers.
+Only our synthetic encoded output is committed; no FFmpeg/libopus source or binary
+is imported, linked or distributed by this library. The .NET runtime provides
+encoded-media transport, not an Opus codec.
+
 ## Future permitted imports
 
 For each imported file record the upstream URL, immutable commit, original path,

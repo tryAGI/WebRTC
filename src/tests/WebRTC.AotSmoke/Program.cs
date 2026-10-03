@@ -49,22 +49,28 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
     await using var left = new IceUdpTransport(new(IPAddress.Loopback, 0));
     await using var right = new IceUdpTransport(new(IPAddress.Loopback, 0));
     using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-    await Task.WhenAll(left.ConnectAsync(right.LocalCredentials, IceRole.Controlling, [new(right.LocalEndPoint)], deadline.Token),
-        right.ConnectAsync(left.LocalCredentials, IceRole.Controlled, [new(left.LocalEndPoint)], deadline.Token));
     using var clientIdentity = DtlsIdentity.Generate(); using var serverIdentity = DtlsIdentity.Generate();
+    var localOffer = SdpSessionDescription.Parse(SdpNegotiation.CreateOpusOffer(new(left.LocalCredentials, clientIdentity.GetFingerprintSha256(), left.LocalEndPoint, maximumMessageSize: 16384), 3));
+    var localAnswer = SdpSessionDescription.Parse(SdpNegotiation.CreateOpusAnswer(localOffer, new(right.LocalCredentials, serverIdentity.GetFingerprintSha256(), right.LocalEndPoint, maximumMessageSize: 16384), 4, preferredSetup: SdpSetup.Passive));
+    var localSession = SdpNegotiation.ValidateOpusAnswer(localOffer, localAnswer, true);
+    var remoteSession = SdpNegotiation.ValidateOpusAnswer(localOffer, localAnswer, false);
+    if (localSession.DtlsRole != DtlsRole.Client || remoteSession.DtlsRole != DtlsRole.Server || localSession.AudioCodec!.PayloadType != 111) return 1;
+    await Task.WhenAll(left.ConnectAsync(localSession.RemoteCredentials, localSession.IceRole, localSession.RemoteCandidates.Select(c => c.GetResolvedUdpCandidate()!), deadline.Token),
+        right.ConnectAsync(remoteSession.RemoteCredentials, remoteSession.IceRole, remoteSession.RemoteCandidates.Select(c => c.GetResolvedUdpCandidate()!), deadline.Token));
     var options = new DtlsSrtpOptions { Profiles = [profile], MaximumDatagramSize = 256 };
-    await using var client = new DtlsSrtpTransport(left, clientIdentity, DtlsRole.Client, serverIdentity.GetFingerprintSha256(), options);
-    await using var server = new DtlsSrtpTransport(right, serverIdentity, DtlsRole.Server, clientIdentity.GetFingerprintSha256(), options);
+    await using var client = new DtlsSrtpTransport(left, clientIdentity, localSession.DtlsRole, Convert.FromHexString(localSession.RemoteFingerprintSha256), options);
+    await using var server = new DtlsSrtpTransport(right, serverIdentity, remoteSession.DtlsRole, Convert.FromHexString(remoteSession.RemoteFingerprintSha256), options);
     await Task.WhenAll(client.ConnectAsync(deadline.Token), server.ConnectAsync(deadline.Token));
     await client.SendApplicationDatagramAsync("native-dtls"u8.ToArray(), deadline.Token);
     var receivedApp = false;
     await foreach (var packet in server.ReceiveApplicationDatagramsAsync(deadline.Token))
     { if (!packet.AsSpan().SequenceEqual("native-dtls"u8)) return 1; receivedApp = true; break; }
     if (!receivedApp) return 1;
-    await client.SendRtpAsync(data, deadline.Token);
+    var encodedAudio = Convert.FromHexString("806F002A00017700000000037881A8B036089FC201D66EF7DFFADA025AF3F4969ED2892A0995E48742F90670483DAD77C7F0A9A749175731FD11D709FF8D7B1B5F70A9480AA33804");
+    await client.SendRtpAsync(encodedAudio, deadline.Token);
     var receivedMedia = false;
     await foreach (var packet in server.ReceiveMediaDatagramsAsync(deadline.Token))
-    { if (packet.Kind != SecureMediaKind.Rtp || !packet.Data.AsSpan().SequenceEqual(data)) return 1; receivedMedia = true; break; }
+    { if (packet.Kind != SecureMediaKind.Rtp || !packet.Data.AsSpan().SequenceEqual(encodedAudio)) return 1; receivedMedia = true; break; }
     if (!receivedMedia) return 1;
     var sctpOptions = new SctpOptions { MaximumPacketSize = 200, MaximumMessageSize = 16384, ReceiveBufferBytes = 16384, MaximumQueuedMessages = 1 };
     await using var outgoing = new SctpAssociation(client, SctpRole.Initiator, sctpOptions);
@@ -125,7 +131,7 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
     await reused.CloseAsync(deadline.Token);
     await outgoing.CloseAsync(deadline.Token);
 }
-Console.WriteLine("NativeAOT fragmented DTLS, negotiated SRTP, SCTP/DCEP and PR-SCTP FORWARD-TSN and stream-reset/reuse passed");
+Console.WriteLine("NativeAOT SDP-driven encoded Opus, fragmented DTLS, negotiated SRTP, SCTP/DCEP and PR-SCTP FORWARD-TSN and stream-reset/reuse passed");
 return 0;
 
 static async Task<byte[]> Read(IceUdpTransport transport, CancellationToken cancellationToken)

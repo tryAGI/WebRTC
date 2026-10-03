@@ -5,6 +5,11 @@ using tryAGI.WebRTC;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("SDP bounded syntax, inheritance and immutable models", SdpTests.Syntax),
+    ("SDP duplicate/security/framing/size rejection", SdpTests.Malformed),
+    ("SDP DTLS/ICE roles and effective media directions", SdpTests.RolesAndDirections),
+    ("SDP answer negotiation before transport side effects", SdpTests.NegotiationPreflight),
+    ("SDP deterministic hostile-input corpus", SdpTests.HostileCorpus),
     ("SCTP independent CRC32C and chunk framing", SctpTests.Framing),
     ("SCTP malformed framing and resource bounds", SctpTests.Bounds),
     ("DCEP wire types, Unicode and reliable parameter semantics", SctpTests.Dcep),

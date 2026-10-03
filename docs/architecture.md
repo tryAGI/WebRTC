@@ -38,6 +38,10 @@ connection-state and encoded-frame types when implementing the respective milest
    Do not treat fresh protocol glue as a reason to invent cryptographic primitives.
 4. SDP negotiation and RTP/RTCP encoded-media transport, interoperability with a
    separately pinned local browser/Pion peer, including loss/reordering/cancellation.
+   Bounded initial Opus/data SDP negotiation now drives one BUNDLE transport with
+   independent full Pion WebRTC offer/answer and encoded Opus/control exchange in
+   both DTLS roles. Complete peer ownership, media routing/RTCP, video and browser
+   coverage remain. See [SDP subset](sdp.md).
 5. Ordered/unordered SCTP/DCEP channels with bounded reassembly, flow control,
    reliable/limited-retransmission/timed policies, directional reset/channel close/reuse
    and independent Pion validation
@@ -59,6 +63,8 @@ or MIT relicensing of restricted source is part of this initial foundation.
 - RFC 6347 / RFC 5246 / RFC 7627 / RFC 8422 / RFC 5289 / RFC 5705: DTLS 1.2 / TLS / EMS / ECC / GCM / exporters
 - RFC 9260 / RFC 8261 / RFC 3758 / RFC 5061 / RFC 6525: SCTP / SCTP over DTLS / partial reliability / extension negotiation / stream reset
 - RFC 8831 / RFC 8832 / RFC 8833: data channels / DCEP / DTLS usage
+- RFC 8866 / RFC 3264 / RFC 9143 / RFC 9429 / RFC 8841 / RFC 8285:
+  SDP / offer-answer / BUNDLE / JSEP / SCTP SDP / RTP header extensions
 
 Implement the wire contracts from these standards. Copying RFC code components or
 test assets is a separate import with separate attribution requirements.

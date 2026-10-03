@@ -88,12 +88,17 @@ cases.Add(("DCEP closing survives lost result and peer reciprocal reset", () => 
 cases.Add(("DCEP blocked old send cannot enter reused stream", SctpResetTests.BlockedOldSend));
 cases.Add(("SCTP/DCEP reset capability refusal preserves usability", SctpResetTests.Negotiation));
 
+cases.Add(("SDP-driven encrypted Opus and data over one local BUNDLE", SdpTests.Local));
+
 if (args.Length != 0)
 {
     if (args.Length != 2 || args[0] != "--pion-uri" || !Uri.TryCreate(args[1], UriKind.Absolute, out var pionUri) ||
         pionUri.Scheme != "http" || pionUri.UserInfo.Length != 0 ||
         !(pionUri.Host == "localhost" || (IPAddress.TryParse(pionUri.Host, out var address) && IPAddress.IsLoopback(address))))
         throw new ArgumentException("The independent peer must be an explicit local HTTP endpoint.");
+    foreach (var localOfferer in new[] { false, true })
+        foreach (var passiveAnswer in new[] { false, true })
+            cases.Add(($"Pion full SDP/Opus/data local offer={localOfferer}, passive answer={passiveAnswer}", () => SdpTests.Pion(pionUri, localOfferer, passiveAnswer)));
     foreach (var role in Enum.GetValues<DtlsRole>())
         foreach (var peerOpens in new[] { false, true })
             cases.Add(($"Pion SCTP/DCEP {role}, remote OPEN={peerOpens}", () => DataChannelTests.Pion(pionUri, role, peerOpens, unordered: peerOpens)));
@@ -390,6 +395,9 @@ internal sealed record PeerOffer(bool Controlling, string Fragment, string Passw
 internal sealed record PeerResponse(string Fragment, string Password, string Address, int Port, uint Priority);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(SessionRequest))]
+[JsonSerializable(typeof(SessionResponse))]
+[JsonSerializable(typeof(SessionStats))]
 [JsonSerializable(typeof(ChannelOffer))]
 [JsonSerializable(typeof(DtlsOffer))]
 [JsonSerializable(typeof(DtlsDescription))]

@@ -12,9 +12,12 @@ with independent Pion interoperability in client and server roles. Bounded SCTP 
 ordered/unordered DCEP channels add large text/binary message delivery with reliable,
 limited-retransmission or lifetime-limited policies, negotiated stream reset and
 per-channel closure/reuse.
+Bounded SDP parsing and initial Opus/data-channel offer/answer negotiation now
+drive encrypted audio and control messages over one BUNDLE transport, including
+interoperability with a complete independent Pion peer.
 
-**Status: transport in development.** ICE gathering/TURN,
-SDP negotiation and a usable peer connection are not implemented. This library does
+**Status: transport in development.** ICE gathering/TURN, general SDP/JSEP,
+video, media routing/RTCP feedback and a usable peer connection remain incomplete. This library does
 not yet replace SIPSorcery in DId or Advantage. No package is automatically published.
 
 The runtime library has no third-party NuGet or native dependencies. It uses the .NET
@@ -25,6 +28,7 @@ The implementation is authored against protocol standards. No SIPSorcery or Pion
 source has been imported. See [source provenance](docs/provenance.md),
 [architecture and milestones](docs/architecture.md), [completion gates](docs/acceptance.md),
 [UDP ICE scope](docs/ice-transport.md), [DTLS scope](docs/dtls.md), [SCTP/data-channel scope](docs/data-channels.md), [SRTP/SRTCP scope](docs/srtp.md) and [security scope](SECURITY.md).
+See [SDP/Opus negotiation scope](docs/sdp.md) for supported signaling and its limits.
 
 ## Build and validate
 
@@ -39,7 +43,7 @@ dotnet publish src/tests/WebRTC.AotSmoke -c Release -r linux-x64 -p:PublishAot=t
 The console test runner needs no test-framework packages and exits nonzero on failure.
 All tests run locally without credentials or provider endpoints.
 
-An independent pinned Pion ICE/DTLS/SRTP/SCTP/DCEP peer runs in an isolated local container:
+An independent pinned Pion ICE/DTLS/SRTP/SCTP/DCEP/full WebRTC peer runs in an isolated local container:
 
 ```sh
 docker build -f tests/interop/Pion/Dockerfile -t tryagi-webrtc-interop .

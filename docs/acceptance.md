@@ -13,8 +13,8 @@ self-to-self exchange or green parser tests cannot satisfy that objective.
 | Safe ICE lifecycle | Trickle, peer-reflexive learning, restart, gathering cancellation, bounded checklist | Trickle/reflexive/bounds implemented; restart/gathering remain |
 | DTLS-SRTP | Independent peer, SHA-256 fingerprint binding, client/server roles, exporter, retransmission and malformed flights | Local DTLS 1.2/EMS client/server handshakes, fingerprint/signature/replay rejection, loss/reordering/fragmentation, negotiated media and pinned Pion DTLS v3.1.9 in both roles; browser and full consumer sessions remain |
 | SRTP/SRTCP | Positive vectors and negative auth/replay/rollover vectors; live media in both directions | AES-CM/HMAC-80 and AES-GCM 128/256 key contexts implemented; independent ciphertext/decryption and encrypted local UDP tests; DTLS-negotiated bidirectional local media and independent Pion exporter/SRTP exchange now pass; real consumer media remains |
-| SDP/BUNDLE/RTCP mux | Actual consumer codecs and SCTP, ICE-lite, rejected sections, MID/SSRC routing | Not implemented |
-| Encoded media | Opus timing, H264/VP8 assembly, RTCP feedback, loss/reorder and bounded queues | RTP parsing only |
+| SDP/BUNDLE/RTCP mux | Actual consumer codecs and SCTP, ICE-lite, rejected sections, MID/SSRC routing | Bounded initial Opus/data offer-answer, consistent bundled transport, RTCP mux, rejected sections, remote ICE-lite role selection and accepted MID-extension directions; full Pion WebRTC in both offer/answer and DTLS roles; general JSEP, local ICE-lite, MID/SSRC routing and consumer signaling remain |
+| Encoded media | Opus timing, H264/VP8 assembly, RTCP feedback, loss/reorder and bounded queues | Independently encoded synthetic Opus survives authenticated full-Pion transport with its RTP timestamp; codec decoding, pacing, assembly, routing/RTCP and real audio playback remain |
 | SCTP/DCEP | Browser/Pion data channels, ordered/unordered/reliable/limited-retransmission channels, bounded reassembly | Reliable/limited-retransmission/timed ordered and unordered channels, fragmented abandonment, FORWARD-TSN loss/retry, admission expiry and independent Pion bidirectional/hostile-control tests; directional reset, channel close/reuse, lost-result recovery and CRC-valid hostile-reset tests; interleaving, browser and full peer coverage remain |
 | DId | Owned public models/dependency; real agent offer/answer, nonempty media, ready event, teardown | Existing adapter inspected; migration and provider E2E remain |
 | Advantage Codex | Preserve pacing, queues, authenticated replay semantics, bootstrap pre-roll and data channel | Existing consumer inspected; migration and real App Server regression remain |
@@ -41,6 +41,6 @@ and p50/p95; loopback ICE timing is not provider or physical voice E2E latency.
 
 ## Next implementation order
 
-Continue SDP/RTCP and SCTP/DCEP over the independently validated ICE/DTLS/SRTP subset; add NAT/relay/resolution and consumer adapters as prerequisites
+Continue peer ownership, RTP routing/RTCP and video over the independently validated initial Opus/data SDP subset; add NAT/relay/resolution and consumer adapters as prerequisites
 become usable. Then migrate consumers and perform provider/device acceptance.
 Revisit order when interoperability reveals a prerequisite.
