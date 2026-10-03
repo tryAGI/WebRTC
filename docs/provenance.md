@@ -189,3 +189,14 @@ Primary references: [RFC8656](https://www.rfc-editor.org/rfc/rfc8656.html),
 [revocation mode](https://learn.microsoft.com/en-us/dotnet/api/system.net.security.sslclientauthenticationoptions.certificaterevocationcheckmode?view=net-10.0),
 [AIA policy](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.x509certificates.x509chainpolicy.disablecertificatedownloads?view=net-10.0)
 and [pinned Pion TURN public API](https://pkg.go.dev/github.com/pion/turn/v5@v5.1.2#ListenerConfig).
+
+Windows CI of the stream milestone exposed Schannel's refusal of the synthetic
+server's ephemeral ECDSA key handle. Only the authored fixture imports its generated
+PFX from memory using X509CertificateLoader/DefaultKeySet on Windows, without
+PersistKeySet. The temporary Windows key container is owned by certificate disposal;
+PFX bytes are cleared and no private-key file is written or committed by the tests.
+The fixture closes its client even when server-side authentication fails. Runtime
+TLS identity, chain, expiry and purpose validation is unchanged. This uses Microsoft
+public APIs ([LoadPkcs12](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.x509certificates.x509certificateloader.loadpkcs12?view=net-10.0),
+[key storage flags](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.x509certificates.x509keystorageflags?view=net-10.0));
+no upstream implementation/example was copied.

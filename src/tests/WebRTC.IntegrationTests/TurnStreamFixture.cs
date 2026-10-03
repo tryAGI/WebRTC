@@ -53,7 +53,13 @@ internal sealed class TurnStreamFixture : IAsyncDisposable
         leaf.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(purposes, true));
         var san = new SubjectAlternativeNameBuilder(); san.AddDnsName("turn.fixture.local"); leaf.CertificateExtensions.Add(san.Build());
         using var publicLeaf = leaf.Create(root, now.AddHours(-1), expired ? now.AddMinutes(-1) : now.AddHours(1), RandomNumberGenerator.GetBytes(16));
-        return (publicLeaf.CopyWithPrivateKey(key), root.RawData);
+        var certificate = publicLeaf.CopyWithPrivateKey(key);
+        if (!OperatingSystem.IsWindows()) return (certificate, root.RawData);
+        // Schannel needs a key-container handle. Import the synthetic PFX from memory,
+        // without PersistKeySet; certificate disposal owns the temporary Windows key.
+        var pfx = certificate.Export(X509ContentType.Pkcs12);
+        try { return (X509CertificateLoader.LoadPkcs12(pfx, null, X509KeyStorageFlags.DefaultKeySet), root.RawData); }
+        finally { certificate.Dispose(); CryptographicOperations.ZeroMemory(pfx); }
     }
     private async Task Run()
     {
@@ -77,7 +83,7 @@ internal sealed class TurnStreamFixture : IAsyncDisposable
         }
         catch (Exception error) when (_lifetime.IsCancellationRequested && error is OperationCanceledException or IOException or SocketException) { }
         catch (Exception error) when (AllowTlsRejection && error is AuthenticationException or IOException) { }
-        finally { Ready.TrySetCanceled(); }
+        finally { Ready.TrySetCanceled(); _client?.Close(); }
     }
     private async Task Upload()
     {
