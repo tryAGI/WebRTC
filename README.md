@@ -27,9 +27,13 @@ authenticated audio by negotiated payload/MID/source, exposes bounded receive
 queues and preserves RTP sequence, timestamp and SSRC metadata. Secure media readiness
 is separate from SCTP/data readiness.
 
+`VideoFrameAssembler` now provides bounded H264 mode 0/1 and VP8 encoded-frame
+reassembly from already authenticated RTP, with pinned source/PT/MID, loss/reorder
+handling, sequence rollover and explicit memory/age limits. See [video scope](docs/video-frames.md).
+
 **Status: transport in development.** Multiple interfaces, DNS/mDNS,
 ICE restart, general SDP/JSEP,
-video and automatic RTCP feedback remain incomplete. This library does
+video SDP/peer integration and automatic RTCP feedback remain incomplete. This library does
 not yet replace SIPSorcery in DId or Advantage. No package is automatically published.
 
 The runtime library has no third-party NuGet or native dependencies. It uses the .NET

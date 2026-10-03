@@ -5,6 +5,13 @@ using tryAGI.WebRTC;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("Video H264 STAP/FU mode bounds and sequence/timestamp rollover", VideoTests.H264),
+    ("Video VP8 descriptor extensions and partition reconstruction", VideoTests.Vp8),
+    ("Video loss, late packets, duplicates and access-unit boundaries", VideoTests.LossAndDuplicates),
+    ("Video malformed aggregation/fragment/descriptor identity", VideoTests.Malformed),
+    ("Video authorized source, payload and MID routing", VideoTests.Routing),
+    ("Video frame/packet/expanded-byte/age budgets", VideoTests.BoundsAndExpiry),
+    ("Video restart/disposal and bounded hostile-input corpus", VideoTests.LifetimeAndCorpus),
     ("TURN/STUN independent SHA256 integrity vector and tampering", TurnTests.Integrity),
     ("TURN/STUN SHA256 framing/capacity/duplicate bounds", TurnTests.Bounds),
     ("TURN mapped/relayed/peer IPv4/IPv6 address framing", TurnTests.Addresses),

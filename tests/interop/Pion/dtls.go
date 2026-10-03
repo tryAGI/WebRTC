@@ -230,7 +230,11 @@ func serveSecure(ctx context.Context, conn net.Conn, certificate tls.Certificate
 		}
 		appDone <- e
 	}()
-	for i := 0; i < 2; i++ {
+	mediaPackets := request.MediaPackets
+	if mediaPackets == 0 {
+		mediaPackets = 2
+	}
+	for i := 0; i < mediaPackets; i++ {
 		var packet []byte
 		select {
 		case packet = <-packets.media:

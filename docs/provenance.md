@@ -207,3 +207,16 @@ the corresponding Schannel TLS alert on its first read after server authenticati
 Only explicit negative TLS fixtures consume that expected read IOException; positive
 fixtures still surface it. Client AuthenticationException and zero TURN requests
 remain required by unchanged negative assertions. No runtime check was weakened.
+
+## Encoded video reassembly
+
+The video runtime, synthetic payloads, resource/loss cases and encrypted datagram
+fault proxy are newly authored from RFC 6184 sections 5–7 and RFC 7741 wire fields
+in sections 4.1–4.4. No RFC pseudocode/code component, source, movie, upstream
+implementation or test sample is copied. The existing pinned Pion `rtp/codecs`
+public H264/VP8 payloader APIs generate independent RTP payloads from our own
+synthetic bytes. The existing Go module versions, hashes and third-party notices
+are unchanged; build regenerates and compares those notices. Pion is test-only.
+No native/codec/NuGet runtime dependency is added. These tests establish encoded
+transport reconstruction, not rendering/decoder, real provider, formal clean-room
+or security-audit acceptance.

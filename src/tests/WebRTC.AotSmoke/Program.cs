@@ -13,6 +13,8 @@ if (!RtpPacket.TryParse(data, out var rtp) || rtp.Payload.Length != 2)
 {
     return 1;
 }
+VideoTests.H264(); VideoTests.Vp8(); VideoTests.LossAndDuplicates(); VideoTests.Malformed(); VideoTests.Routing(); VideoTests.BoundsAndExpiry(); VideoTests.LifetimeAndCorpus();
+Console.WriteLine("NativeAOT bounded video H264/VP8 reassembly and hostile input passed");
 Console.WriteLine("NativeAOT protocol smoke passed");
 await using var controlling = new IceUdpTransport(new(IPAddress.Loopback, 0));
 await using var controlled = new IceUdpTransport(new(IPAddress.Loopback, 0));
@@ -78,6 +80,9 @@ foreach (var transport in Enum.GetValues<TurnServerTransport>())
     await foreach (var packet in server.ReceiveMediaDatagramsAsync(deadline.Token))
     { if (packet.Kind != SecureMediaKind.Rtp || !packet.Data.AsSpan().SequenceEqual(encodedAudio)) return 1; receivedMedia = true; break; }
     if (!receivedMedia) return 1;
+    foreach (var codec in Enum.GetValues<VideoCodec>())
+        await VideoNetworkTests.Exchange(client, server, codec, false, deadline.Token);
+    Console.WriteLine($"NativeAOT authenticated video H264/VP8 via {transport} relay {profile} passed");
     var sctpOptions = new SctpOptions { MaximumPacketSize = 200, MaximumMessageSize = 16384, ReceiveBufferBytes = 16384, MaximumQueuedMessages = 1 };
     await using var outgoing = new SctpAssociation(client, SctpRole.Initiator, sctpOptions);
     await using var incoming = new SctpAssociation(server, SctpRole.Responder, sctpOptions);

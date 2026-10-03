@@ -25,6 +25,10 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Early requests require authentication and bound buffered state", EarlyCheckBounds),
     ("Early request remote identity is checked after signaling", EarlyIdentity),
 };
+foreach (var codec in Enum.GetValues<VideoCodec>())
+    foreach (var profile in Enum.GetValues<SrtpProfile>())
+        foreach (var loss in new[] { false, true })
+            cases.Add(($"Video authenticated DTLS/SRTP {codec}, {profile}, loss={loss}", () => VideoNetworkTests.Local(codec, profile, loss)));
 foreach (var profile in Enum.GetValues<SrtpProfile>())
     cases.Add(($"Encrypted ICE datagrams: {profile}", () => SrtpInterop.Network(profile)));
 
@@ -173,6 +177,10 @@ for (var option = 0; option < args.Length; option += 2)
 }
 if (pionUri != null)
 {
+    foreach (var codec in Enum.GetValues<VideoCodec>())
+        foreach (var profile in Enum.GetValues<SrtpProfile>())
+            foreach (var role in Enum.GetValues<DtlsRole>())
+                cases.Add(($"Pion Video independent payloader {codec}, {profile}, {role}", () => VideoInteropTests.Pion(pionUri, codec, role, profile)));
     foreach (var transport in new[] { TurnServerTransport.Tcp, TurnServerTransport.Tls })
     {
         foreach (var channel in new[] { false, true })

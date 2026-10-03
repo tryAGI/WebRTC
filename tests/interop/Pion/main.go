@@ -17,6 +17,7 @@ import (
 )
 
 type offer struct {
+	MediaPackets         int    `json:"mediaPackets"`
 	DataChannels         bool   `json:"dataChannels"`
 	SctpClient           bool   `json:"sctpClient"`
 	Reliability          int    `json:"reliability"`
@@ -72,7 +73,7 @@ func main() {
 		var request offer
 		decoder := json.NewDecoder(io.LimitReader(r.Body, 4096))
 		decoder.DisallowUnknownFields()
-		if decoder.Decode(&request) != nil {
+		if decoder.Decode(&request) != nil || request.MediaPackets < 0 || request.MediaPackets > 512 {
 			release()
 			http.Error(w, "invalid offer", 400)
 			return

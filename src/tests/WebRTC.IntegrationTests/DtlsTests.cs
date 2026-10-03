@@ -244,5 +244,5 @@ internal sealed class DtlsProxy : IAsyncDisposable
 }
 
 internal sealed record DtlsOffer(bool Controlling, bool Secure, bool DtlsClient, string Fingerprint, ushort Profile, int Mtu,
-    string Fragment, string Password, string Candidate);
+    string Fragment, string Password, string Candidate, int MediaPackets = 0);
 internal sealed record DtlsDescription(string Fingerprint, string Fragment, string Password, string Address, int Port, uint Priority);

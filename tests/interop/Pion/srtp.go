@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/pion/rtp/codecs"
 	"github.com/pion/srtp/v3"
 )
 
@@ -24,6 +25,54 @@ type cryptoRequest struct {
 
 func registerSrtp(mux *http.ServeMux) {
 	slots := make(chan struct{}, 4)
+	// Bounded loopback test-only public payloader API. Authored synthetic inputs, no codec implementation copied.
+	mux.HandleFunc("POST /video-payload", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case slots <- struct{}{}:
+		default:
+			http.Error(w, "limit", 429)
+			return
+		}
+		defer func() { <-slots }()
+		var request struct {
+			Codec string `json:"codec"`
+			Frame string `json:"frame"`
+			Mtu   uint16 `json:"mtu"`
+		}
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 70000))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&request) != nil || request.Mtu < 64 || request.Mtu > 1100 || len(request.Frame) > 65536 {
+			http.Error(w, "invalid frame", 400)
+			return
+		}
+		frame, err := hex.DecodeString(request.Frame)
+		if err != nil || len(frame) == 0 {
+			http.Error(w, "invalid frame", 400)
+			return
+		}
+		var payloads [][]byte
+		switch request.Codec {
+		case "H264":
+			p := &codecs.H264Payloader{}
+			payloads = p.Payload(request.Mtu, frame)
+		case "Vp8":
+			p := &codecs.VP8Payloader{}
+			payloads = p.Payload(request.Mtu, frame)
+		default:
+			http.Error(w, "unsupported codec", 400)
+			return
+		}
+		if len(payloads) == 0 || len(payloads) > 512 {
+			http.Error(w, "payload limit", 400)
+			return
+		}
+		result := make([]string, len(payloads))
+		for i, p := range payloads {
+			result[i] = hex.EncodeToString(p)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	})
 	mux.HandleFunc("POST /srtp", func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case slots <- struct{}{}:
