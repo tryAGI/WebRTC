@@ -200,3 +200,10 @@ TLS identity, chain, expiry and purpose validation is unchanged. This uses Micro
 public APIs ([LoadPkcs12](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.x509certificates.x509certificateloader.loadpkcs12?view=net-10.0),
 [key storage flags](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.x509certificates.x509keystorageflags?view=net-10.0));
 no upstream implementation/example was copied.
+
+After the Windows key fix, all positive stream cases passed; three negative TLS
+cases correctly rejected chain/expiry/EKU in the client but fixture cleanup surfaced
+the corresponding Schannel TLS alert on its first read after server authentication.
+Only explicit negative TLS fixtures consume that expected read IOException; positive
+fixtures still surface it. Client AuthenticationException and zero TURN requests
+remain required by unchanged negative assertions. No runtime check was weakened.

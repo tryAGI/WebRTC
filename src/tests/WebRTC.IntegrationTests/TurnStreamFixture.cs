@@ -105,6 +105,9 @@ internal sealed class TurnStreamFixture : IAsyncDisposable
             }
         }
         catch (EndOfStreamException) { }
+        // TLS 1.3 can complete the server handshake before the client's validation alert
+        // reaches its first read. Only explicit negative TLS fixtures expect that alert.
+        catch (IOException) when (AllowTlsRejection && _certificate != null) { }
         catch (IOException) when (_client?.Connected == false || _lifetime.IsCancellationRequested) { }
         catch (Exception) when (_lifetime.IsCancellationRequested) { }
     }
