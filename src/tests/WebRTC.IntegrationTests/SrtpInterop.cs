@@ -98,8 +98,9 @@ internal static class SrtpInterop
             var recovered = new byte[packet.Length];
             Check(receiver.TryUnprotectRtp(packet, recovered, out var length) && recovered.AsSpan(0, length).SequenceEqual(plaintext), "Network recovery failed");
             Check(!receiver.TryUnprotectRtp(packet, recovered, out _), "Network replay accepted");
-            break;
+            return;
         }
+        throw new IOException("ICE transport ended without receiving encrypted RTP.");
     }
 }
 

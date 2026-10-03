@@ -20,11 +20,7 @@ await Task.WhenAll(
     controlling.ConnectAsync(controlled.LocalCredentials, IceRole.Controlling, [new(controlled.LocalEndPoint)], timeout.Token),
     controlled.ConnectAsync(controlling.LocalCredentials, IceRole.Controlled, [new(controlling.LocalEndPoint)], timeout.Token));
 await controlling.SendDatagramAsync("native-ice"u8.ToArray(), timeout.Token);
-await foreach (var packet in controlled.ReceiveDatagramsAsync(timeout.Token))
-{
-    if (!packet.AsSpan().SequenceEqual("native-ice"u8)) return 1;
-    break;
-}
+if (!(await Read(controlled, timeout.Token)).AsSpan().SequenceEqual("native-ice"u8)) return 1;
 Console.WriteLine("NativeAOT authenticated ICE network smoke passed");
 foreach (var profile in Enum.GetValues<SrtpProfile>())
 {
@@ -39,16 +35,19 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
     var secure = new byte[data.Length + sender.RtpOverhead];
     if (!sender.TryProtectRtp(data, secure, out _)) return 1;
     await controlling.SendDatagramAsync(secure, timeout.Token);
-    await foreach (var packet in controlled.ReceiveDatagramsAsync(timeout.Token))
-    {
-        var recovered = new byte[packet.Length];
-        if (!receiver.TryUnprotectRtp(packet, recovered, out var length) || !recovered.AsSpan(0, length).SequenceEqual(data)) return 1;
-        if (receiver.TryUnprotectRtp(packet, recovered, out _)) return 1;
-        break;
-    }
+    var packet = await Read(controlled, timeout.Token);
+    var recovered = new byte[packet.Length];
+    if (!receiver.TryUnprotectRtp(packet, recovered, out var length) || !recovered.AsSpan(0, length).SequenceEqual(data)) return 1;
+    if (receiver.TryUnprotectRtp(packet, recovered, out _)) return 1;
     var control = Convert.FromHexString("80c9000100000003");
     secure = new byte[control.Length + sender.RtcpOverhead];
     if (!sender.TryProtectRtcp(control, secure, out _) || !receiver.TryUnprotectRtcp(secure, new byte[control.Length], out _)) return 1;
 }
 Console.WriteLine("NativeAOT SRTP/SRTCP profiles and encrypted ICE network smoke passed");
 return 0;
+
+static async Task<byte[]> Read(IceUdpTransport transport, CancellationToken cancellationToken)
+{
+    await foreach (var packet in transport.ReceiveDatagramsAsync(cancellationToken)) return packet;
+    throw new IOException("ICE transport ended without receiving the required smoke packet.");
+}
