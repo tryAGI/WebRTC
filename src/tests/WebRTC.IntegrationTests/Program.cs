@@ -25,6 +25,8 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Early requests require authentication and bound buffered state", EarlyCheckBounds),
     ("Early request remote identity is checked after signaling", EarlyIdentity),
 };
+foreach (var profile in Enum.GetValues<SrtpProfile>())
+    cases.Add(($"Encrypted ICE datagrams: {profile}", () => SrtpInterop.Network(profile)));
 
 if (args.Length != 0)
 {
@@ -35,6 +37,8 @@ if (args.Length != 0)
     cases.Add(("Pion controlled peer interoperability", () => Pion(pionUri, IceRole.Controlling)));
     cases.Add(("Pion controlling peer interoperability", () => Pion(pionUri, IceRole.Controlled)));
     cases.Add(("Pion early authenticated checks survive signaling delay", () => Pion(pionUri, IceRole.Controlled, waitForEarlyCheck: true)));
+    foreach (var profile in Enum.GetValues<SrtpProfile>())
+        cases.Add(($"Pion SRTP/SRTCP encryption, decryption and E=0: {profile}", () => SrtpInterop.Pion(pionUri, profile)));
 }
 
 var failed = 0;

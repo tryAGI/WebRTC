@@ -31,7 +31,9 @@ connection-state and encoded-frame types when implementing the respective milest
    Complete candidate gathering and minimal mDNS/DNS with
    deadlines, candidate policy and bounded name resolution. Then TURN UDP/TCP.
 3. DTLS handshake and SRTP/SRTCP: fingerprint binding, certificate policy, key
-   derivation, authentication before delivery, replay and rollover tests. Do not
+   derivation, authentication before delivery, replay and rollover tests. SRTP/SRTCP
+   directional key contexts and independent profile tests are implemented; DTLS remains.
+   Do not
    treat fresh protocol glue as a reason to invent cryptographic primitives.
 4. SDP negotiation and RTP/RTCP encoded-media transport, interoperability with a
    separately pinned local browser/Pion peer, including loss/reordering/cancellation.
@@ -48,7 +50,7 @@ or MIT relicensing of restricted source is part of this initial foundation.
 - RFC 8445 / RFC 7675: ICE / consent freshness
 - RFC 8656: TURN
 - RFC 8825 / RFC 8826 / RFC 8827: WebRTC protocol and security architecture
-- RFC 5764 / RFC 3711 / RFC 7714: DTLS-SRTP / SRTP / AES-GCM profiles
+- RFC 5764 / RFC 3711 / RFC 7714 / RFC 6188: DTLS-SRTP / SRTP / AES-GCM / AES-256 KDF
 - RFC 8831 / RFC 8832 / RFC 8833: data channels / DCEP / DTLS usage
 
 Implement the wire contracts from these standards. Copying RFC code components or

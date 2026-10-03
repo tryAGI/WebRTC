@@ -19,6 +19,12 @@ use CryptographicOperations.FixedTimeEquals. The caller must supply the correctl
 derived credential key; long-term credential derivation is not implemented. FINGERPRINT
 is a CRC for protocol identification and corruption detection, not authentication.
 
+SRTP/SRTCP contexts authenticate before returning decrypted packets, enforce replay
+windows and refuse sender index reuse. They require fresh directional key generations;
+they do not yet authenticate peers or negotiate keys. See [SRTP/SRTCP scope](docs/srtp.md).
+The independent peer and synthetic vectors establish profile interoperability, not an
+independent security audit. DTLS fingerprint/exporter binding remains a prerequisite.
+
 No untrusted packet may trigger unbounded allocation, reassembly, retry loops or network
 destinations. Add explicit limits when each stateful transport component is introduced.
 SDP-provided ICE servers, DNS answers, candidates and datagrams remain untrusted input.

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/pion/ice/v4"
@@ -29,8 +30,13 @@ type description struct {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--srtp-vectors" {
+		writeSrtpVectors(os.Stdout)
+		return
+	}
 	slots := make(chan struct{}, 4)
 	mux := http.NewServeMux()
+	registerSrtp(mux)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("POST /peer", func(w http.ResponseWriter, r *http.Request) {
 		select {

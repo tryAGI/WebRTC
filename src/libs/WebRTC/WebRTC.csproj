@@ -5,7 +5,7 @@
     <PackageId>tryAGI.WebRTC</PackageId>
     <Version>0.1.0-alpha.1</Version>
     <Authors>tryAGI and contributors</Authors>
-    <Description>Independent .NET 10 STUN, RTP and UDP ICE components. DTLS/SRTP, data channels and peer negotiation are in development.</Description>
+    <Description>Independent .NET 10 STUN, RTP, UDP ICE and SRTP/SRTCP components. DTLS key negotiation, data channels and peer negotiation are in development.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <IsAotCompatible>true</IsAotCompatible>

@@ -12,7 +12,7 @@ self-to-self exchange or green parser tests cannot satisfy that objective.
 | Real NAT traversal | STUN srflx gathering, TURN UDP/TCP/TLS, relay permissions/channel lifetime, mDNS and multiple interfaces | Not implemented |
 | Safe ICE lifecycle | Trickle, peer-reflexive learning, restart, gathering cancellation, bounded checklist | Trickle/reflexive/bounds implemented; restart/gathering remain |
 | DTLS-SRTP | Independent peer, SHA-256 fingerprint binding, client/server roles, exporter, retransmission and malformed flights | Not implemented |
-| SRTP/SRTCP | Positive vectors and negative auth/replay/rollover vectors; live media in both directions | Not implemented |
+| SRTP/SRTCP | Positive vectors and negative auth/replay/rollover vectors; live media in both directions | AES-CM/HMAC-80 and AES-GCM 128/256 key contexts implemented; independent ciphertext/decryption and encrypted local UDP tests; DTLS-negotiated live media remains |
 | SDP/BUNDLE/RTCP mux | Actual consumer codecs and SCTP, ICE-lite, rejected sections, MID/SSRC routing | Not implemented |
 | Encoded media | Opus timing, H264/VP8 assembly, RTCP feedback, loss/reorder and bounded queues | RTP parsing only |
 | SCTP/DCEP | Browser/Pion data channels, ordered/unordered/reliable/limited-retransmission channels, bounded reassembly | Not implemented |

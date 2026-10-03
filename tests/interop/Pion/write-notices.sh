@@ -5,7 +5,7 @@ set -eu
 output="$(mktemp /tmp/tryagi-peer-notices.XXXXXX)"
 normalized="$(mktemp /tmp/tryagi-peer-notices-normalized.XXXXXX)"
 trap 'rm -f "$output" "$normalized"' EXIT
-printf 'Independent local ICE test peer: dependency notices\n' > "$output"
+printf 'Independent local ICE/SRTP test peer: dependency notices\n' > "$output"
 printf '\nThese dependencies belong to the isolated Go test peer, not tryAGI.WebRTC.\n' >> "$output"
 printf '\nGo shared standard library\n' >> "$output"
 go env GOVERSION >> "$output"

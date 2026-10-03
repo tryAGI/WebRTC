@@ -19,6 +19,15 @@ var tests = new (string Name, Action Run)[]
     ("STUN writer matches independently generated vector", WriterReference),
     ("STUN writer capacity and completion bounds", WriterBounds),
     ("ICE credentials and candidates reject unsafe input", IceInputBounds),
+    ("SRTP/SRTCP independent Pion synthetic vectors and E=0 tampering", SrtpTests.IndependentVectors),
+    ("SRTP/SRTCP profiles, padding, extensions and empty payload", SrtpTests.RoundTrips),
+    ("SRTP/SRTCP every-byte tampering, truncation and wrong keys", SrtpTests.Tampering),
+    ("SRTP rollover and authenticated out-of-order packets", SrtpTests.RolloverAndReordering),
+    ("SRTP/SRTCP bounded replay window", SrtpTests.ReplayWindow),
+    ("SRTP/SRTCP source bounds and unauthenticated state admission", SrtpTests.ResourceBounds),
+    ("SRTP/SRTCP buffer bounds and overlap rejection", SrtpTests.BufferBounds),
+    ("SRTP disposal and direction", SrtpTests.LifetimeAndDirection),
+    ("SRTP/SRTCP deterministic hostile-input corpus", SrtpTests.MalformedInputs),
 };
 
 var failed = 0;

@@ -7,6 +7,9 @@ No source, pseudocode, test implementation or fixture has been copied or transla
 from SIPSorcery, Pion or RFC appendices. Protocol constants and field layouts are
 implemented from the cited standards. Authentication fixtures are independently
 generated from synthetic inputs using Python's standard hmac/hashlib/binascii tools.
+SRTP/SRTCP known-answer ciphertexts are generated from newly authored public synthetic
+keys and packets by the pinned Pion test peer (`pion-peer --srtp-vectors`), not extracted
+from any upstream test fixture or RFC appendix. The generator is our authored harness.
 `src/public.snk` is a newly generated RSA public strong-name key; its private key
 was discarded. It is used only for assembly identity, not publisher authentication.
 
@@ -21,6 +24,11 @@ root LICENSE is MIT. The complete Go module graph and hashes are in the peer's
 `go.mod`/`go.sum`. Original linked-module notices, including MIT/BSD dependency
 terms, are retained in `tests/interop/Pion/THIRD_PARTY_NOTICES.txt`.
 Only trailing whitespace is normalized when collecting those notices.
+The newly authored SRTP test harness also calls `github.com/pion/srtp/v3 v3.1.3`
+(MIT, immutable commit `508d3e9955121cfe30d7e15791d5810d1290c438`). Its graph adds
+Pion RTP v1.10.5 and RTCP v1.2.19, and selects transport/v5 v5.1.1; all three retain
+their MIT notices. This graph is entirely test-only. Runtime SRTP/SRTCP code is
+newly authored against RFC 3711/7714/6188 using platform cryptographic primitives.
 
 These packages run only in an isolated local test peer. None is a dependency of the
 .NET runtime library or its NuGet package. Our MIT license does not replace their
