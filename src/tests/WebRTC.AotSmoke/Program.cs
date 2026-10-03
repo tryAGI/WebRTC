@@ -132,6 +132,31 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
     await outgoing.CloseAsync(deadline.Token);
 }
 Console.WriteLine("NativeAOT SDP-driven encoded Opus, fragmented DTLS, negotiated SRTP, SCTP/DCEP and PR-SCTP FORWARD-TSN and stream-reset/reuse passed");
+foreach (var profile in Enum.GetValues<SrtpProfile>())
+{
+    using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5)); var ct = deadline.Token;
+    var peerOptions = new PeerConnectionOptions { LocalEndPoint = new(IPAddress.Loopback, 0), Dtls = new() { Profiles = [profile] } };
+    await using var local = new PeerConnection(peerOptions); await using var remote = new PeerConnection(peerOptions);
+    local.SetRemoteAnswer(remote.CreateAnswer(local.CreateOffer()));
+    await Task.WhenAll(local.ConnectAsync(ct), remote.ConnectAsync(ct));
+    var channel = await local.OpenDataChannelAsync(new("native-owned", "", true, DataChannelReliability.Reliable, 0, 256), ct);
+    DataChannel? accepted = null;
+    await foreach (var value in remote.AcceptDataChannelsAsync(ct)) { accepted = value; break; }
+    if (accepted == null) return 1;
+    await channel.SendTextAsync("owned-native", ct);
+    var controlReceived = false;
+    await foreach (var message in accepted.ReceiveMessagesAsync(ct)) { if (message.GetText() != "owned-native") return 1; controlReceived = true; break; }
+    if (!controlReceived) return 1;
+    var payload = Convert.FromHexString("7881A8B036089FC201D66EF7DFFADA025AF3F4969ED2892A0995E48742F90670483DAD77C7F0A9A749175731FD11D709FF8D7B1B5F70A9480AA33804");
+    await local.SendOpusAsync(payload, 96000, cancellationToken: ct);
+    var audioReceived = false;
+    await foreach (var audio in remote.ReceiveAudioAsync(ct))
+    { if (audio.Timestamp != 96000 || audio.SynchronizationSource != local.AudioSource || !audio.Payload.AsSpan().SequenceEqual(payload)) return 1; audioReceived = true; break; }
+    if (!audioReceived) return 1;
+    await channel.CloseAsync(ct); await local.CloseAsync(ct);
+    if (await remote.Completion.WaitAsync(ct) != null) return 1;
+}
+Console.WriteLine("NativeAOT owned peer Opus/data lifecycle and all SRTP profiles passed");
 return 0;
 
 static async Task<byte[]> Read(IceUdpTransport transport, CancellationToken cancellationToken)

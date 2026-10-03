@@ -40,8 +40,11 @@ connection-state and encoded-frame types when implementing the respective milest
    separately pinned local browser/Pion peer, including loss/reordering/cancellation.
    Bounded initial Opus/data SDP negotiation now drives one BUNDLE transport with
    independent full Pion WebRTC offer/answer and encoded Opus/control exchange in
-   both DTLS roles. Complete peer ownership, media routing/RTCP, video and browser
+   both DTLS roles. Initial owned peer lifecycle, accepted Opus MID/PT/source
+   routing and bounded RTCP framing are now implemented; automatic RTCP feedback,
+   video, general negotiation and browser
    coverage remain. See [SDP subset](sdp.md).
+   See [owned initial peer](peer-connection.md) for readiness and queue semantics.
 5. Ordered/unordered SCTP/DCEP channels with bounded reassembly, flow control,
    reliable/limited-retransmission/timed policies, directional reset/channel close/reuse
    and independent Pion validation

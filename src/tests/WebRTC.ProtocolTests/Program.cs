@@ -5,6 +5,8 @@ using tryAGI.WebRTC;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("RFC8285 one/two-byte MID framing and hostile elements", MediaTests.Extensions),
+    ("RTCP compound/reduced-size framing and report bounds", MediaTests.Control),
     ("SDP bounded syntax, inheritance and immutable models", SdpTests.Syntax),
     ("SDP duplicate/security/framing/size rejection", SdpTests.Malformed),
     ("SDP DTLS/ICE roles and effective media directions", SdpTests.RolesAndDirections),

@@ -69,7 +69,9 @@ Whole-library NativeAOT smoke executes SDP-driven media/data exchange for all SR
 profiles. Tests use loopback candidates and no provider endpoints.
 
 This is not full RFC 9429 JSEP conformance or an application-ready peer connection.
-Signaling state/rollback, renegotiation, ICE restart, gather/trickle orchestration,
-NAT/relay/name resolution, video codec selection, MID/SSRC receive routing,
+General signaling state/rollback, renegotiation, ICE restart, gather/trickle orchestration,
+NAT/relay/name resolution, video codec selection, multiple-media MID/SSRC routing,
 RTCP feedback, codec decoding and timed media delivery remain. Synthetic packet
 transport is not audible playback or measured provider/Apple Watch voice latency.
+The [initial owned peer](peer-connection.md) now supplies the initial signaling
+lifecycle and bounded Opus routing above these helpers.

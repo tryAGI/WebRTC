@@ -32,6 +32,12 @@ See [DTLS scope and key limits](docs/dtls.md).
 No untrusted packet may trigger unbounded allocation, reassembly, retry loops or network
 destinations. Add explicit limits when each stateful transport component is introduced.
 SDP-provided ICE servers, DNS answers, candidates and datagrams remain untrusted input.
+The initial peer owns all transports and closes them on establishment cancellation
+or transport failure. Only authenticated/replay-checked SRTP reaches Opus routing;
+wrong MID/payload/direction, conflicting/local sources and excess source admission
+are rejected. Known RTP extension framing is checked before routing. RTCP framing
+checks do not constitute semantic feedback/SDES validation. Bounded drop-oldest media
+queues report losses and add no intentional jitter delay. See [peer scope](docs/peer-connection.md).
 The SDP parser bounds UTF-8 bytes, lines, media sections, attributes, candidates,
 codecs and extensions. It performs no network/DNS work. Initial Opus/data negotiation
 validates accepted media, BUNDLE credentials, fingerprint, DTLS roles and extension
@@ -52,5 +58,5 @@ peer connection. Stream reset is negotiated and validates parameter framing, uni
 stream IDs, request sequence and bounded TSN barriers before changing state. IDs
 remain reserved until both directions finish; invalid DCEP still terminates its owner.
 
-A full peer connection, NAT traversal and consumer
+A general peer connection, NAT traversal and consumer
 acceptance remain unimplemented. Consumers must not migrate on DTLS/SRTP interoperability alone.

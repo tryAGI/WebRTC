@@ -87,6 +87,15 @@ internal static class SdpTests
         var lite = SdpSessionDescription.Parse(Offer().Replace("t=0 0\r\n", "t=0 0\r\na=ice-lite\r\n"));
         var liteAnswer = SdpSessionDescription.Parse(SdpNegotiation.CreateOpusAnswer(lite, Transport(), 5678));
         Check(SdpNegotiation.ValidateOpusAnswer(lite, liteAnswer, false).IceRole == IceRole.Controlling);
+        foreach (var preferred in Enum.GetValues<SdpDirection>())
+        {
+            var offered = SdpSessionDescription.Parse(Offer());
+            var restricted = SdpSessionDescription.Parse(SdpNegotiation.CreateOpusAnswer(offered, Transport(), 5678, direction: preferred));
+            Check(restricted.Media[0].Direction == preferred);
+            var local = SdpNegotiation.ValidateOpusAnswer(offered, restricted, false);
+            Check(local.CanSendAudio == (preferred is SdpDirection.SendOnly or SdpDirection.SendReceive));
+            Check(local.CanReceiveAudio == (preferred is SdpDirection.ReceiveOnly or SdpDirection.SendReceive));
+        }
     }
     internal static void NegotiationPreflight()
     {

@@ -14,6 +14,10 @@ from any upstream test fixture or RFC appendix. The generator is our authored ha
 was discarded. It is used only for assembly identity, not publisher authentication.
 
 This describes code provenance, not a formal clean-room or security-audit claim.
+The initial peer owner, RTP/MID framing/routing and bounded RTCP framing are newly
+authored from RFC 8285/3550 and the existing authored transport contracts. The
+new independent peer tests invoke our public owner and the existing authored Pion
+HTTP harness. No upstream implementation/example/fixture or new dependency is added.
 
 ## Independent test peer
 

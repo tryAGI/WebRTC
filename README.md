@@ -16,8 +16,13 @@ Bounded SDP parsing and initial Opus/data-channel offer/answer negotiation now
 drive encrypted audio and control messages over one BUNDLE transport, including
 interoperability with a complete independent Pion peer.
 
+An initial `PeerConnection` now owns the resolved-host Opus/data session, routes
+authenticated audio by negotiated payload/MID/source, exposes bounded receive
+queues and preserves RTP sequence, timestamp and SSRC metadata. Secure media readiness
+is separate from SCTP/data readiness.
+
 **Status: transport in development.** ICE gathering/TURN, general SDP/JSEP,
-video, media routing/RTCP feedback and a usable peer connection remain incomplete. This library does
+video and automatic RTCP feedback remain incomplete. This library does
 not yet replace SIPSorcery in DId or Advantage. No package is automatically published.
 
 The runtime library has no third-party NuGet or native dependencies. It uses the .NET
@@ -29,6 +34,7 @@ source has been imported. See [source provenance](docs/provenance.md),
 [architecture and milestones](docs/architecture.md), [completion gates](docs/acceptance.md),
 [UDP ICE scope](docs/ice-transport.md), [DTLS scope](docs/dtls.md), [SCTP/data-channel scope](docs/data-channels.md), [SRTP/SRTCP scope](docs/srtp.md) and [security scope](SECURITY.md).
 See [SDP/Opus negotiation scope](docs/sdp.md) for supported signaling and its limits.
+See [initial peer API](docs/peer-connection.md) for lifecycle, media timing and ownership.
 
 ## Build and validate
 

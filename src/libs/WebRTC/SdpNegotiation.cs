@@ -38,6 +38,7 @@ public sealed class SdpNegotiatedSession
     public IceRole IceRole { get; }
     public SdpDirection AudioDirection { get; }
     public IReadOnlyDictionary<int, string> OutgoingAudioHeaderExtensions { get; }
+    public IReadOnlyDictionary<int, string> IncomingAudioHeaderExtensions { get; }
     public bool CanSendAudio => LocalAudio != null && AudioDirection is SdpDirection.SendReceive or SdpDirection.SendOnly;
     public bool CanReceiveAudio => LocalAudio != null && AudioDirection is SdpDirection.SendReceive or SdpDirection.ReceiveOnly;
     public int MaximumMessageSize { get; }
@@ -51,6 +52,9 @@ public sealed class SdpNegotiatedSession
         OutgoingAudioHeaderExtensions = new ReadOnlyDictionary<int, string>(answeredAudio == null ? new() :
             answeredAudio.HeaderExtensions.Where(e => answeredAudio.HeaderExtensionDirections[e.Key] == SdpDirection.SendReceive ||
                 answeredAudio.HeaderExtensionDirections[e.Key] == (localOfferer ? SdpDirection.ReceiveOnly : SdpDirection.SendOnly)).ToDictionary(e => e.Key, e => e.Value));
+        IncomingAudioHeaderExtensions = new ReadOnlyDictionary<int, string>(answeredAudio == null ? new() :
+            answeredAudio.HeaderExtensions.Where(e => answeredAudio.HeaderExtensionDirections[e.Key] == SdpDirection.SendReceive ||
+                answeredAudio.HeaderExtensionDirections[e.Key] == (localOfferer ? SdpDirection.SendOnly : SdpDirection.ReceiveOnly)).ToDictionary(e => e.Key, e => e.Value));
         LocalAudio = localAudio; RemoteAudio = remoteAudio; LocalData = localData; RemoteData = remoteData; AudioCodec = codec;
         var transport = remoteAudio ?? remoteData ?? throw new InvalidOperationException("No accepted SDP media.");
         RemoteCredentials = transport.IceCredentials!; RemoteFingerprintSha256 = transport.FingerprintSha256!;
@@ -82,10 +86,11 @@ public static class SdpNegotiation
         return builder.ToString();
     }
 
-    public static string CreateOpusAnswer(SdpSessionDescription offer, SdpLocalTransport transport, uint source, bool dataChannels = true, SdpSetup preferredSetup = SdpSetup.Active)
+    public static string CreateOpusAnswer(SdpSessionDescription offer, SdpLocalTransport transport, uint source, bool dataChannels = true, SdpSetup preferredSetup = SdpSetup.Active,
+        SdpDirection direction = SdpDirection.SendReceive)
     {
         ArgumentNullException.ThrowIfNull(offer); ArgumentNullException.ThrowIfNull(transport);
-        if (source == 0 || preferredSetup is not (SdpSetup.Active or SdpSetup.Passive)) throw new ArgumentOutOfRangeException(nameof(source));
+        if (source == 0 || preferredSetup is not (SdpSetup.Active or SdpSetup.Passive) || !Enum.IsDefined(direction)) throw new ArgumentOutOfRangeException(nameof(source));
         SdpMediaDescription? audio = null, data = null;
         foreach (var media in offer.Media)
         {
@@ -103,7 +108,7 @@ public static class SdpNegotiation
         foreach (var media in offer.Media)
         {
             if (ReferenceEquals(media, audio))
-                WriteAudio(builder, transport, media.Mid, Opus(media)!.PayloadType, Invert(media.Direction), setup, source,
+                WriteAudio(builder, transport, media.Mid, Opus(media)!.PayloadType, Intersect(Invert(media.Direction), direction), setup, source,
                     media.HeaderExtensions.FirstOrDefault(e => e.Value == MidExtension && media.HeaderExtensionDirections[e.Key] == SdpDirection.SendReceive).Key);
             else if (ReferenceEquals(media, data)) WriteData(builder, transport, media.Mid, setup);
             else builder.Append(CultureInfo.InvariantCulture, $"m={media.Kind} 0 {media.Protocol} {string.Join(' ', media.Formats)}\r\na=mid:{media.Mid}\r\n");
@@ -160,6 +165,12 @@ public static class SdpNegotiation
     };
     private static SdpDirection Invert(SdpDirection value) => value switch
     { SdpDirection.SendOnly => SdpDirection.ReceiveOnly, SdpDirection.ReceiveOnly => SdpDirection.SendOnly, _ => value };
+    private static SdpDirection Intersect(SdpDirection remote, SdpDirection local)
+    {
+        var send = remote is SdpDirection.SendReceive or SdpDirection.SendOnly && local is SdpDirection.SendReceive or SdpDirection.SendOnly;
+        var receive = remote is SdpDirection.SendReceive or SdpDirection.ReceiveOnly && local is SdpDirection.SendReceive or SdpDirection.ReceiveOnly;
+        return send ? receive ? SdpDirection.SendReceive : SdpDirection.SendOnly : receive ? SdpDirection.ReceiveOnly : SdpDirection.Inactive;
+    }
     private static bool IsRtp(SdpMediaDescription media) => media.Protocol == "UDP/TLS/RTP/SAVPF";
     private static bool IsData(SdpMediaDescription media) => media.Kind == "application" && media.Protocol == "UDP/DTLS/SCTP" &&
         media.Formats.SequenceEqual(new[] { "webrtc-datachannel" }) && media.SctpPort != null && media.Direction == SdpDirection.SendReceive;

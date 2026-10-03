@@ -89,6 +89,15 @@ cases.Add(("DCEP blocked old send cannot enter reused stream", SctpResetTests.Bl
 cases.Add(("SCTP/DCEP reset capability refusal preserves usability", SctpResetTests.Negotiation));
 
 cases.Add(("SDP-driven encrypted Opus and data over one local BUNDLE", SdpTests.Local));
+foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
+    cases.Add(($"Owned peer bidirectional media/data/control and graceful close {setup}", () => PeerTests.Local(setup)));
+cases.Add(("Owned peer initial signaling rejects invalid state without losing intent", PeerTests.Signaling));
+cases.Add(("Owned peer cancellation/disposal releases socket and pending operations", PeerTests.Cancellation));
+cases.Add(("Owned peer audio direction and audio-only session", PeerTests.Direction));
+cases.Add(("Owned peer bounded audio queue retains freshest packet", PeerTests.Queue));
+cases.Add(("Owned peer secure audio flows while SCTP handshake is stalled", () => PeerTests.EarlyMedia()));
+cases.Add(("Owned peer negotiated two-byte MID while SCTP is stalled", () => PeerTests.EarlyMedia(true)));
+cases.Add(("Owned peer rejects authenticated wrong MID/PT/SSRC and malformed RTCP", PeerTests.Routing));
 
 if (args.Length != 0)
 {
@@ -96,6 +105,9 @@ if (args.Length != 0)
         pionUri.Scheme != "http" || pionUri.UserInfo.Length != 0 ||
         !(pionUri.Host == "localhost" || (IPAddress.TryParse(pionUri.Host, out var address) && IPAddress.IsLoopback(address))))
         throw new ArgumentException("The independent peer must be an explicit local HTTP endpoint.");
+    foreach (var localOfferer in new[] { false, true })
+        foreach (var passiveAnswer in new[] { false, true })
+            cases.Add(($"Pion owned peer local offer={localOfferer}, passive answer={passiveAnswer}", () => PeerTests.Pion(pionUri, localOfferer, passiveAnswer)));
     foreach (var localOfferer in new[] { false, true })
         foreach (var passiveAnswer in new[] { false, true })
             cases.Add(($"Pion full SDP/Opus/data local offer={localOfferer}, passive answer={passiveAnswer}", () => SdpTests.Pion(pionUri, localOfferer, passiveAnswer)));
