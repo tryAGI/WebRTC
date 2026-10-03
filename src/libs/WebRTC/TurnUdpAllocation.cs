@@ -12,6 +12,12 @@ namespace tryAGI.WebRTC;
 public sealed record TurnUdpOptions
 {
     public StunGatheringOptions Transactions { get; init; } = new();
+    /// <summary>Client/server transport. The allocated relay/peer transport remains UDP.</summary>
+    public TurnServerTransport ServerTransport { get; init; }
+    public TimeSpan ConnectTimeout { get; init; } = TimeSpan.FromSeconds(15);
+    public TurnTlsOptions? Tls { get; init; }
+    /// <summary>Bounds stream write admission and completion, including callers without cancellation.</summary>
+    public TimeSpan StreamWriteTimeout { get; init; } = TimeSpan.FromSeconds(5);
     public uint RequestedLifetimeSeconds { get; init; } = 600;
     public int MaximumPeers { get; init; } = 32;
     public int MaximumDatagramSize { get; init; } = 1200;
@@ -22,6 +28,11 @@ public sealed record TurnUdpOptions
     internal void Validate()
     {
         ArgumentNullException.ThrowIfNull(Transactions); Transactions.Validate();
+        if (!Enum.IsDefined(ServerTransport) || ConnectTimeout < TimeSpan.FromMilliseconds(100) || ConnectTimeout > TimeSpan.FromSeconds(60) ||
+            StreamWriteTimeout < TimeSpan.FromMilliseconds(100) || StreamWriteTimeout > TimeSpan.FromSeconds(60))
+            throw new ArgumentOutOfRangeException(nameof(ServerTransport));
+        if ((ServerTransport == TurnServerTransport.Tls) != (Tls != null))
+            throw new ArgumentException("TLS options are required only for the TLS transport.");
         if (RequestedLifetimeSeconds is < 1 or > 3600 || MaximumPeers is < 1 or > 64 ||
             MaximumDatagramSize is < 256 or > 16384 || ReceiveQueueCapacity is < 1 or > 256)
             throw new ArgumentOutOfRangeException(nameof(TurnUdpOptions));
@@ -39,12 +50,12 @@ public sealed record TurnUdpDiagnostics(bool AllocationActive, int Permissions, 
     long SentRequests, long Retransmissions, long RejectedPackets, long DroppedDatagrams, long ReceivedDatagrams,
     bool ModernIntegrity, bool GracefulReleaseAcknowledged);
 
-/// <summary>One owned resolved-server UDP TURN allocation. No DNS, TCP/TLS or ICE pair integration.</summary>
+/// <summary>One owned UDP relay allocation on an explicit resolved server, carried over UDP, TCP or TLS.</summary>
 public sealed class TurnUdpAllocation : IAsyncDisposable
 {
     private const ushort Realm = 0x0014, Nonce = 0x0015, PasswordAlgorithms = 0x8002, PasswordAlgorithm = 0x001D;
     private readonly object _gate = new();
-    private readonly Socket _socket;
+    private readonly TurnServerConnection _connection;
     private readonly IPEndPoint _server, _local;
     private readonly TurnUdpOptions _options;
     private readonly SemaphoreSlim _operation = new(1, 1), _maintenanceWake = new(0, 1);
@@ -71,14 +82,10 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
     private static long Now => Stopwatch.GetTimestamp();
     private static long After(double seconds) => Now + (long)(seconds * Stopwatch.Frequency);
 
-    private TurnUdpAllocation(IPEndPoint local, IPEndPoint server, TurnUdpOptions options)
+    private TurnUdpAllocation(TurnServerConnection connection, IPEndPoint server, TurnUdpOptions options)
     {
-        _options = options; _server = new IceCandidate(server).EndPoint;
-        _ = new IceCandidate(new(local.Address, local.Port == 0 ? 1 : local.Port));
-        if (local.AddressFamily != server.AddressFamily) throw new ArgumentException("TURN server and local base families must match.");
-        _socket = new(local.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
-        try { _socket.Bind(new IPEndPoint(local.Address, local.Port)); _local = new IceCandidate((IPEndPoint)_socket.LocalEndPoint!).EndPoint; }
-        catch { _socket.Dispose(); throw; }
+        _options = options; _server = new IceCandidate(server).EndPoint; _connection = connection;
+        _local = connection.LocalEndPoint;
         _incoming = Channel.CreateBounded<TurnDatagram>(new BoundedChannelOptions(options.ReceiveQueueCapacity)
         { FullMode = BoundedChannelFullMode.DropOldest, SingleWriter = true, SingleReader = false }, _ => Interlocked.Increment(ref _dropped));
         _reader = ReadAsync();
@@ -88,7 +95,8 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(local); ArgumentNullException.ThrowIfNull(server); ArgumentNullException.ThrowIfNull(credentials);
         options ??= new(); options.Validate();
-        var allocation = new TurnUdpAllocation(local, server, options);
+        var connection = await TurnServerConnection.OpenAsync(local, server, options, cancellationToken).ConfigureAwait(false);
+        var allocation = new TurnUdpAllocation(connection, server, options);
         try
         {
             await allocation._operation.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -226,7 +234,7 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
                 throw new InvalidOperationException("An active TURN permission is required before sending.");
             if (_bindings.TryGetValue(safe.ToString(), out var binding) && Now < binding.Expires)
             {
-                packet = new byte[4 + data.Length]; BinaryPrimitives.WriteUInt16BigEndian(packet, binding.Number);
+                packet = new byte[_connection.IsStream ? (4 + data.Length + 3) & ~3 : 4 + data.Length]; BinaryPrimitives.WriteUInt16BigEndian(packet, binding.Number);
                 BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2), (ushort)data.Length); data.Span.CopyTo(packet.AsSpan(4));
             }
             else
@@ -238,7 +246,7 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
             }
         }
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-        await _socket.SendToAsync(packet, SocketFlags.None, _server, cancel.Token).ConfigureAwait(false);
+        await _connection.SendAsync(packet, cancel.Token).ConfigureAwait(false);
     }
     public async IAsyncEnumerable<TurnDatagram> ReceiveDatagramsAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -339,10 +347,16 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
         lock (_gate) { if (_stopped) throw new ObjectDisposedException(nameof(TurnUdpAllocation)); _pending = pending; }
         try
         {
+            if (_connection.IsStream)
+            {
+                await _connection.SendAsync(packet, ct, control: true).ConfigureAwait(false);
+                lock (_gate) _sent++;
+                return await pending.Done.Task.WaitAsync(ct).ConfigureAwait(false);
+            }
             for (var request = 0; request < _options.Transactions.MaximumRequests; request++)
             {
                 if (pending.Done.Task.IsCompleted) return await pending.Done.Task.ConfigureAwait(false);
-                await _socket.SendToAsync(packet, SocketFlags.None, _server, ct).ConfigureAwait(false);
+                await _connection.SendAsync(packet, ct, control: true).ConfigureAwait(false);
                 lock (_gate) { _sent++; if (request != 0) _retries++; }
                 var multiplier = request == _options.Transactions.MaximumRequests - 1 ? _options.Transactions.FinalWaitMultiplier : 1 << request;
                 try { return await pending.Done.Task.WaitAsync(TimeSpan.FromTicks(_options.Transactions.InitialRetransmissionTimeout.Ticks * multiplier), ct).ConfigureAwait(false); }
@@ -360,7 +374,7 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
             while (!_lifetime.IsCancellationRequested)
             {
                 SocketReceiveFromResult received;
-                try { received = await _socket.ReceiveFromAsync(bytes, SocketFlags.None, new IPEndPoint(_local.AddressFamily == AddressFamily.InterNetwork ? IPAddress.Any : IPAddress.IPv6Any, 0), _lifetime.Token).ConfigureAwait(false); }
+                try { received = await _connection.ReceiveAsync(bytes, _options.MaximumDatagramSize, _lifetime.Token).ConfigureAwait(false); }
                 catch (SocketException error) when (error.SocketErrorCode == SocketError.MessageSize)
                 { lock (_gate) _rejected++; continue; }
                 lock (_gate) HandlePacket(bytes.AsSpan(0, received.ReceivedBytes), (IPEndPoint)received.RemoteEndPoint);
@@ -446,7 +460,7 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
             _pending?.Done.TrySetException(error ?? new ObjectDisposedException(nameof(TurnUdpAllocation)));
             _incoming.Writer.TryComplete(error); _completion.TrySetResult(error);
         }
-        _lifetime.Cancel(); _socket.Dispose();
+        _lifetime.Cancel(); _connection.Stop();
     }
     public ValueTask DisposeAsync()
     { lock (_gate) return new(_dispose ??= DisposeCoreAsync()); }
@@ -475,6 +489,7 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
         catch (IOException) { } // Best effort remote deletion; server expiry remains the fallback.
         finally { Stop(null); }
         await _reader.ConfigureAwait(false);
+        await _connection.DisposeAsync().ConfigureAwait(false);
         // Stop wakes any caller-owned control operation; wait before clearing its shared key.
         await _operation.WaitAsync().ConfigureAwait(false);
         try { lock (_gate) { CryptographicOperations.ZeroMemory(_key); _key = []; _username = []; _userhash = []; _realm = null; _nonce = null; _permissions.Clear(); _bindings.Clear(); } }

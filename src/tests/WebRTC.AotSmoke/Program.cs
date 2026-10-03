@@ -46,12 +46,15 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
 }
 Console.WriteLine("NativeAOT SRTP/SRTCP profiles and encrypted ICE network smoke passed");
 foreach (var profile in Enum.GetValues<SrtpProfile>())
+foreach (var transport in Enum.GetValues<TurnServerTransport>())
 {
-    await using var relayServer = new TurnFixture(modern: true);
+    await using var relayServer = transport == TurnServerTransport.Udp ? new TurnFixture(modern: true) : null;
+    await using var streamServer = transport == TurnServerTransport.Udp ? null : new TurnStreamFixture(transport == TurnServerTransport.Tls);
+    var fixture = streamServer?.Backend ?? relayServer!;
     await using var left = new IceUdpTransport(new(IPAddress.Loopback, 0), options: new() { RelayOnly = true });
     await using var right = new IceUdpTransport(new(IPAddress.Loopback, 0));
     using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-    var localRelay = await left.GatherRelayCandidateAsync(relayServer.Server, new(TurnFixture.Username, TurnFixture.Secret), TurnFixture.Fast(), deadline.Token);
+    var localRelay = await left.GatherRelayCandidateAsync(streamServer?.Server ?? relayServer!.Server, new(TurnFixture.Username, TurnFixture.Secret), streamServer?.Options ?? TurnFixture.Fast(), deadline.Token);
     using var clientIdentity = DtlsIdentity.Generate(); using var serverIdentity = DtlsIdentity.Generate();
     var localOffer = SdpSessionDescription.Parse(SdpNegotiation.CreateOpusOffer(new(left.LocalCredentials, clientIdentity.GetFingerprintSha256(), left.LocalEndPoint, maximumMessageSize: 16384, additionalCandidates: [localRelay], relayOnly: true), 3));
     var localAnswer = SdpSessionDescription.Parse(SdpNegotiation.CreateOpusAnswer(localOffer, new(right.LocalCredentials, serverIdentity.GetFingerprintSha256(), right.LocalEndPoint, maximumMessageSize: 16384), 4, preferredSetup: SdpSetup.Passive));
@@ -134,9 +137,9 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
     await reused.CloseAsync(deadline.Token);
     await outgoing.CloseAsync(deadline.Token);
     if (left.GetDiagnostics() is not { SelectedLocalCandidateType: IceCandidateType.Relay, LocalPaths: 1 }) return 1;
-    await left.DisposeAsync(); if (relayServer.Deletes != 1) return 1;
+    await left.DisposeAsync(); if (fixture.Deletes != 1 || fixture.Allocations != 0) return 1;
 }
-Console.WriteLine("NativeAOT owned relay ICE carries encrypted DTLS/SRTP/SCTP with all profiles and releases allocation");
+Console.WriteLine("NativeAOT owned UDP/TCP/TLS relay ICE carries encrypted DTLS/SRTP/SCTP with all profiles and releases allocation");
 Console.WriteLine("NativeAOT SDP-driven encoded Opus, fragmented DTLS, negotiated SRTP, SCTP/DCEP and PR-SCTP FORWARD-TSN and stream-reset/reuse passed");
 foreach (var profile in Enum.GetValues<SrtpProfile>())
 {
@@ -172,6 +175,9 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
 Console.WriteLine("NativeAOT owned peer Opus/data lifecycle and all SRTP profiles passed");
 Console.WriteLine("NativeAOT same-socket STUN gathering and explicit SDP completion passed");
 await TurnFixture.RoundTrip(modern:true,channel:true);
+foreach (var tls in new[] { false, true })
+    foreach (var channel in new[] { false, true }) await TurnStreamTests.RoundTrip(tls, channel);
+Console.WriteLine("NativeAOT TURN TCP/TLS framing, validated TLS identity, encrypted relay ICE and deletion passed");
 Console.WriteLine("NativeAOT owned TURN allocation, SHA256 auth, ChannelData, renewal and deletion passed");
 return 0;
 

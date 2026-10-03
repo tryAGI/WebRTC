@@ -141,6 +141,25 @@ cases.Add(("TURN forced disposal wakes a stalled control without false deletion 
 cases.Add(("TURN deletion timeout still completes final owner cleanup", TurnTests.ReleaseTimeout));
 cases.Add(("TURN expired allocation stops readers and pending operations", TurnTests.Expiry));
 cases.Add(("TURN oversized attacker datagram does not stop allocation", TurnTests.Oversized));
+foreach (var tls in new[] { false, true })
+{
+    foreach (var channel in new[] { false, true })
+        cases.Add(($"TURN stream fragmented TLS={tls}, channel={channel}", () => TurnStreamTests.RoundTrip(tls, channel)));
+    cases.Add(($"TURN stream serialized simultaneous control/media TLS={tls}", () => TurnStreamTests.ConcurrentWrites(tls)));
+    cases.Add(($"TURN stream canceled blocked write closes owner TLS={tls}", () => TurnStreamTests.BlockedWrite(tls)));
+    cases.Add(($"TURN stream bounded write deadline closes owner TLS={tls}", () => TurnStreamTests.BlockedWrite(tls, true)));
+    cases.Add(($"TURN stream disposal joins saturated writers TLS={tls}", () => TurnStreamTests.WriterDisposal(tls)));
+    foreach (var selected in new[] { false, true })
+        cases.Add(($"TURN stream ICE failure TLS={tls}, selected={selected}", () => TurnStreamTests.IceFailure(tls, selected)));
+}
+foreach (var scenario in new[] { "name", "chain", "expired", "purpose" })
+    cases.Add(($"TURN stream TLS rejects {scenario}", () => TurnStreamTests.TlsReject(scenario)));
+foreach (var scenario in new[] { "prefix", "channel", "control", "length", "cookie", "header", "body", "padding" })
+    cases.Add(($"TURN stream rejects malformed/truncated {scenario}", () => TurnStreamTests.Malformed(scenario)));
+cases.Add(("TURN stream TLS caller cancellation joins handshake", () => TurnStreamTests.HandshakeCancellation(false)));
+cases.Add(("TURN stream TLS connection deadline closes handshake", () => TurnStreamTests.HandshakeCancellation(true)));
+cases.Add(("TURN stream coalesced padded ChannelData frames", TurnStreamTests.Coalesced));
+cases.Add(("TURN stream silent control never retransmits and canceled wait preserves owner", TurnStreamTests.NoRetransmit));
 Uri? pionUri = null;
 string? caseFilter = null;
 if (args.Length % 2 != 0) throw new ArgumentException("Expected explicit option/value pairs.");
@@ -154,6 +173,18 @@ for (var option = 0; option < args.Length; option += 2)
 }
 if (pionUri != null)
 {
+    foreach (var transport in new[] { TurnServerTransport.Tcp, TurnServerTransport.Tls })
+    {
+        foreach (var channel in new[] { false, true })
+            cases.Add(($"Pion TURN stream {transport} channel={channel}", () => TurnTests.Pion(pionUri, channel, transport)));
+        foreach (var same in new[] { false, true })
+            cases.Add(($"Pion TURN stream relay ICE {transport} same server={same}", () => RelayIceTests.PionSameServer(pionUri, same, transport)));
+        foreach (var offerer in new[] { false, true })
+            foreach (var passive in new[] { false, true })
+                foreach (var remoteRelay in new[] { false, true })
+                    cases.Add(($"Pion TURN stream encrypted Opus/data {transport} offer={offerer}, passive={passive}, remote relay={remoteRelay}",
+                        () => PeerTests.Pion(pionUri, offerer, passive, relay: remoteRelay, localRelay: true, serverTransport: transport)));
+    }
     foreach (var same in new[] { false, true })
         cases.Add(($"Pion Relay ICE two owned allocations same server={same}", () => RelayIceTests.PionSameServer(pionUri, same)));
     foreach (var localOfferer in new[] { false, true })

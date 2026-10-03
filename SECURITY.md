@@ -68,3 +68,13 @@ See [ICE path scope](docs/ice-transport.md).
 
 General negotiation, complete NAT traversal and real consumer acceptance remain
 unimplemented. Consumers must not migrate on DTLS/SRTP interoperability alone.
+
+TURN TCP/TLS stream framing and write admission have fixed bounds. An interrupted
+write closes its connection because the remote side might have a partial frame.
+No authentication state is reused through reconnect or fallback. TLS uses platform
+`SslStream`, TLS 1.2/1.3, strict target-name/chain/time/server-purpose validation and
+no validation callback. Custom DER roots replace system trust only when explicitly
+supplied; they are snapshotted before connection. Revocation defaults to Online and
+may contact certificate revocation services; private isolated fixtures explicitly
+choose NoCheck. AIA issuer downloads are disabled, so servers must supply their
+intermediate chain. This is transport interoperability, not an independent security audit.

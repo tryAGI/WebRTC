@@ -94,15 +94,15 @@ internal static class TurnTests
         Check(!allocation.Completion.IsCompleted,"Oversized unknown-source UDP stopped allocation");
         await allocation.RefreshAsync(ct);
     }
-    internal static async Task Pion(Uri uri,bool channel)
+    internal static async Task Pion(Uri uri,bool channel, TurnServerTransport transport = TurnServerTransport.Udp)
     {
         using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(15)); var ct=deadline.Token;
         using var http=new HttpClient {BaseAddress=uri};
-        using var response=await http.PostAsync("turn",null,ct); response.EnsureSuccessStatusCode();
+        using var response=await http.PostAsync("turn?transport="+transport.ToString().ToLowerInvariant(),null,ct); response.EnsureSuccessStatusCode();
         var session=(await response.Content.ReadFromJsonAsync(TurnJson.Default.TurnSession,ct))!;
         try
         {
-            await using var allocation=await TurnUdpAllocation.AllocateAsync(new(IPAddress.Loopback,0),new(IPAddress.Loopback,session.Port),new(session.Username,session.Password),TurnFixture.Fast(),ct);
+            await using var allocation=await TurnUdpAllocation.AllocateAsync(new(IPAddress.Loopback,0),new(IPAddress.Loopback,session.Port),new(session.Username,session.Password),session.Options(transport),ct);
             Check((await http.GetFromJsonAsync("turn/"+session.Id,TurnJson.Default.TurnStats,ct))!.Allocations==1);
             var peer=new IPEndPoint(IPAddress.Loopback,session.PeerPort);
             if(channel) await allocation.BindChannelAsync(peer,ct); else await allocation.CreatePermissionAsync(peer,ct);
@@ -114,8 +114,19 @@ internal static class TurnTests
         finally { using var cleanup=await http.DeleteAsync("turn/"+session.Id,CancellationToken.None); cleanup.EnsureSuccessStatusCode(); }
     }
 }
-internal sealed record TurnSession(string Id,int Port,int PeerPort,string Username,string Password)
-{ public override string ToString()=>"Local TURN fixture (credentials redacted)"; }
+internal sealed record TurnSession(string Id,int Port,int PeerPort,string Username,string Password, byte[]? Root = null)
+{
+    internal TurnUdpOptions Options(TurnServerTransport transport) => TurnFixture.Fast() with
+    {
+        ServerTransport = transport,
+        Tls = transport == TurnServerTransport.Tls ? new()
+        {
+            ServerName = "turn.fixture.local", RevocationMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck,
+            TrustedRootCertificates = [Root ?? throw new IOException("Missing isolated TLS root")],
+        } : null,
+    };
+    public override string ToString()=>"Local TURN fixture (credentials redacted)";
+}
 internal sealed record TurnStats(int Allocations);
 [JsonSerializable(typeof(TurnSession))]
 [JsonSerializable(typeof(TurnStats))]

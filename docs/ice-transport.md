@@ -72,7 +72,7 @@ disposal and subsequent ICE after cancellation. Pion's local TURN service indepe
 answers Binding; native smoke executes gathering on the public peer's owned socket.
 
 This is not yet a complete RFC 8445 implementation: multi-interface gathering, mDNS,
-TURN TCP/TLS, restart, extended checklist policies and unknown-required-attribute error
+restart, extended checklist policies and unknown-required-attribute error
 responses remain. See [the acceptance matrix](acceptance.md).
 
 ## Explicit owned relay paths
@@ -120,3 +120,10 @@ signaling and DTLS roles; two owned allocations on the same or distinct independ
 TURN servers exchange datagrams and return allocation counts to zero. Rooted NativeAOT
 executes relay-carried DTLS/SRTP/SCTP for all supported SRTP profiles. These are local
 interoperability tests, not browser, real NAT, provider or Watch E2E evidence.
+
+TURN server transport is explicitly selected by `TurnUdpOptions.ServerTransport`;
+TCP/TLS carry the same UDP relay allocation, path identity, permissions and ICE state.
+Independent local stream relay tests cover both signaling/DTLS roles, encrypted
+Opus/data, relay-to-relay, same/different servers and zero remaining allocations.
+A selected stream failure stops ICE; an unselected failure preserves a selected host.
+TLS uses the explicit policy in [TURN scope](turn-transport.md).

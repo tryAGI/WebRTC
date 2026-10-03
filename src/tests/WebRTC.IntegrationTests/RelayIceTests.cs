@@ -196,19 +196,19 @@ internal static class RelayIceTests
         Check(fixture.Deletes == 1 && fixture.Allocations == 0 && left.GetDiagnostics() is { LocalPaths: 1, CandidatePairs: 1 });
         Check(left.IsConnected);
     }
-    internal static async Task PionSameServer(Uri uri, bool same)
+    internal static async Task PionSameServer(Uri uri, bool same, TurnServerTransport transport = TurnServerTransport.Udp)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10)); var ct = deadline.Token;
         using var http = new HttpClient { BaseAddress = uri };
         async Task<TurnSession> NewServer()
-        { using var response = await http.PostAsync("turn", null, ct); response.EnsureSuccessStatusCode(); return (await response.Content.ReadFromJsonAsync(TurnJson.Default.TurnSession, ct))!; }
+        { using var response = await http.PostAsync("turn?transport=" + transport.ToString().ToLowerInvariant(), null, ct); response.EnsureSuccessStatusCode(); return (await response.Content.ReadFromJsonAsync(TurnJson.Default.TurnSession, ct))!; }
         var a = await NewServer(); var b = same ? a : await NewServer();
         try
         {
             await using var left = new IceUdpTransport(new(IPAddress.Loopback, 0), options: Fast());
             await using var right = new IceUdpTransport(new(IPAddress.Loopback, 0), options: Fast());
-            var x = await left.GatherRelayCandidateAsync(new(IPAddress.Loopback, a.Port), new(a.Username, a.Password), TurnFixture.Fast(), ct);
-            var y = await right.GatherRelayCandidateAsync(new(IPAddress.Loopback, b.Port), new(b.Username, b.Password), TurnFixture.Fast(), ct);
+            var x = await left.GatherRelayCandidateAsync(new(IPAddress.Loopback, a.Port), new(a.Username, a.Password), a.Options(transport), ct);
+            var y = await right.GatherRelayCandidateAsync(new(IPAddress.Loopback, b.Port), new(b.Username, b.Password), b.Options(transport), ct);
             Check((await http.GetFromJsonAsync("turn/" + a.Id, TurnJson.Default.TurnStats, ct))!.Allocations == (same ? 2 : 1));
             await Task.WhenAll(left.ConnectAsync(right.LocalCredentials, IceRole.Controlling, [y], ct), right.ConnectAsync(left.LocalCredentials, IceRole.Controlled, [x], ct));
             await left.SendDatagramAsync("\u0016two-relays"u8.ToArray(), ct); Check((await Read(right, ct)).AsSpan().SequenceEqual("\u0016two-relays"u8));

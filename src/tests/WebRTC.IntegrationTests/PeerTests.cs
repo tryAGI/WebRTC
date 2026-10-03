@@ -170,7 +170,7 @@ internal static class PeerTests
         deadline.Cancel();
         await Reject<OperationCanceledException>(() => local); await Reject<OperationCanceledException>(() => remote);
     }
-    internal static async Task Pion(Uri uri, bool offerer, bool passive, bool relay = false, bool trickleRelay = false, bool localRelay = false)
+    internal static async Task Pion(Uri uri, bool offerer, bool passive, bool relay = false, bool trickleRelay = false, bool localRelay = false, TurnServerTransport serverTransport = TurnServerTransport.Udp)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(12)); var ct = deadline.Token;
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
@@ -181,9 +181,9 @@ internal static class PeerTests
         {
             if (localRelay)
             {
-                using var start = await http.PostAsync(new Uri(uri, "/turn"), null, ct); start.EnsureSuccessStatusCode();
+                using var start = await http.PostAsync(new Uri(uri, "/turn?transport=" + serverTransport.ToString().ToLowerInvariant()), null, ct); start.EnsureSuccessStatusCode();
                 turn = (await start.Content.ReadFromJsonAsync(TurnJson.Default.TurnSession, ct))!;
-                ownedRelay = await peer.GatherRelayCandidateAsync(new(IPAddress.Loopback, turn.Port), new(turn.Username, turn.Password), TurnFixture.Fast(), ct);
+                ownedRelay = await peer.GatherRelayCandidateAsync(new(IPAddress.Loopback, turn.Port), new(turn.Username, turn.Password), turn.Options(serverTransport), ct);
                 Check(peer.GetLocalCandidates() is { Count: 1 } && peer.GetLocalCandidates()[0].Type == IceCandidateType.Relay);
                 peer.CompleteGathering();
             }

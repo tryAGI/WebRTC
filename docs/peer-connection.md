@@ -4,8 +4,8 @@
 optional SCTP/DCEP association and receive loops. It supports the initial
 [SDP subset](sdp.md) with a resolved local interface and resolved remote candidates,
 including remote TURN relays. Explicit STUN gathers mappings of this host base.
-Explicit UDP TURN gathering owns up to three local relay paths.
-It does not gather multiple interfaces, resolve names, use TCP/TLS relays,
+Explicit UDP/TCP/TLS TURN gathering owns up to three local relay paths.
+It does not gather multiple interfaces, resolve names,
 implement renegotiation or replace the existing consumer adapters yet.
 
 ## Signaling and lifetime
@@ -42,10 +42,10 @@ candidate snapshot excludes mappings identical to the host and duplicate endpoin
 `CompleteGathering()` adds end markers to accepted sections; it refuses while requests
 are active, and subsequent gathers are refused. At most eight extra mappings/active
 reservations are allowed. Gather cancellation preserves the peer, and disposal cancels
-its pending operations. Multiple interfaces, DNS/mDNS, TURN TCP/TLS and restart remain.
+its pending operations. Multiple interfaces, DNS/mDNS and restart remain.
 
 `GatherRelayCandidateAsync(resolvedServer, credentials, options, token)` owns an
-explicit UDP TURN allocation and updates the same initial SDP. Its related base is
+explicit UDP relay allocation (UDP/TCP/TLS server transport) and updates the same initial SDP. Its related base is
 the allocation mapping, not the initial host socket. Gathering may finish after ICE
 starts; trickle its returned attribute through authenticated application signaling.
 The three-allocation and global pair caps also apply. Relay-only peers can create an

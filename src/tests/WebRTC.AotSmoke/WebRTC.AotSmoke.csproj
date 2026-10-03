@@ -12,5 +12,7 @@
   </ItemGroup>
 <ItemGroup>
     <Compile Include="../WebRTC.IntegrationTests/TurnFixture.cs" Link="TurnFixture.cs" />
+    <Compile Include="../WebRTC.IntegrationTests/TurnStreamFixture.cs" Link="TurnStreamFixture.cs" />
+    <Compile Include="../WebRTC.IntegrationTests/TurnStreamTests.cs" Link="TurnStreamTests.cs" />
   </ItemGroup>
 </Project>

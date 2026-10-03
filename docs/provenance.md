@@ -171,3 +171,21 @@ An authored stalled-control regression exposed a deletion TimeoutException escap
 DisposeAsync before key clearing/join completion. The owner now treats bounded
 deletion timeout as an unacknowledged best-effort release and still completes local
 cleanup; forced-close and unanswered-deletion regressions require honest diagnostics.
+
+## Authored TURN stream boundary
+
+TCP/TLS stream framing, serialized writes and lifetime ownership are newly authored
+from RFC8656 sections 3.1/12.5/12.6 and RFC8489 wire contracts. No implementation,
+upstream example or RFC code component was copied or translated. TLS delegates
+cryptography and certificate validation to .NET10 SslStream/X509ChainPolicy public
+APIs documented by Microsoft. Synthetic certificates are generated in memory by
+our authored tests using .NET/Go certificate APIs. The synthetic stream bridge
+adds fragmentation/coalescing/truncation and blocked-write faults to our existing
+authored UDP responder; independent positives use the unchanged pinned MIT Pion
+TURN ListenerConfig/NewServer public APIs. Go graph hashes and notices are unchanged.
+
+Primary references: [RFC8656](https://www.rfc-editor.org/rfc/rfc8656.html),
+[CertificateChainPolicy](https://learn.microsoft.com/en-us/dotnet/api/system.net.security.sslclientauthenticationoptions.certificatechainpolicy?view=net-10.0),
+[revocation mode](https://learn.microsoft.com/en-us/dotnet/api/system.net.security.sslclientauthenticationoptions.certificaterevocationcheckmode?view=net-10.0),
+[AIA policy](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.x509certificates.x509chainpolicy.disablecertificatedownloads?view=net-10.0)
+and [pinned Pion TURN public API](https://pkg.go.dev/github.com/pion/turn/v5@v5.1.2#ListenerConfig).

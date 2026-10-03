@@ -30,7 +30,16 @@ func registerTurnService(mux *http.ServeMux, slots chan struct{}) {
 			http.Error(w, "session limit", 429)
 			return
 		}
-		server, configuration, port, err := localRelay()
+		transport := r.URL.Query().Get("transport")
+		if transport == "" {
+			transport = "udp"
+		}
+		if transport != "udp" && transport != "tcp" && transport != "tls" {
+			<-slots
+			http.Error(w, "invalid transport", 400)
+			return
+		}
+		server, configuration, port, root, err := localRelayWithTransport(transport)
 		if err != nil {
 			<-slots
 			http.Error(w, "local TURN start failed", 500)
@@ -81,7 +90,8 @@ func registerTurnService(mux *http.ServeMux, slots chan struct{}) {
 			PeerPort int    `json:"peerPort"`
 			Username string `json:"username"`
 			Password string `json:"password"`
-		}{id, port, peer.LocalAddr().(*net.UDPAddr).Port, configuration.Username, configuration.Credential.(string)})
+			Root     []byte `json:"root"`
+		}{id, port, peer.LocalAddr().(*net.UDPAddr).Port, configuration.Username, configuration.Credential.(string), root})
 	})
 	mux.HandleFunc("GET /turn/{id}", func(w http.ResponseWriter, r *http.Request) {
 		value, ok := sessions.Load(r.PathValue("id"))

@@ -7,7 +7,7 @@ implements regular nomination, role conflicts, trickle/peer-reflexive candidates
 retransmission and consent expiry from a host base to resolved remote candidates,
 including remote TURN relays. Explicit STUN Binding gathers srflx mappings on the
 same owned socket; cancellation preserves that socket for subsequent ICE.
-An owned UDP TURN allocation path adds long-term SHA256/legacy authentication,
+An owned UDP relay allocation path over explicit UDP/TCP/TLS adds long-term SHA256/legacy authentication,
 permissions, Send/Data and ChannelData, automatic renewal and bounded deletion.
 Owned allocations now join a bounded local-path-aware ICE checklist, with explicit
 relay-only policy, permission readiness and selected-path lifetime enforcement.
@@ -27,7 +27,7 @@ authenticated audio by negotiated payload/MID/source, exposes bounded receive
 queues and preserves RTP sequence, timestamp and SSRC metadata. Secure media readiness
 is separate from SCTP/data readiness.
 
-**Status: transport in development.** Multiple interfaces, DNS/mDNS, TURN TCP/TLS,
+**Status: transport in development.** Multiple interfaces, DNS/mDNS,
 ICE restart, general SDP/JSEP,
 video and automatic RTCP feedback remain incomplete. This library does
 not yet replace SIPSorcery in DId or Advantage. No package is automatically published.
@@ -41,7 +41,7 @@ source has been imported. See [source provenance](docs/provenance.md),
 [architecture and milestones](docs/architecture.md), [completion gates](docs/acceptance.md),
 [UDP ICE scope](docs/ice-transport.md), [DTLS scope](docs/dtls.md), [SCTP/data-channel scope](docs/data-channels.md), [SRTP/SRTCP scope](docs/srtp.md) and [security scope](SECURITY.md).
 See [SDP/Opus negotiation scope](docs/sdp.md) for supported signaling and its limits.
-See [owned UDP TURN scope](docs/turn-transport.md) for authentication, lifecycle and integration gaps.
+See [owned TURN scope](docs/turn-transport.md) for authentication, lifecycle and integration gaps.
 See [initial peer API](docs/peer-connection.md) for lifecycle, media timing and ownership.
 
 ## Build and validate
@@ -64,7 +64,7 @@ docker build -f tests/interop/Pion/Dockerfile -t tryagi-webrtc-interop .
 docker run --rm tryagi-webrtc-interop
 ```
 
-This is real UDP interoperability, not proof of complete media or provider E2E.
+This is real local UDP/TCP/TLS relay interoperability, not proof of complete media or provider E2E.
 
 For a targeted local diagnosis, the network runner accepts an explicit literal
 `--case-filter "case name fragment"` alongside `--pion-uri` when needed. It prints
