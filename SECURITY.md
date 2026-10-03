@@ -33,5 +33,12 @@ No untrusted packet may trigger unbounded allocation, reassembly, retry loops or
 destinations. Add explicit limits when each stateful transport component is introduced.
 SDP-provided ICE servers, DNS answers, candidates and datagrams remain untrusted input.
 
-A full peer connection, data channels, NAT traversal and consumer acceptance remain
-unimplemented. Consumers must not migrate on DTLS/SRTP interoperability alone.
+SCTP validates CRC32C, verification tags, framing and bounded state over DTLS.
+Reliable DCEP channels have aggregate byte/count admission and strict UTF-8/control
+validation; unsupported partial reliability fails explicitly. See
+[SCTP/data-channel scope](docs/data-channels.md) for limits and missing features.
+CRC32C is not authentication. Observe channel-owner failures and close the eventual
+peer connection; per-stream reset/rejection remains unimplemented.
+
+A full peer connection, partial reliability/stream reset, NAT traversal and consumer
+acceptance remain unimplemented. Consumers must not migrate on DTLS/SRTP interoperability alone.

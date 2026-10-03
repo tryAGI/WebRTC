@@ -1,0 +1,128 @@
+# SCTP and reliable DCEP data channels
+
+The current runtime implements one bounded SCTP association over an authenticated,
+nominated DTLS connection, plus reliable ordered and unordered DCEP channels.
+This is progress toward the consumer transport, not complete WebRTC support.
+PR-SCTP/FORWARD-TSN, per-channel stream reset/closing, interleaving, path-MTU probing,
+SDP and actual provider/browser acceptance remain required before migration.
+
+## Lifetime and readers
+
+`SctpAssociation` consumes the DTLS application-datagram receive stream; do not run
+another application reader on that DTLS instance. SRTP media remains independent.
+`DataChannelAssociation` consumes SCTP messages; do not run a second SCTP reader.
+Disposal cancels blocked operations and releases the owned reader, leaving the
+lower transport alive. Dispose channels, then SCTP, DTLS, ICE and certificate owners.
+Observe each layer's `Completion` task and propagate failures through the eventual
+peer-connection owner. SCTP `CloseAsync` drains outgoing data and performs the
+SHUTDOWN/ACK/COMPLETE exchange; abortive disposal is not graceful shutdown.
+Already acknowledged buffered messages remain readable after graceful shutdown.
+
+```csharp
+// dtls is already nominated and mutually fingerprint authenticated.
+await using var sctp = new SctpAssociation(dtls, SctpRole.Initiator);
+await sctp.ConnectAsync(cancellationToken);
+await using var channels = new DataChannelAssociation(sctp);
+var events = await channels.OpenChannelAsync("oai-events", cancellationToken: cancellationToken);
+await events.SendTextAsync(json, cancellationToken);
+await foreach (var message in events.ReceiveMessagesAsync(cancellationToken))
+{
+    if (message.Kind == DataChannelMessageKind.Text)
+        HandleEvent(message.GetText());
+}
+```
+
+SCTP initiator/responder is explicit and independent of DTLS role. DCEP stream parity
+always follows DTLS role: client opens even IDs, server opens odd IDs. Both SCTP
+initiators are supported. Incoming channels are exposed by `AcceptChannelsAsync`.
+Local channel creation waits for DCEP ACK; optimistic early user-data transmission
+has not yet been implemented. Canceled opening retires the stream ID until association
+teardown; it is never reused without the pending stream-reset implementation.
+
+## Implemented wire behavior
+
+- CRC32C, strict packet/chunk/parameter bounds, verification tags and negotiated ports.
+  CRC is corruption detection; DTLS supplies authentication and privacy.
+- INIT/INIT-ACK, an association-bound HMAC cookie, COOKIE-ECHO/ACK, retransmission,
+  duplicate handling and simultaneous INIT. Restarts use a new association/DTLS instance;
+  transparent SCTP restart and multihoming are not implemented.
+- DATA B/E/U/I framing, fragmentation, TSN serial arithmetic/rollover, per-stream
+  ordered SSNs, unordered delivery, selective acknowledgments and deduplication.
+- Bounded send admission, advertised receive-window credit, zero-window probing,
+  congestion windows, slow start/congestion avoidance, fast recovery and timeout
+  retransmission. Gap-acknowledged data is retained until cumulative acknowledgment
+  so receiver reneging can cause retransmission. RTO sampling follows Karn's rule;
+  default initial/minimum RTO is one second, tests explicitly select 100 ms.
+- Incoming HEARTBEAT acknowledgment and graceful association shutdown. Periodic
+  SCTP heartbeats and PLPMTUD/path-change congestion reset remain; ICE consent and
+  DTLS closure currently drive transport failure detection.
+- DCEP OPEN/ACK on ordered reliable PPID 50, strict UTF-8 label/protocol decoding,
+  reliable ordered/unordered modes, text/binary and empty PPIDs 51/53/56/57.
+  Empty payloads ignore the single placeholder byte on receipt. Obsolete partial
+  string/binary PPIDs are not accepted.
+- Canonical one-byte DCEP ACK is sent. Exactly `02 00 00 00` is also accepted because
+  pinned Pion datachannel v1.6.3 emits it. Other trailing forms are rejected. This
+  compatibility exception does not relax DTLS authentication, PPID or stream checks.
+
+DCEP decoding recognizes all six channel types; the current channel owner refuses
+partially reliable OPENs because PR-SCTP is not implemented. Invalid DCEP terminates
+its channel owner and signals failure, rather than pretending to reset a stream.
+Proper per-stream reset/rejection remains part of the next milestone.
+
+## Bounds and admission
+
+Defaults: 128 negotiated streams, 256 KiB messages, 1152-byte SCTP send packets,
+1 MiB received payload storage, 2 MiB queued send payload, 128 ready delivery slots,
+4096 outstanding/reassembly/gap and retained-message entries and 128 queued control chunks. Metadata,
+wire headers and a transient assembled-message copy are additional bounded storage.
+Packet size must fit the underlying DTLS application limit; choose a smaller value
+when configuring a smaller DTLS MTU. SCTP assumes a stable packet size for this stage.
+
+The DCEP owner additionally limits all channels together to 64 channels, 128 queued
+messages and 1 MiB queued application payload, plus one pending message. Labels and
+protocols are limited to 1024 UTF-8 bytes each. Limits are validated and configurable
+within explicit ceilings. Complete application messages are not discarded to relieve backpressure. Gap-filling DATA can
+use the bounded ordering reserve while the delivery queue is full, so a delayed
+ordered message cannot deadlock behind a later received message.
+When payload storage is exhausted, gap-filling DATA can replace the highest
+undelivered fragments acknowledged only through SACK gaps (RFC 9260 section 6.2).
+Their gap acknowledgments are revoked; the sender retransmits the retained data.
+Cumulatively acknowledged data and messages already released to readers are never
+revoked. Receive storage must be at least 1500 bytes and fit one maximum message.
+A slow channel can currently backpressure the owner's other channels; fair independent
+channel admission/scheduling is deferred. It does not consume the SRTP media reader.
+
+`SendMessageAsync`/channel sends finish when admitted to the bounded send queue, not
+when acknowledged; `DrainAsync` waits for SCTP acknowledgment. Keep caller buffers
+unchanged until a send completes. Receive credit is returned when the message is
+removed from the receive stream; applications own the returned arrays. Neither raw
+SCTP nor channels may be used as an unbounded application retention buffer.
+
+After 2^31 transmitted TSNs, establish a fresh association before serial arithmetic
+becomes ambiguous. A peer that fails acknowledgment beyond configured retransmission
+limits terminates the association. A responsive zero-window peer may remain stalled
+until the application reads or cancels. No negotiated feature or valid protection is
+silently disabled to make an exchange pass.
+
+## Evidence and remaining gates
+
+Protocol tests check a synthetic packet independently checksummed by Go's standard
+Castagnoli CRC implementation, every-byte corruption, truncation, excessive chunks,
+DCEP channel types, Unicode/invalid UTF-8 and deterministic hostile input.
+Local UDP cases cover 256 KiB bidirectional fragmented messages, TSN rollover,
+packet/INIT loss, ordered/unordered delivery, buffer backpressure, malformed input,
+canceled/silent peers, DCEP text/binary/empty/multiple streams and cancellation of
+blocked sends. The whole-library NativeAOT smoke executes SCTP/DCEP over a 256-byte
+DTLS MTU with each SRTP profile.
+
+The independent isolated peer uses pinned Pion SCTP v1.12.0 and datachannel v1.6.3
+public APIs. It exercises DTLS/SCTP roles, local/remote DCEP opening, large/empty/text/
+binary messages and shutdown. Its module graph and original MIT notices are test-only.
+No Pion implementation is included in the .NET runtime. Tests remain local and key-free.
+
+Standards: [SCTP](https://www.rfc-editor.org/rfc/rfc9260),
+[SCTP over DTLS](https://www.rfc-editor.org/rfc/rfc8261),
+[WebRTC data channels](https://www.rfc-editor.org/rfc/rfc8831),
+[DCEP](https://www.rfc-editor.org/rfc/rfc8832),
+[PR-SCTP](https://www.rfc-editor.org/rfc/rfc3758) and
+[stream reconfiguration](https://www.rfc-editor.org/rfc/rfc6525).

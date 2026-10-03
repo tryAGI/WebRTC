@@ -66,8 +66,24 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
     await foreach (var packet in server.ReceiveMediaDatagramsAsync(deadline.Token))
     { if (packet.Kind != SecureMediaKind.Rtp || !packet.Data.AsSpan().SequenceEqual(data)) return 1; receivedMedia = true; break; }
     if (!receivedMedia) return 1;
+    await using var outgoing = new SctpAssociation(client, SctpRole.Initiator, new() { MaximumPacketSize = 200 });
+    await using var incoming = new SctpAssociation(server, SctpRole.Responder, new() { MaximumPacketSize = 200 });
+    await Task.WhenAll(outgoing.ConnectAsync(deadline.Token), incoming.ConnectAsync(deadline.Token));
+    await using var channels = new DataChannelAssociation(outgoing);
+    await using var peerChannels = new DataChannelAssociation(incoming);
+    var channel = await channels.OpenChannelAsync("oai-events", cancellationToken: deadline.Token);
+    DataChannel? peer = null;
+    await foreach (var opened in peerChannels.AcceptChannelsAsync(deadline.Token)) { peer = opened; break; }
+    if (peer == null) return 1;
+    var application = new byte[16384]; System.Security.Cryptography.RandomNumberGenerator.Fill(application);
+    await channel.SendBinaryAsync(application, deadline.Token);
+    var receivedChannel = false;
+    await foreach (var message in peer.ReceiveMessagesAsync(deadline.Token))
+    { if (!message.Data.AsSpan().SequenceEqual(application)) return 1; receivedChannel = true; break; }
+    if (!receivedChannel) return 1;
+    await outgoing.CloseAsync(deadline.Token);
 }
-Console.WriteLine("NativeAOT fragmented authenticated DTLS and negotiated SRTP profiles passed");
+Console.WriteLine("NativeAOT fragmented authenticated DTLS, negotiated SRTP and SCTP/DCEP channels passed");
 return 0;
 
 static async Task<byte[]> Read(IceUdpTransport transport, CancellationToken cancellationToken)

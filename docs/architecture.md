@@ -38,7 +38,9 @@ connection-state and encoded-frame types when implementing the respective milest
    Do not treat fresh protocol glue as a reason to invent cryptographic primitives.
 4. SDP negotiation and RTP/RTCP encoded-media transport, interoperability with a
    separately pinned local browser/Pion peer, including loss/reordering/cancellation.
-5. SCTP/DCEP data channels with bounded reassembly and flow control. Then migrate
+5. Reliable ordered/unordered SCTP/DCEP channels with bounded reassembly,
+   flow control and independent Pion validation now exist. Complete PR-SCTP, stream
+   reset/close, interleaving and path behavior, then migrate
    DId, Advantage and Simli separately after consumer regressions and acceptance evidence.
 
 No milestone is complete merely because its API compiles. No production migration

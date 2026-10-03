@@ -43,12 +43,34 @@ cases.Add(("DTLS wrong certificate fingerprint", () => DtlsTests.Rejection("fing
 cases.Add(("DTLS tampered handshake signature", () => DtlsTests.Rejection("signature")));
 cases.Add(("DTLS timeout preserves pending-reader failure", DtlsTests.Timeout));
 
+cases.Add(("SCTP 256KiB ordered bidirectional delivery and shutdown", () => SctpTests.Exchange(false)));
+cases.Add(("SCTP unordered delivery", () => SctpTests.Exchange(true)));
+cases.Add(("SCTP TSN rollover with fragmented messages", () => SctpTests.Exchange(false, wrap: true)));
+cases.Add(("SCTP reliable fragments survive dropped records", () => SctpTests.Exchange(false, drops: 2)));
+cases.Add(("SCTP INIT retransmission", SctpTests.HandshakeLoss));
+cases.Add(("SCTP bounded send/receive backpressure", SctpTests.Backpressure));
+cases.Add(("SCTP malformed packets preserve association", SctpTests.Malformed));
+
+cases.Add(("SCTP shutdown preserves buffered acknowledged messages", SctpTests.ShutdownWithBufferedMessages));
+cases.Add(("SCTP gap filling with one delivery slot", () => SctpTests.LossWithOneDeliverySlot()));
+cases.Add(("SCTP gap filling with one full-message byte budget", () => SctpTests.LossWithOneDeliverySlot(true)));
+cases.Add(("SCTP canceled handshake preserves DTLS owner", () => SctpTests.CanceledOrSilent(true)));
+cases.Add(("SCTP silent peer times out with pending reader", () => SctpTests.CanceledOrSilent(false)));
+cases.Add(("DCEP disposal cancels blocked sends", DataChannelTests.CancelBlockedSend));
+cases.Add(("DCEP ordered text/binary/empty and independent streams", () => DataChannelTests.Exchange(true)));
+cases.Add(("DCEP unordered reliable channels", () => DataChannelTests.Exchange(false)));
+cases.Add(("DCEP bounded reliable receive backpressure", DataChannelTests.Backpressure));
+
 if (args.Length != 0)
 {
     if (args.Length != 2 || args[0] != "--pion-uri" || !Uri.TryCreate(args[1], UriKind.Absolute, out var pionUri) ||
         pionUri.Scheme != "http" || pionUri.UserInfo.Length != 0 ||
         !(pionUri.Host == "localhost" || (IPAddress.TryParse(pionUri.Host, out var address) && IPAddress.IsLoopback(address))))
         throw new ArgumentException("The independent peer must be an explicit local HTTP endpoint.");
+    foreach (var role in Enum.GetValues<DtlsRole>())
+        foreach (var peerOpens in new[] { false, true })
+            cases.Add(($"Pion SCTP/DCEP {role}, remote OPEN={peerOpens}", () => DataChannelTests.Pion(pionUri, role, peerOpens, unordered: peerOpens)));
+    cases.Add(("Pion SCTP simultaneous INIT with DCEP", () => DataChannelTests.Pion(pionUri, DtlsRole.Client, false, false, bothInitiate: true)));
     foreach (var role in Enum.GetValues<DtlsRole>())
         foreach (var profile in Enum.GetValues<SrtpProfile>())
             cases.Add(($"Pion DTLS {role} and exporter/SRTP {profile}", () => DtlsTests.Pion(pionUri, role, profile)));
@@ -324,6 +346,7 @@ internal sealed record PeerOffer(bool Controlling, string Fragment, string Passw
 internal sealed record PeerResponse(string Fragment, string Password, string Address, int Port, uint Priority);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(ChannelOffer))]
 [JsonSerializable(typeof(DtlsOffer))]
 [JsonSerializable(typeof(DtlsDescription))]
 [JsonSerializable(typeof(PeerOffer))]

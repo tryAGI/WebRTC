@@ -15,13 +15,13 @@ self-to-self exchange or green parser tests cannot satisfy that objective.
 | SRTP/SRTCP | Positive vectors and negative auth/replay/rollover vectors; live media in both directions | AES-CM/HMAC-80 and AES-GCM 128/256 key contexts implemented; independent ciphertext/decryption and encrypted local UDP tests; DTLS-negotiated bidirectional local media and independent Pion exporter/SRTP exchange now pass; real consumer media remains |
 | SDP/BUNDLE/RTCP mux | Actual consumer codecs and SCTP, ICE-lite, rejected sections, MID/SSRC routing | Not implemented |
 | Encoded media | Opus timing, H264/VP8 assembly, RTCP feedback, loss/reorder and bounded queues | RTP parsing only |
-| SCTP/DCEP | Browser/Pion data channels, ordered/unordered/reliable/limited-retransmission channels, bounded reassembly | Not implemented |
+| SCTP/DCEP | Browser/Pion data channels, ordered/unordered/reliable/limited-retransmission channels, bounded reassembly | Reliable ordered/unordered DCEP/SCTP subset, large-message/loss/flow/lifecycle and independent Pion tests; PR-SCTP, stream reset, interleaving, browser and full peer coverage remain |
 | DId | Owned public models/dependency; real agent offer/answer, nonempty media, ready event, teardown | Existing adapter inspected; migration and provider E2E remain |
 | Advantage Codex | Preserve pacing, queues, authenticated replay semantics, bootstrap pre-roll and data channel | Existing consumer inspected; migration and real App Server regression remain |
 | Apple Watch delivery | Same trace through remote audio, backend/decode/delivery, device arrival/playback; before/after distributions and audible acceptance | No new physical evidence |
 | Simli | Owned offer/answer adapter; real face/session, nonempty media, cleanup; preserve WebSocket input/signaling | Existing adapter inspected; migration and provider E2E remain |
 | MIT and source ownership | Pinned file-level origin/license checks and notices for every future port/import; audited graph | Newly authored runtime, no imported runtime code |
-| .NET 10+, trimming/AOT | Whole-library rooting, executed native transport, supported-platform CI, no weakened diagnostics | Whole-library native ICE/DTLS/SRTP smoke executes locally; Linux/Windows/macOS CI gates apply to every source commit; final complete transport still requires the same gates |
+| .NET 10+, trimming/AOT | Whole-library rooting, executed native transport, supported-platform CI, no weakened diagnostics | Whole-library native ICE/DTLS/SRTP/SCTP/DCEP smoke executes locally; Linux/Windows/macOS CI gates apply to every source commit; final complete transport still requires the same gates |
 
 An inconclusive, skipped, credential-missing or configuration-only test is missing
 evidence, never a pass. Record explicit artifacts and independent-peer versions.

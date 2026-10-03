@@ -185,6 +185,10 @@ func serveSecure(ctx context.Context, conn net.Conn, certificate tls.Certificate
 		log.Printf("DTLS handshake: %v", err)
 		return
 	}
+	if request.DataChannels {
+		serveChannels(ctx, secure, request)
+		return
+	}
 	selected, ok := secure.SelectedSRTPProtectionProfile()
 	if !ok || selected != profile {
 		return

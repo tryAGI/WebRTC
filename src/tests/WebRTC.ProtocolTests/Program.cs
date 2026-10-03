@@ -5,6 +5,10 @@ using tryAGI.WebRTC;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("SCTP independent CRC32C and chunk framing", SctpTests.Framing),
+    ("SCTP malformed framing and resource bounds", SctpTests.Bounds),
+    ("DCEP wire types, Unicode and reliable parameter semantics", SctpTests.Dcep),
+    ("DCEP malformed and bounded hostile inputs", SctpTests.DcepMalformed),
     ("STUN binding header and overlapping buffers", BindingHeader),
     ("STUN header and attribute boundaries", StunBoundaries),
     ("STUN independent authentication vector", AuthenticationVector),

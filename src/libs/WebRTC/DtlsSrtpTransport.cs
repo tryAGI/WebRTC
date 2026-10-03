@@ -67,6 +67,8 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
     private TimeSpan _retryDelay;
     private long _retransmissions, _rejected, _droppedApplication, _droppedMedia;
 
+    public DtlsRole Role => _role;
+    public int MaximumApplicationDatagramSize => _options.MaximumDatagramSize - 37;
     public bool IsConnected => Volatile.Read(ref _ready) && !_completion.Task.IsCompleted;
     public Task<Exception> Completion => _completion.Task;
 
