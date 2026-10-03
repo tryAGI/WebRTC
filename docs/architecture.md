@@ -16,6 +16,8 @@ Transport accepts encoded media; applications choose their own codecs.
   replay protection. Preserve the consumer's bounded queues and packet timing evidence.
 - Advantage's separate LiveKit room bridge also has signaling and room semantics;
   replacing SIPSorcery does not replace that implementation.
+- Simli: local offer/remote answer over generated WebSocket signaling, supplied ICE
+  servers, encoded H264/VP8/audio reception; PCM input remains on its WebSocket path.
 
 New public models must not expose SIPSorcery types. Define transport-facing codec,
 connection-state and encoded-frame types when implementing the respective milestone.
@@ -24,7 +26,9 @@ connection-state and encoded-frame types when implementing the respective milest
 
 1. Protocol foundation: bounded STUN/RTP parsing, independent integrity vectors,
    malformed-input tests and full-library NativeAOT rooting. Implemented initially.
-2. Local ICE/STUN transport and minimal mDNS/DNS: consent, role conflict, retransmit
+2. Local UDP ICE/STUN now has nomination, consent, role conflict, retransmit and
+   bounded peer-reflexive/trickle handling; independent Pion validation is present.
+   Complete candidate gathering and minimal mDNS/DNS with
    deadlines, candidate policy and bounded name resolution. Then TURN UDP/TCP.
 3. DTLS handshake and SRTP/SRTCP: fingerprint binding, certificate policy, key
    derivation, authentication before delivery, replay and rollover tests. Do not
@@ -32,7 +36,7 @@ connection-state and encoded-frame types when implementing the respective milest
 4. SDP negotiation and RTP/RTCP encoded-media transport, interoperability with a
    separately pinned local browser/Pion peer, including loss/reordering/cancellation.
 5. SCTP/DCEP data channels with bounded reassembly and flow control. Then migrate
-   DId and Advantage separately after consumer regressions and acceptance evidence.
+   DId, Advantage and Simli separately after consumer regressions and acceptance evidence.
 
 No milestone is complete merely because its API compiles. No production migration
 or MIT relicensing of restricted source is part of this initial foundation.

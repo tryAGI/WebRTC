@@ -199,7 +199,7 @@ public readonly ref struct StunMessage
         return true;
     }
 
-    private static uint ComputeCrc32(ReadOnlySpan<byte> data)
+    internal static uint ComputeCrc32(ReadOnlySpan<byte> data)
     {
         var crc = uint.MaxValue;
         foreach (var value in data)

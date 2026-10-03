@@ -12,6 +12,21 @@ was discarded. It is used only for assembly identity, not publisher authenticati
 
 This describes code provenance, not a formal clean-room or security-audit claim.
 
+## Independent test peer
+
+The isolated test peer is newly authored Go code calling the public Pion ICE API;
+it is not a port or copy of Pion example code. `github.com/pion/ice/v4 v4.4.5` is
+pinned to upstream commit `54a22240c3afddd0b32f5420a62f253f000c225c`; its original
+root LICENSE is MIT. The complete Go module graph and hashes are in the peer's
+`go.mod`/`go.sum`. Original linked-module notices, including MIT/BSD dependency
+terms, are retained in `tests/interop/Pion/THIRD_PARTY_NOTICES.txt`.
+Only trailing whitespace is normalized when collecting those notices.
+
+These packages run only in an isolated local test peer. None is a dependency of the
+.NET runtime library or its NuGet package. Our MIT license does not replace their
+notices. Regenerate the notice file with `write-notices.sh` in the pinned Go build
+stage after any test-peer dependency change and inspect the full changed graph.
+
 ## Future permitted imports
 
 For each imported file record the upstream URL, immutable commit, original path,

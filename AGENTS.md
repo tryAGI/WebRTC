@@ -30,7 +30,11 @@ Commit scoped logical batches directly to main. Preserve unrelated work.
 
 Execute the resulting smoke binary. Protocol tests must cover independent reference
 vectors, malformed/truncated data and resource bounds. Interoperability uses local
-peers and containers only. Do not connect to credentialed or paid providers for tests.
+peers and containers only in the default suite and all CI smoke lanes. The user
+explicitly requires separate real provider and Watch E2E acceptance; use a separately
+invoked acceptance lane for those sessions, never an unconditional CI/provider smoke test.
 
 This repository is a protocol foundation until ICE, DTLS/SRTP and SCTP/DCEP peer
-interoperability is demonstrated. Do not migrate DId or Advantage on parser-only evidence.
+interoperability is demonstrated. Do not migrate DId, Advantage or Simli on parser-only
+or ICE-only evidence. Track full completion against docs/acceptance.md, including
+actual provider and device evidence before completing the active objective.

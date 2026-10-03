@@ -1,0 +1,10 @@
+**/bin
+**/obj
+**/.git
+artifacts
+.env
+.env.*
+**/.env
+**/.env.*
+**/*.env
+.DS_Store

@@ -16,6 +16,9 @@ var tests = new (string Name, Action Run)[]
     ("RTP malformed datagrams", RtpMalformed),
     ("STUN and RTP deterministic malformed-input corpus", MalformedCorpus),
     ("Default views are safe", DefaultViews),
+    ("STUN writer matches independently generated vector", WriterReference),
+    ("STUN writer capacity and completion bounds", WriterBounds),
+    ("ICE credentials and candidates reject unsafe input", IceInputBounds),
 };
 
 var failed = 0;
@@ -256,4 +259,69 @@ static void DefaultViews()
     RtpPacket rtp = default;
     Check(rtp.Payload.IsEmpty && rtp.ExtensionData.IsEmpty && !rtp.Marker);
     Check(!rtp.TryGetContributingSource(0, out _));
+}
+
+static void WriterReference()
+{
+    var expected = IntegrityVector();
+    var buffer = new byte[expected.Length];
+    var writer = new StunMessageWriter(buffer, StunMessage.BindingRequest, expected.AsSpan(8, 12));
+    Check(writer.TryAddAttribute(6, "local:peer-test"u8));
+    Check(writer.TryAddUInt32(0x24, 0x12345678));
+    Check(writer.TryComplete("local-test-password"u8, true, out var length));
+    Check(length == expected.Length && buffer.SequenceEqual(expected));
+    Check(!writer.TryAddAttribute(1, []) && !writer.TryComplete([], true, out _));
+    foreach (var ip in new[] { IPAddress.Loopback, IPAddress.IPv6Loopback })
+    {
+        var addressBuffer = new byte[128];
+        var addressWriter = new StunMessageWriter(addressBuffer, 0x0101, expected.AsSpan(8, 12));
+        Check(addressWriter.TryAddXorMappedAddress(new IPEndPoint(ip, 54321)));
+        Check(addressWriter.TryComplete("local-test-password"u8, true, out length));
+        Check(StunMessage.TryParse(addressBuffer.AsSpan(0, length), out var message));
+        Check(message.VerifyFingerprint() && message.VerifyMessageIntegritySha1("local-test-password"u8));
+        Check(message.TryGetXorMappedEndpoint(out var endpoint) && endpoint!.Equals(new IPEndPoint(ip, 54321)));
+    }
+}
+
+static void WriterBounds()
+{
+    StunMessageWriter uninitialized = default;
+    Check(!uninitialized.TryComplete([], false, out _) && !uninitialized.TryAddAttribute(1, []));
+    Check(!uninitialized.TryAddXorMappedAddress(new(IPAddress.Loopback, 12345)));
+    var buffer = new byte[48];
+    var writer = new StunMessageWriter(buffer, 1, new byte[12]);
+    Check(!writer.TryAddAttribute(StunMessage.MessageIntegrity, new byte[20]));
+    Check(!writer.TryAddAttribute(StunMessage.Fingerprint, new byte[4]));
+    Check(writer.TryAddUInt64(0x802A, 42));
+    var before = (byte[])buffer.Clone();
+    Check(!writer.TryComplete("key"u8, true, out _));
+    Check(buffer.SequenceEqual(before));
+    Check(writer.TryComplete([], true, out var length) && length == 40);
+    Check(StunMessage.TryParse(buffer.AsSpan(0, length), out var message) && message.VerifyFingerprint());
+    var maximum = new byte[65560];
+    var largeWriter = new StunMessageWriter(maximum, 1, new byte[12]);
+    Check(!largeWriter.TryAddAttribute(0x100, new byte[65535]));
+    Check(largeWriter.TryAddAttribute(0x100, new byte[65520]));
+    Check(!largeWriter.TryComplete("key"u8, true, out _));
+    Check(largeWriter.TryComplete([], true, out length));
+    Check(StunMessage.TryParse(maximum.AsSpan(0, length), out message) && message.VerifyFingerprint());
+}
+
+static void IceInputBounds()
+{
+    var ipv6Candidate = new IceCandidate(new(IPAddress.IPv6Loopback, 12345));
+    ipv6Candidate.EndPoint.Address.ScopeId = 42;
+    Check(ipv6Candidate.EndPoint.Address.ScopeId == 0);
+    var credentials = IceCredentials.Generate();
+    Check(!credentials.ToString().Contains(credentials.Password, StringComparison.Ordinal));
+    foreach (var invalid in new[] { "", "short", new string('a', 257), new string('a', 21) + "-" })
+    {
+        try { _ = new IceCredentials("local", invalid); Check(false); }
+        catch (ArgumentException) { }
+    }
+    foreach (var ip in new[] { IPAddress.Any, IPAddress.IPv6Any, IPAddress.Broadcast, IPAddress.Parse("224.0.0.1"), IPAddress.Parse("ff02::1") })
+    {
+        try { _ = new IceCandidate(new IPEndPoint(ip, 1234)); Check(false); }
+        catch (ArgumentException) { }
+    }
 }

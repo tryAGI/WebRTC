@@ -1,0 +1,48 @@
+# Completion evidence for DId, Advantage and Simli
+
+The active objective is full usable transport and verified consumer E2E, with particular
+attention to Codex voice delivery to Apple Watch. A foundation, a compatible API,
+self-to-self exchange or green parser tests cannot satisfy that objective.
+
+## Required gates
+
+| Requirement | Required evidence | Current evidence / gap |
+|---|---|---|
+| Authenticated ICE and nomination | Independent peer in both roles, role collision, credentials, loss, consent expiry, IPv4/IPv6 | Local network cases include pinned Pion v4.4.5 in both roles and signaling-delayed early checks; full NAT/checklist coverage remains |
+| Real NAT traversal | STUN srflx gathering, TURN UDP/TCP/TLS, relay permissions/channel lifetime, mDNS and multiple interfaces | Not implemented |
+| Safe ICE lifecycle | Trickle, peer-reflexive learning, restart, gathering cancellation, bounded checklist | Trickle/reflexive/bounds implemented; restart/gathering remain |
+| DTLS-SRTP | Independent peer, SHA-256 fingerprint binding, client/server roles, exporter, retransmission and malformed flights | Not implemented |
+| SRTP/SRTCP | Positive vectors and negative auth/replay/rollover vectors; live media in both directions | Not implemented |
+| SDP/BUNDLE/RTCP mux | Actual consumer codecs and SCTP, ICE-lite, rejected sections, MID/SSRC routing | Not implemented |
+| Encoded media | Opus timing, H264/VP8 assembly, RTCP feedback, loss/reorder and bounded queues | RTP parsing only |
+| SCTP/DCEP | Browser/Pion data channels, ordered/unordered/reliable/limited-retransmission channels, bounded reassembly | Not implemented |
+| DId | Owned public models/dependency; real agent offer/answer, nonempty media, ready event, teardown | Existing adapter inspected; migration and provider E2E remain |
+| Advantage Codex | Preserve pacing, queues, authenticated replay semantics, bootstrap pre-roll and data channel | Existing consumer inspected; migration and real App Server regression remain |
+| Apple Watch delivery | Same trace through remote audio, backend/decode/delivery, device arrival/playback; before/after distributions and audible acceptance | No new physical evidence |
+| Simli | Owned offer/answer adapter; real face/session, nonempty media, cleanup; preserve WebSocket input/signaling | Existing adapter inspected; migration and provider E2E remain |
+| MIT and source ownership | Pinned file-level origin/license checks and notices for every future port/import; audited graph | Newly authored runtime, no imported runtime code |
+| .NET 10+, trimming/AOT | Whole-library rooting, executed native transport, supported-platform CI, no weakened diagnostics | Expanded whole-library NativeAOT and authenticated UDP smoke passed locally; CI/platform gate pending |
+
+An inconclusive, skipped, credential-missing or configuration-only test is missing
+evidence, never a pass. Record explicit artifacts and independent-peer versions.
+Provider/hardware credentials must not appear in logs, fixtures or commits.
+
+## Latency investigation
+
+The inspected Advantage peer waits for all ICE gathering before returning its SDP
+offer and configures a 60-ms audio receive buffer. These are hypotheses for measurement,
+not evidence that removing either improves Watch delivery. Preserve authentication,
+replay and existing continuity, source-clock and queue-age tests.
+
+Record gather start, first candidate, SDP exchange, selected pair, DTLS completion,
+channel readiness, first authenticated audio, backend playback submission, device
+arrival and audible playback. Compare repeated cold/warm runs, loss/burst conditions
+and p50/p95; loopback ICE timing is not provider or physical voice E2E latency.
+
+## Next implementation order
+
+Finish independent ICE validation, then implement and test SRTP/SRTCP and DTLS
+using .NET cryptographic primitives or a reviewed compatible source base. Follow with
+SDP/RTCP and SCTP/DCEP; add NAT/relay/resolution and consumer adapters as prerequisites
+become usable. Then migrate consumers and perform provider/device acceptance.
+Revisit order when interoperability reveals a prerequisite.

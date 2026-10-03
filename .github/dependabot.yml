@@ -1,5 +1,12 @@
 version: 2
 updates:
+  - package-ecosystem: gomod
+    directory: /tests/interop/Pion
+    schedule:
+      interval: weekly
+    groups:
+      peer:
+        patterns: ['*']
   - package-ecosystem: nuget
     directory: /
     schedule:
