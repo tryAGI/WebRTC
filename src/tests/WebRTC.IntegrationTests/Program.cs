@@ -99,6 +99,18 @@ cases.Add(("Owned peer bounded audio queue retains freshest packet", PeerTests.Q
 cases.Add(("Owned peer secure audio flows while SCTP handshake is stalled", () => PeerTests.EarlyMedia()));
 cases.Add(("Owned peer negotiated two-byte MID while SCTP is stalled", () => PeerTests.EarlyMedia(true)));
 cases.Add(("Owned peer rejects authenticated wrong MID/PT/SSRC and malformed RTCP", PeerTests.Routing));
+cases.Add(("Owned peer destination policy also rejects peer-reflexive input", PeerTests.CandidatePolicy));
+foreach (var ipv6 in new[] { false, true })
+    foreach (var fingerprint in new[] { false, true })
+        cases.Add(($"STUN gathering same socket IPv6={ipv6}, fingerprint={fingerprint}", () => GatheringTests.Exchange(ipv6, fingerprint)));
+cases.Add(("STUN gathering retransmits the same bounded transaction", GatheringTests.Retransmission));
+cases.Add(("STUN gathering rejects hostile responses before mapping admission", GatheringTests.Hostile));
+cases.Add(("STUN gathering rejects unknown required response attributes", () => GatheringTests.RequiredAttributeOrError(true)));
+cases.Add(("STUN gathering fails redirects without contacting another server", () => GatheringTests.RequiredAttributeOrError(false)));
+cases.Add(("STUN gather cancellation preserves subsequent ICE", () => GatheringTests.Cancellation(false)));
+cases.Add(("STUN gather deadline preserves subsequent ICE", () => GatheringTests.Cancellation(true)));
+cases.Add(("STUN gathering bounded admission and owner disposal", GatheringTests.AdmissionAndDisposal));
+cases.Add(("Owned peer gathering updates initial SDP and explicit completion", GatheringTests.PeerSignaling));
 
 Uri? pionUri = null;
 string? caseFilter = null;
@@ -117,6 +129,12 @@ if (pionUri != null)
     foreach (var localOfferer in new[] { false, true })
         foreach (var passiveAnswer in new[] { false, true })
             cases.Add(($"Pion owned peer local offer={localOfferer}, passive answer={passiveAnswer}", () => PeerTests.Pion(pionUri, localOfferer, passiveAnswer)));
+    foreach (var localOfferer in new[] { false, true })
+        foreach (var passiveAnswer in new[] { false, true })
+            cases.Add(($"Pion owned peer remote TURN relay local offer={localOfferer}, passive answer={passiveAnswer}", () => PeerTests.Pion(pionUri, localOfferer, passiveAnswer, relay: true)));
+    foreach (var localOfferer in new[] { false, true })
+        foreach (var passiveAnswer in new[] { false, true })
+            cases.Add(($"Pion owned peer trickled TURN relay local offer={localOfferer}, passive answer={passiveAnswer}", () => PeerTests.Pion(pionUri, localOfferer, passiveAnswer, relay: true, trickleRelay: true)));
     foreach (var localOfferer in new[] { false, true })
         foreach (var passiveAnswer in new[] { false, true })
             cases.Add(($"Pion full SDP/Opus/data local offer={localOfferer}, passive answer={passiveAnswer}", () => SdpTests.Pion(pionUri, localOfferer, passiveAnswer)));

@@ -4,7 +4,9 @@ An independent MIT-licensed WebRTC implementation being developed for .NET 10 an
 The initial library provides bounded STUN and RTP datagram parsing, STUN integrity
 and fingerprint verification, and bounded STUN message writing. UDP ICE connectivity
 implements regular nomination, role conflicts, trickle/peer-reflexive candidates,
-retransmission and consent expiry for resolved non-relay candidates.
+retransmission and consent expiry from a host base to resolved remote candidates,
+including remote TURN relays. Explicit STUN Binding gathers srflx mappings on the
+same owned socket; cancellation preserves that socket for subsequent ICE.
 Directional SRTP/SRTCP contexts implement AES-CM/HMAC-SHA1-80 and AES-GCM
 128/256, with authenticated replay and bounded per-source state. DTLS 1.2 adds
 mutual SHA-256 fingerprint authentication, ECDHE/EMS and SRTP key negotiation,
@@ -21,7 +23,8 @@ authenticated audio by negotiated payload/MID/source, exposes bounded receive
 queues and preserves RTP sequence, timestamp and SSRC metadata. Secure media readiness
 is separate from SCTP/data readiness.
 
-**Status: transport in development.** ICE gathering/TURN, general SDP/JSEP,
+**Status: transport in development.** Multiple interfaces, DNS/mDNS, local TURN
+allocation/routing, ICE restart, general SDP/JSEP,
 video and automatic RTCP feedback remain incomplete. This library does
 not yet replace SIPSorcery in DId or Advantage. No package is automatically published.
 

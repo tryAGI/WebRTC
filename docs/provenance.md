@@ -29,6 +29,23 @@ HTTP harness. No upstream implementation/example/fixture or new dependency is ad
 
 ## Independent test peer
 
+STUN gathering and candidate metadata are newly authored from RFC 8489/8445/8838;
+no RFC code component, fixture or upstream implementation is imported. An authored
+black-box regression reproduced destination-policy bypass through peer-reflexive
+learning before the admission policy was extended to that path. The existing relay
+guard could also be bypassed through learned addresses; the new independent gate
+requires a selected typed relay, including explicit trickle, under relay-only policy.
+
+The local TURN service (`relay.go`) calls public APIs from Pion TURN v5.1.2
+(MIT, pinned commit `d7e65399091d5833d5d18bf265e4b0c42fd49de0`). Its original root
+license was checked and already exists in linked-module notices. The module moves
+from indirect to direct test use without changing its version or any transitive
+version; regenerated notices and go.sum are unchanged. Listener/relay addresses and
+permissions are loopback-only, credentials are randomly generated test values and
+session cleanup closes its allocation owner. No server/client algorithm or example
+was inspected, translated or copied. This is remote relay and independent Binding
+evidence, not an implementation of our own TURN client or proof of real NAT traversal.
+
 The isolated test peer is newly authored Go code calling the public Pion ICE/DTLS/SRTP/SCTP/DCEP APIs;
 it is not a port or copy of Pion example code. `github.com/pion/ice/v4 v4.4.5` is
 pinned to upstream commit `54a22240c3afddd0b32f5420a62f253f000c225c`; its original

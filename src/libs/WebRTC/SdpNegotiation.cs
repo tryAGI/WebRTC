@@ -6,21 +6,32 @@ using System.Text;
 
 namespace tryAGI.WebRTC;
 
-/// <summary>One local resolved host candidate and authenticated signaling material. Does not gather candidates.</summary>
+/// <summary>One local resolved host base, optional gathered srflx candidates and authenticated signaling material. Does not perform I/O.</summary>
 public sealed class SdpLocalTransport
 {
     public IceCredentials Credentials { get; }
     public string FingerprintSha256 { get; }
     public IceCandidate Candidate { get; }
+    public IReadOnlyList<IceCandidate> Candidates { get; }
+    public bool GatheringComplete { get; }
+    public bool SupportsTrickle { get; }
     public ushort SctpPort { get; }
     public int MaximumMessageSize { get; }
     public SdpLocalTransport(IceCredentials credentials, ReadOnlySpan<byte> fingerprintSha256, IPEndPoint candidate,
-        ushort sctpPort = 5000, int maximumMessageSize = 262144)
+        ushort sctpPort = 5000, int maximumMessageSize = 262144,
+        IEnumerable<IceCandidate>? additionalCandidates = null, bool gatheringComplete = true, bool supportsTrickle = false)
     {
         ArgumentNullException.ThrowIfNull(credentials);
         if (fingerprintSha256.Length != 32 || sctpPort == 0 || maximumMessageSize is < 1 or > 1048576) throw new ArgumentOutOfRangeException(nameof(fingerprintSha256));
         Credentials = credentials; FingerprintSha256 = Convert.ToHexString(fingerprintSha256);
         Candidate = new(candidate); SctpPort = sctpPort; MaximumMessageSize = maximumMessageSize;
+        var extras = additionalCandidates?.Take(9).ToArray() ?? [];
+        if (extras.Length > 8 || extras.Any(c => c == null || c.Type != IceCandidateType.ServerReflexive ||
+            c.RelatedEndPoint == null || !c.RelatedEndPoint.Equals(Candidate.EndPoint)))
+            throw new ArgumentException("Additional local candidates must be at most eight srflx mappings of this host base.", nameof(additionalCandidates));
+        Candidates = Array.AsReadOnly(new[] { Candidate }.Concat(extras).DistinctBy(c => c.EndPoint.ToString()).ToArray());
+        GatheringComplete = gatheringComplete;
+        SupportsTrickle = supportsTrickle;
     }
     public override string ToString() => "SDP local transport (credentials redacted)";
 }
@@ -196,10 +207,16 @@ public static class SdpNegotiation
     }
     private static void WriteTransport(StringBuilder builder, SdpLocalTransport transport, SdpSetup setup)
     {
-        var endpoint = transport.Candidate.EndPoint;
         var fingerprint = string.Join(':', Enumerable.Range(0, 32).Select(i => transport.FingerprintSha256.Substring(2 * i, 2)));
         builder.Append(CultureInfo.InvariantCulture, $"a=ice-ufrag:{transport.Credentials.UsernameFragment}\r\na=ice-pwd:{transport.Credentials.Password}\r\na=fingerprint:sha-256 {fingerprint}\r\na=setup:{(setup == SdpSetup.ActPass ? "actpass" : setup == SdpSetup.Active ? "active" : "passive")}\r\n");
-        builder.Append(CultureInfo.InvariantCulture, $"a=candidate:1 1 UDP {transport.Candidate.Priority} {endpoint.Address} {endpoint.Port} typ host\r\na=end-of-candidates\r\n");
+        if (transport.SupportsTrickle) builder.Append("a=ice-options:trickle\r\n");
+        WriteCandidates(builder, transport);
+    }
+    internal static void WriteCandidates(StringBuilder builder, SdpLocalTransport transport)
+    {
+        for (var i = 0; i < transport.Candidates.Count; i++)
+            builder.Append("a=candidate:").Append(transport.Candidates[i].ToSdpAttribute((i + 1).ToString(CultureInfo.InvariantCulture))).Append("\r\n");
+        if (transport.GatheringComplete) builder.Append("a=end-of-candidates\r\n");
     }
     private static void WriteAudio(StringBuilder builder, SdpLocalTransport transport, string mid, byte payloadType,
         SdpDirection direction, SdpSetup setup, uint source, int extension)

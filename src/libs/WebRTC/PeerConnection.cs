@@ -4,6 +4,7 @@ using System.Net;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Threading.Channels;
+using System.Text;
 
 namespace tryAGI.WebRTC;
 
@@ -29,7 +30,7 @@ public sealed record PeerConnectionDiagnostics(PeerConnectionState State, TimeSp
     long RejectedAudioPackets, long RejectedControlPackets, long DroppedAudioPackets, long DroppedControlPackets,
     IceUdpTransportDiagnostics Ice, DtlsSrtpDiagnostics? Dtls);
 
-/// <summary>Owns an initial resolved-host Opus/data BUNDLE session. No gathering, relay, video, codec engine or jitter buffer.</summary>
+/// <summary>Owns initial Opus/data BUNDLE with a resolved host base, bounded STUN gathering and remote relay candidates. No local TURN, video, codec engine or jitter buffer.</summary>
 public sealed class PeerConnection : IAsyncDisposable
 {
     private readonly object _gate = new();
@@ -54,6 +55,9 @@ public sealed class PeerConnection : IAsyncDisposable
     private DataChannelAssociation? _channels;
     private Task? _run, _dispose;
     private bool _disposed;
+    private readonly List<IceCandidate> _localCandidates = [];
+    private int _activeGathering;
+    private bool _gatheringComplete;
     private ushort _sequence = BinaryPrimitives.ReadUInt16BigEndian(RandomNumberGenerator.GetBytes(2));
     private long _startedAt, _mediaAt, _connectedAt, _rejectedAudio, _rejectedControl, _droppedAudio, _droppedControl;
     public uint AudioSource { get; }
@@ -77,7 +81,8 @@ public sealed class PeerConnection : IAsyncDisposable
             options.Sctp.SendBufferBytes < options.Sctp.MaximumMessageSize) throw new ArgumentOutOfRangeException(nameof(options));
         _ = new IceCandidate(new(options.LocalEndPoint.Address, options.LocalEndPoint.Port == 0 ? 1 : options.LocalEndPoint.Port));
         _options = options; _identity = DtlsIdentity.Generate();
-        try { _ice = new(new(options.LocalEndPoint.Address, options.LocalEndPoint.Port), options: options.Ice); }
+        try { _ice = new(new(options.LocalEndPoint.Address, options.LocalEndPoint.Port), options: options.Ice with
+            { RemoteCandidateFilter = SupportedCandidate }); }
         catch { _identity.Dispose(); throw; }
         _endpoint = _ice.LocalEndPoint;
         do { AudioSource = BinaryPrimitives.ReadUInt32BigEndian(RandomNumberGenerator.GetBytes(4)); } while (AudioSource == 0);
@@ -87,7 +92,64 @@ public sealed class PeerConnection : IAsyncDisposable
         { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = false, SingleWriter = true }, _ => Interlocked.Increment(ref _droppedControl));
     }
     private SdpLocalTransport LocalTransport() => new(_ice.LocalCredentials, _identity.GetFingerprintSha256(), _endpoint,
-        _options.Sctp.LocalPort, Math.Min(_options.Sctp.MaximumMessageSize, _options.Channels.ReceiveBufferBytes));
+        _options.Sctp.LocalPort, Math.Min(_options.Sctp.MaximumMessageSize, _options.Channels.ReceiveBufferBytes), _localCandidates, _gatheringComplete, true);
+    public IReadOnlyList<IceCandidate> GetLocalCandidates()
+    { lock (_gate) { RequireOpen(); return LocalTransport().Candidates; } }
+    public StunGatheringDiagnostics GetGatheringDiagnostics() => _ice.GetGatheringDiagnostics();
+    /// <summary>Explicit resolved STUN server only. Caller cancellation stops this gather, preserving the peer and its socket.</summary>
+    public async Task<IceCandidate> GatherServerReflexiveCandidateAsync(IPEndPoint server, StunGatheringOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            RequireOpen();
+            if (_gatheringComplete || _localCandidates.Count + _activeGathering >= 8)
+                throw new InvalidOperationException("Gathering is complete or its bounded candidate budget is reserved.");
+            _activeGathering++;
+        }
+        try
+        {
+            var candidate = await _ice.GatherServerReflexiveCandidateAsync(server, options, cancellationToken).ConfigureAwait(false);
+            lock (_gate)
+            {
+                RequireOpen();
+                if (!candidate.EndPoint.Equals(_endpoint) && !_localCandidates.Any(c => c.EndPoint.Equals(candidate.EndPoint)))
+                    _localCandidates.Add(candidate);
+                RefreshLocalDescription();
+            }
+            return candidate;
+        }
+        finally { lock (_gate) _activeGathering--; }
+    }
+    /// <summary>Marks this initial generation's local gathering complete. No active gathering request may remain.</summary>
+    public void CompleteGathering()
+    {
+        lock (_gate)
+        {
+            RequireOpen();
+            if (_activeGathering != 0) throw new InvalidOperationException("Gathering requests are still active.");
+            _gatheringComplete = true; RefreshLocalDescription();
+        }
+    }
+    private void RefreshLocalDescription()
+    {
+        if (_local == null) return;
+        var transport = LocalTransport(); var builder = new StringBuilder(); var mediaIndex = 0; var active = false;
+        // Only candidate metadata changes; preserve the initial session id,
+        // negotiated roles, codecs, source and authenticated signaling material.
+        foreach (var line in LocalDescription!.Split("\r\n", StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (line.StartsWith("m=", StringComparison.Ordinal))
+            {
+                if (active) SdpNegotiation.WriteCandidates(builder, transport);
+                active = !_local.Media[mediaIndex++].IsRejected;
+            }
+            if (line.StartsWith("a=candidate:", StringComparison.Ordinal) || line == "a=end-of-candidates") continue;
+            builder.Append(line).Append("\r\n");
+        }
+        if (active) SdpNegotiation.WriteCandidates(builder, transport);
+        var text = builder.ToString(); _local = SdpSessionDescription.Parse(text); LocalDescription = text;
+    }
     public string CreateOffer()
     {
         lock (_gate)
@@ -136,13 +198,13 @@ public sealed class PeerConnection : IAsyncDisposable
             _run = RunAsync(candidates, cancellationToken); return _connected.Task;
         }
     }
-    private bool SupportedCandidate(IceCandidate candidate) => candidate.Type != IceCandidateType.Relay &&
-        candidate.EndPoint.AddressFamily == _endpoint.AddressFamily && (_options.CandidateFilter?.Invoke(candidate) ?? true);
+    private bool SupportedCandidate(IceCandidate candidate) => candidate.EndPoint.AddressFamily == _endpoint.AddressFamily &&
+        (_options.CandidateFilter?.Invoke(candidate) ?? true) && (_options.Ice.RemoteCandidateFilter?.Invoke(candidate) ?? true);
     /// <summary>Candidate attribute body, without the a=candidate: prefix; only the active credential generation is accepted.</summary>
     public void AddRemoteCandidate(string candidate)
     {
         var parsed = SdpIceCandidate.Parse(candidate).GetResolvedUdpCandidate();
-        if (parsed == null || !SupportedCandidate(parsed)) throw new NotSupportedException("Candidate requires unsupported resolution, relay or destination.");
+        if (parsed == null || !SupportedCandidate(parsed)) throw new NotSupportedException("Candidate requires unsupported resolution, address family or destination.");
         lock (_gate)
         {
             RequireOpen();

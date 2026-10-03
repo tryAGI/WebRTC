@@ -1,5 +1,6 @@
 using tryAGI.WebRTC;
 using System.Net;
+using System.Net.Sockets;
 
 Span<byte> binding = stackalloc byte[20];
 if (!StunMessage.TryWriteBindingRequest(binding, "012345678901"u8) ||
@@ -137,6 +138,13 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
     using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5)); var ct = deadline.Token;
     var peerOptions = new PeerConnectionOptions { LocalEndPoint = new(IPAddress.Loopback, 0), Dtls = new() { Profiles = [profile] } };
     await using var local = new PeerConnection(peerOptions); await using var remote = new PeerConnection(peerOptions);
+    using var stunServer = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+    stunServer.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+    var responding = NativeStun(stunServer, ct);
+    var gathered = await local.GatherServerReflexiveCandidateAsync((IPEndPoint)stunServer.LocalEndPoint!, cancellationToken: ct);
+    await responding;
+    if (!gathered.EndPoint.Equals(local.GetLocalCandidates()[0].EndPoint) || local.GetLocalCandidates().Count != 1) return 1;
+    local.CompleteGathering(); remote.CompleteGathering();
     local.SetRemoteAnswer(remote.CreateAnswer(local.CreateOffer()));
     await Task.WhenAll(local.ConnectAsync(ct), remote.ConnectAsync(ct));
     var channel = await local.OpenDataChannelAsync(new("native-owned", "", true, DataChannelReliability.Reliable, 0, 256), ct);
@@ -157,7 +165,19 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
     if (await remote.Completion.WaitAsync(ct) != null) return 1;
 }
 Console.WriteLine("NativeAOT owned peer Opus/data lifecycle and all SRTP profiles passed");
+Console.WriteLine("NativeAOT same-socket STUN gathering and explicit SDP completion passed");
 return 0;
+
+static async Task NativeStun(Socket server, CancellationToken ct)
+{
+    var request = new byte[128]; var received = await server.ReceiveFromAsync(request, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), ct);
+    if (!StunMessage.TryParse(request.AsSpan(0, received.ReceivedBytes), out var message) || !message.VerifyFingerprint() ||
+        message.Type != StunMessage.BindingRequest) throw new IOException("Invalid native STUN gather request.");
+    var response = new byte[128]; var writer = new StunMessageWriter(response, 0x0101, message.TransactionId);
+    if (!writer.TryAddXorMappedAddress((IPEndPoint)received.RemoteEndPoint) || !writer.TryComplete([], true, out var length))
+        throw new IOException("Native STUN response framing failed.");
+    await server.SendToAsync(response.AsMemory(0, length), SocketFlags.None, received.RemoteEndPoint, ct);
+}
 
 static async Task<byte[]> Read(IceUdpTransport transport, CancellationToken cancellationToken)
 {

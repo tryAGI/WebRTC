@@ -2,8 +2,9 @@
 
 `PeerConnection` owns its UDP ICE socket, ephemeral DTLS identity, DTLS/SRTP,
 optional SCTP/DCEP association and receive loops. It supports the initial
-[SDP subset](sdp.md) with a resolved local interface and resolved non-relay remote
-candidates. It does not gather interfaces, resolve names, use STUN/TURN servers,
+[SDP subset](sdp.md) with a resolved local interface and resolved remote candidates,
+including remote TURN relays. Explicit STUN gathers mappings of this host base.
+It does not gather multiple interfaces, resolve names, own a local TURN allocation,
 implement renegotiation or replace the existing consumer adapters yet.
 
 ## Signaling and lifetime
@@ -22,12 +23,32 @@ var channel = await peer.OpenDataChannelAsync(
     cancellationToken);
 ```
 
+## Local gathering and trickle
+
+The host candidate is available immediately through `GetLocalCandidates()`.
+The peer advertises `ice-options:trickle` and initially omits `end-of-candidates`.
+Explicit `GatherServerReflexiveCandidateAsync(resolvedServer, options, token)`
+returns a candidate from this same socket and updates `LocalDescription` when one
+exists. It preserves session id, credentials, fingerprint, codec/source and roles.
+No server or credentialed provider endpoint is configured by default.
+
+For initial full gathering, await requested servers, call `CompleteGathering()`,
+then create/send the description. For trickle, signal the host immediately and
+signal a returned candidate's `ToSdpAttribute()` through the application's negotiated
+trickle protocol. Gathering does not send signaling messages itself. The local
+candidate snapshot excludes mappings identical to the host and duplicate endpoints.
+`CompleteGathering()` adds end markers to accepted sections; it refuses while requests
+are active, and subsequent gathers are refused. At most eight extra mappings/active
+reservations are allowed. Gather cancellation preserves the peer, and disposal cancels
+its pending operations. Multiple interfaces, DNS/mDNS, local TURN and restart remain.
+
 An answerer calls `CreateAnswer(remoteOffer)` and sends the result before starting
 `ConnectAsync`. Signaling errors leave the previous state intact. One instance has
 one initial negotiation and ICE credential generation. Trickle uses
 `AddRemoteCandidate` after connection establishment has started; the argument is
 the candidate attribute body. An optional candidate predicate applies application
-destination policy. Unsupported hostname/relay/other-family candidates in an SDP
+destination policy, including authenticated peer-reflexive discovery. Predicates must
+be fast, pure and nonblocking. Unsupported hostname/other-family candidates in an SDP
 are not admitted. A session with no supported candidates can wait for trickle until
 its bounded establishment deadline; it never automatically resolves or contacts a server.
 

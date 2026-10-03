@@ -17,16 +17,19 @@ import (
 
 	"github.com/pion/dtls/v3"
 	"github.com/pion/rtp"
+	"github.com/pion/turn/v5"
 	"github.com/pion/webrtc/v4"
 )
 
 type sessionRequest struct {
 	Sdp     string `json:"sdp"`
 	Passive bool   `json:"passive"`
+	Relay   bool   `json:"relay"`
 }
 type sessionResponse struct {
-	Id  string `json:"id"`
-	Sdp string `json:"sdp"`
+	Id       string `json:"id"`
+	Sdp      string `json:"sdp"`
+	StunPort int    `json:"stunPort,omitempty"`
 }
 type fullSession struct {
 	peer     *webrtc.PeerConnection
@@ -34,6 +37,7 @@ type fullSession struct {
 	audio    atomic.Int32
 	data     atomic.Int32
 	failures atomic.Int32
+	relay    *turn.Server
 }
 
 func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
@@ -48,7 +52,7 @@ func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
 			http.Error(w, "invalid session", 400)
 			return request, false
 		}
-		// The default acceptance lane has no public DNS, STUN, TURN or provider endpoints.
+		// The default acceptance lane has no public DNS, STUN/TURN or provider endpoints.
 		for line := range strings.Lines(request.Sdp) {
 			if strings.HasPrefix(line, "a=candidate:") {
 				fields := strings.Fields(strings.TrimPrefix(line, "a=candidate:"))
@@ -93,22 +97,42 @@ func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
 			err = media.RegisterHeaderExtension(webrtc.RTPHeaderExtensionCapability{URI: "urn:ietf:params:rtp-hdrext:sdes:mid"}, webrtc.RTPCodecTypeAudio)
 		}
 		api := webrtc.NewAPI(webrtc.WithSettingEngine(settings), webrtc.WithMediaEngine(media))
+		configuration := webrtc.Configuration{}
+		var relay *turn.Server
+		stunPort := 0
+		if err == nil && request.Relay {
+			var service webrtc.ICEServer
+			relay, service, stunPort, err = localRelay()
+			configuration = webrtc.Configuration{ICEServers: []webrtc.ICEServer{service}, ICETransportPolicy: webrtc.ICETransportPolicyRelay}
+		}
 		var pc *webrtc.PeerConnection
 		if err == nil {
-			pc, err = api.NewPeerConnection(webrtc.Configuration{})
+			pc, err = api.NewPeerConnection(configuration)
 		}
 		if err != nil {
+			if relay != nil {
+				_ = relay.Close()
+			}
 			cancel()
 			<-slots
 			http.Error(w, "peer creation failed", 500)
 			return
 		}
 		id := fmt.Sprint(sequence.Add(1))
-		session := &fullSession{peer: pc, cancel: cancel}
+		session := &fullSession{peer: pc, cancel: cancel, relay: relay}
 		gate.Lock()
 		sessions[id] = session
 		gate.Unlock()
-		context.AfterFunc(ctx, func() { _ = pc.Close(); gate.Lock(); delete(sessions, id); gate.Unlock(); <-slots })
+		context.AfterFunc(ctx, func() {
+			_ = pc.Close()
+			if relay != nil {
+				_ = relay.Close()
+			}
+			gate.Lock()
+			delete(sessions, id)
+			gate.Unlock()
+			<-slots
+		})
 		fail := func() { session.failures.Add(1); cancel(); http.Error(w, "session negotiation failed", 400) }
 		localTrack, err := webrtc.NewTrackLocalStaticRTP(capability, "audio", "tryagi")
 		var sender *webrtc.RTPSender
@@ -216,7 +240,7 @@ func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(sessionResponse{Id: id, Sdp: pc.LocalDescription().SDP})
+		_ = json.NewEncoder(w).Encode(sessionResponse{Id: id, Sdp: pc.LocalDescription().SDP, StunPort: stunPort})
 	}
 	mux.HandleFunc("POST /session/offer", func(w http.ResponseWriter, r *http.Request) { create(w, r, true) })
 	mux.HandleFunc("POST /session/answer", func(w http.ResponseWriter, r *http.Request) { create(w, r, false) })
@@ -249,7 +273,11 @@ func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]int32{"audio": session.audio.Load(), "data": session.data.Load(), "failures": session.failures.Load()})
+		allocations := 0
+		if session.relay != nil {
+			allocations = session.relay.AllocationCount()
+		}
+		_ = json.NewEncoder(w).Encode(map[string]int32{"audio": session.audio.Load(), "data": session.data.Load(), "failures": session.failures.Load(), "relayAllocations": int32(allocations)})
 	})
 	mux.HandleFunc("DELETE /session/{id}", func(w http.ResponseWriter, r *http.Request) {
 		gate.Lock()

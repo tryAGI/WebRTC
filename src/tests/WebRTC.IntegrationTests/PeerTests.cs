@@ -155,25 +155,58 @@ internal static class PeerTests
         Check((await First(peer.ReceiveAudioAsync(ct), ct)).Timestamp == 96000);
         await peer.DisposeAsync(); await Reject<ObjectDisposedException>(() => connecting);
     }
-    internal static async Task Pion(Uri uri, bool offerer, bool passive)
+    internal static async Task CandidatePolicy()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5)); var ct = deadline.Token;
+        var checks = 0;
+        await using var left = new PeerConnection(Options(false) with { CandidateFilter = _ => { Interlocked.Increment(ref checks); return false; } });
+        await using var right = new PeerConnection(Options(false));
+        var offer = left.CreateOffer(); var answer = right.CreateAnswer(offer); left.SetRemoteAnswer(answer);
+        var local = left.ConnectAsync(ct); var remote = right.ConnectAsync(ct);
+        await Task.Delay(250, ct);
+        Check(!local.IsCompleted && !remote.IsCompleted && !left.MediaReady.IsCompleted,
+            "Peer-reflexive learning bypassed the application destination policy");
+        Check(left.GetDiagnostics().Ice is { CandidatePairs: 0, SentChecks: 0, ValidatedRequests: 0 } && checks > 1);
+        deadline.Cancel();
+        await Reject<OperationCanceledException>(() => local); await Reject<OperationCanceledException>(() => remote);
+    }
+    internal static async Task Pion(Uri uri, bool offerer, bool passive, bool relay = false, bool trickleRelay = false)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(9)); var ct = deadline.Token;
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
-        await using var peer = new PeerConnection(Options() with { Sctp = SctpTests.Fast() }); string? id = null;
+        await using var peer = new PeerConnection(Options() with { Sctp = SctpTests.Fast(),
+            CandidateFilter = relay ? c => c.Type == IceCandidateType.Relay : null }); string? id = null;
         try
         {
-            var request = new SessionRequest(offerer ? peer.CreateOffer() : "", passive);
+            var request = new SessionRequest(offerer ? peer.CreateOffer() : "", passive, relay);
             using var response = await http.PostAsJsonAsync(new Uri(uri, offerer ? "/session/answer" : "/session/offer"), request, InteropJson.Default.SessionRequest, ct);
             response.EnsureSuccessStatusCode(); var description = await response.Content.ReadFromJsonAsync(InteropJson.Default.SessionResponse, ct) ?? throw new IOException("Independent peer missing");
             id = description.Id; Check(id.Length is > 0 and <= 20 && id.All(char.IsAsciiDigit));
-            if (offerer) peer.SetRemoteAnswer(description.Sdp);
+            if (relay)
+            {
+                Check(description.StunPort is > 0 and <= 65535);
+                var baseCandidate = peer.GetLocalCandidates()[0];
+                var mapped = await peer.GatherServerReflexiveCandidateAsync(new(IPAddress.Loopback, description.StunPort), GatheringTests.Fast(), ct);
+                Check(mapped.EndPoint.Equals(baseCandidate.EndPoint) && mapped.RelatedEndPoint!.Equals(baseCandidate.EndPoint));
+                Check(peer.GetLocalCandidates().Count == 1 && peer.GetGatheringDiagnostics().SuccessfulBindings == 1, "Independent STUN mapped a different socket or retained a redundant host mapping");
+                peer.CompleteGathering();
+            }
+            var remoteCandidates = SdpSessionDescription.Parse(description.Sdp).Media.SelectMany(m => m.Candidates).ToArray();
+            if (relay) Check(remoteCandidates.Length > 0 && remoteCandidates.All(c => c.Type == IceCandidateType.Relay), "Independent relay-only peer advertised a direct fallback");
+            var remoteSdp = trickleRelay ? string.Join("\r\n", description.Sdp.Split("\r\n").Where(l => !l.StartsWith("a=candidate:", StringComparison.Ordinal) && l != "a=end-of-candidates")) : description.Sdp;
+            if (offerer) peer.SetRemoteAnswer(remoteSdp);
             else
             {
-                var answer = peer.CreateAnswer(description.Sdp, passive ? SdpSetup.Passive : SdpSetup.Active);
+                var answer = peer.CreateAnswer(remoteSdp, passive ? SdpSetup.Passive : SdpSetup.Active);
                 using var accepted = await http.PostAsJsonAsync(new Uri(uri, $"/session/{id}/answer"), new SessionRequest(answer, false), InteropJson.Default.SessionRequest, ct);
                 accepted.EnsureSuccessStatusCode();
             }
-            await peer.ConnectAsync(ct);
+            var connection = peer.ConnectAsync(ct);
+            if (trickleRelay) foreach (var candidate in remoteCandidates.DistinctBy(c => $"{c.Address}:{c.Port}"))
+                peer.AddRemoteCandidate(candidate.GetResolvedUdpCandidate()!.ToSdpAttribute());
+            await connection;
+            if (relay) Check(peer.GetDiagnostics().Ice.SelectedRemoteCandidateType == IceCandidateType.Relay &&
+                remoteCandidates.Any(c => c.GetResolvedUdpCandidate()!.EndPoint.Equals(peer.GetDiagnostics().Ice.SelectedRemoteEndPoint)), "Relay was not the selected destination");
             var channel = offerer ? await peer.OpenDataChannelAsync(Channel(), ct) : await First(peer.AcceptDataChannelsAsync(ct), ct);
             if (!offerer) Check((await First(channel.ReceiveMessagesAsync(ct), ct)).GetText() == "pion:ready");
             await channel.SendTextAsync("owned controls", ct);
@@ -183,7 +216,7 @@ internal static class PeerTests
             Check(audio.Payload.SequenceEqual(SdpTests.OpusPayload()) && next.Payload.SequenceEqual(audio.Payload));
             Check((await First(channel.ReceiveMessagesAsync(ct), ct)).GetText() == "owned controls");
             var stats = await http.GetFromJsonAsync(new Uri(uri, $"/session/{id}/stats"), InteropJson.Default.SessionStats, ct);
-            Check(stats is { Audio: 2, Data: 1, Failures: 0 }); await channel.CloseAsync(ct); await peer.CloseAsync(ct);
+            Check(stats is { Audio: 2, Data: 1, Failures: 0 } && (!relay || stats.RelayAllocations > 0)); await channel.CloseAsync(ct); await peer.CloseAsync(ct);
         }
         finally
         {

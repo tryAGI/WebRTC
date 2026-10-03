@@ -18,6 +18,8 @@ public sealed record IceUdpTransportOptions
     public TimeSpan ConnectionTimeout { get; init; } = TimeSpan.FromSeconds(15);
     public TimeSpan ConsentInterval { get; init; } = TimeSpan.FromSeconds(5);
     public TimeSpan ConsentTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>Applies to signaled and authenticated peer-reflexive destinations before admission or a response.</summary>
+    public Func<IceCandidate, bool>? RemoteCandidateFilter { get; init; }
 
     internal void Validate()
     {
@@ -36,14 +38,14 @@ public sealed record IceUdpTransportDiagnostics(
     IceRole Role, int CandidatePairs, IPEndPoint? SelectedRemoteEndPoint,
     TimeSpan? ConnectionTime, TimeSpan? LastCheckRoundTripTime,
     long SentChecks, long Retransmissions, long ValidatedRequests, long RoleConflicts, long DroppedDatagrams,
-    int BufferedEarlyChecks);
+    int BufferedEarlyChecks, IceCandidateType? SelectedRemoteCandidateType = null);
 
 /// <summary>
-/// Single-component UDP ICE connectivity for resolved host/reflexive candidates.
+/// Single-component UDP ICE connectivity from a host base to resolved remote candidates, including remote relays.
 /// Datagrams are NOT media-authenticated: DTLS/SRTP must be layered above this transport.
-/// Gathering, TURN routing, mDNS and ICE restart are not implemented here yet.
+/// Bounded STUN gathering is available; local TURN routing, mDNS and ICE restart remain separate gates.
 /// </summary>
-public sealed class IceUdpTransport : IAsyncDisposable
+public sealed partial class IceUdpTransport : IAsyncDisposable
 {
     private const ushort Username = 0x0006, Priority = 0x0024, UseCandidate = 0x0025;
     private const ushort Controlled = 0x8029, Controlling = 0x802A, ErrorCode = 0x0009;
@@ -73,7 +75,16 @@ public sealed class IceUdpTransport : IAsyncDisposable
     private int _disposed;
     private long _sentChecks, _retransmissions, _validatedRequests, _roleConflicts, _droppedDatagrams;
 
-    public IPEndPoint LocalEndPoint => (IPEndPoint)_socket.LocalEndPoint!;
+    public IPEndPoint LocalEndPoint
+    {
+        get
+        {
+            var bound = (IPEndPoint)_socket.LocalEndPoint!;
+            var address = bound.AddressFamily == AddressFamily.InterNetworkV6
+                ? new IPAddress(bound.Address.GetAddressBytes(), bound.Address.ScopeId) : new IPAddress(bound.Address.GetAddressBytes());
+            return new(address, bound.Port);
+        }
+    }
     public IceCredentials LocalCredentials => _localCredentials;
     public bool IsConnected
     {
@@ -188,7 +199,8 @@ public sealed class IceUdpTransport : IAsyncDisposable
         lock (_gate)
             return new(_role, _pairs.Count, _selected?.Candidate.EndPoint,
                 _selected is null ? null : Stopwatch.GetElapsedTime(_startedAt, _selectedAt), _lastRoundTrip,
-                _sentChecks, _retransmissions, _validatedRequests, _roleConflicts, Interlocked.Read(ref _droppedDatagrams), _earlyChecks.Count);
+                _sentChecks, _retransmissions, _validatedRequests, _roleConflicts, Interlocked.Read(ref _droppedDatagrams), _earlyChecks.Count,
+                _selected?.Candidate.Type);
     }
 
     private void ValidateCandidate(IceCandidate candidate)
@@ -196,8 +208,8 @@ public sealed class IceUdpTransport : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(candidate);
         if (candidate.TransportEndPoint.AddressFamily != _socket.AddressFamily)
             throw new ArgumentException("Candidate and local socket address families must match.", nameof(candidate));
-        if (candidate.Type == IceCandidateType.Relay)
-            throw new NotSupportedException("Relayed candidates require TURN allocation/routing, not a direct UDP socket.");
+        if (!(_options.RemoteCandidateFilter?.Invoke(candidate) ?? true))
+            throw new ArgumentException("Remote candidate rejected by the destination policy.", nameof(candidate));
     }
 
     private Pair AddCandidateCore(IceCandidate candidate)
@@ -332,7 +344,7 @@ public sealed class IceUdpTransport : IAsyncDisposable
                 if (buffer[0] <= 3)
                 {
                     byte[]? response;
-                    lock (_gate) response = HandleStun(buffer.AsSpan(0, length), source);
+                    lock (_gate) response = HandleGatheringResponse(buffer.AsSpan(0, length), source) ? null : HandleStun(buffer.AsSpan(0, length), source);
                     if (response is not null)
                     {
                         try { await _socket.SendToAsync(response, SocketFlags.None, source, _lifetime.Token).ConfigureAwait(false); }
@@ -397,6 +409,11 @@ public sealed class IceUdpTransport : IAsyncDisposable
             !hasPriority || priority.Length != 4 || (hasUseCandidate && (useCandidate.Length != 0 || !hasControlling))) return null;
         var remotePriority = BinaryPrimitives.ReadUInt32BigEndian(priority);
         if (remotePriority == 0 || remotePriority > int.MaxValue) return null;
+        var known = _pairs.Find(p => p.Candidate.TransportEndPoint.Equals(source));
+        IceCandidate incoming;
+        try { incoming = known?.Candidate ?? new(source, remotePriority, IceCandidateType.PeerReflexive); }
+        catch (ArgumentException) { return null; }
+        if (!(_options.RemoteCandidateFilter?.Invoke(incoming) ?? true)) return null;
         var remoteTie = BinaryPrimitives.ReadUInt64BigEndian(hasControlling ? controlling : controlled);
         if ((hasControlling && _role == IceRole.Controlling) || (hasControlled && _role == IceRole.Controlled))
         {
@@ -516,6 +533,8 @@ public sealed class IceUdpTransport : IAsyncDisposable
             if (_stopped) return;
             _stopped = true;
             _earlyChecks.Clear();
+            foreach (var transaction in _gathering.Values) transaction.Done.TrySetException(reason);
+            _gathering.Clear();
             if (reason is OperationCanceledException) _connected.TrySetCanceled();
             else _connected.TrySetException(reason);
             _completion.TrySetResult(reason);

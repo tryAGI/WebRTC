@@ -34,7 +34,9 @@ accepted outgoing header extensions and a bounded data-message limit.
   and group membership; an answer cannot use bundle-only.
 - Candidates parse host/srflx/prflx/relay syntax. Only literal component-1 UDP
   addresses resolve to `IceCandidate`; hostnames and other protocols remain syntax.
-  Existing ICE transport supports resolved non-relay destinations only.
+  Existing ICE transport supports resolved remote relay destinations from its host base.
+  `SdpLocalTransport` can include up to eight gathered srflx mappings of that base,
+  explicit gathering-complete markers and trickle capability without performing I/O.
 
 The caller must authenticate signaling, apply destination policy and own transport
 startup/teardown. SDP parsing itself does not gather candidates, create an identity,
@@ -69,8 +71,8 @@ Whole-library NativeAOT smoke executes SDP-driven media/data exchange for all SR
 profiles. Tests use loopback candidates and no provider endpoints.
 
 This is not full RFC 9429 JSEP conformance or an application-ready peer connection.
-General signaling state/rollback, renegotiation, ICE restart, gather/trickle orchestration,
-NAT/relay/name resolution, video codec selection, multiple-media MID/SSRC routing,
+General signaling state/rollback, renegotiation, ICE restart, multiple-interface gathering,
+local TURN/name resolution, video codec selection, multiple-media MID/SSRC routing,
 RTCP feedback, codec decoding and timed media delivery remain. Synthetic packet
 transport is not audible playback or measured provider/Apple Watch voice latency.
 The [initial owned peer](peer-connection.md) now supplies the initial signaling

@@ -28,8 +28,10 @@ connection-state and encoded-frame types when implementing the respective milest
    malformed-input tests and full-library NativeAOT rooting. Implemented initially.
 2. Local UDP ICE/STUN now has nomination, consent, role conflict, retransmit and
    bounded peer-reflexive/trickle handling; independent Pion validation is present.
-   Complete candidate gathering and minimal mDNS/DNS with
-   deadlines, candidate policy and bounded name resolution. Then TURN UDP/TCP.
+   Same-socket bounded STUN srflx gathering and remote relay admission now have
+   independent local Pion Opus/data evidence. Destination policy covers discovered
+   sources. Complete multiple-interface gathering and minimal mDNS/DNS with
+   deadlines and bounded name resolution. Then local TURN UDP/TCP/TLS and its lifecycle.
 3. DTLS handshake and SRTP/SRTCP: fingerprint binding, certificate policy, key
    derivation, authentication before delivery, replay and rollover tests. SRTP/SRTCP
    directional key contexts and independent profile tests are implemented. Bounded
