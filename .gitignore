@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+artifacts/
+.vs/
+.idea/
+.DS_Store
+.env
+.env.*
+*.env
+*.user

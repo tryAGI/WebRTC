@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/libs/WebRTC/WebRTC.csproj" />
+    <Project Path="src/tests/WebRTC.ProtocolTests/WebRTC.ProtocolTests.csproj" />
+    <Project Path="src/tests/WebRTC.AotSmoke/WebRTC.AotSmoke.csproj" />
+  </Folder>
+</Solution>
