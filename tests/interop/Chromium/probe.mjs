@@ -45,6 +45,23 @@ try {
   socket.addEventListener('message', event => { const m = JSON.parse(event.data); if (m.id && pending.has(m.id)) { const p = pending.get(m.id); pending.delete(m.id); m.error ? p.reject(new Error(JSON.stringify(m.error))) : p.resolve(m.result); } });
   const send = (method, params = {}) => new Promise((resolve, reject) => { const key = ++id; pending.set(key, { resolve, reject }); socket.send(JSON.stringify({ id: key, method, params })); deadline.addEventListener('abort', () => reject(deadline.reason), { once: true }); });
   await send('Runtime.enable');
+  // Creating a CDP target accepts navigation; it does not wait for the initial
+  // about:blank context to be replaced by the trustworthy loopback document.
+  let pageReady=false;
+  for(let attempt=0;attempt<200;attempt++) {
+    deadline.throwIfAborted();
+    try {
+      const readiness=await send('Runtime.evaluate',{returnByValue:true,expression:
+        "location.href==='http://127.0.0.1:9235/' && document.readyState==='complete' && isSecureContext"});
+      if(!readiness.exceptionDetails && readiness.result?.value===true) {pageReady=true;break;}
+    } catch(error) {
+      // Navigation may destroy the provisional execution context. The bounded
+      // readiness loop retries only startup; media/decode failures are not retried.
+      deadline.throwIfAborted();
+    }
+    await new Promise(resolve=>setTimeout(resolve,50));
+  }
+  if(!pageReady)throw new Error('Loopback secure document did not finish navigation');
   const result = await send('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async () => {
     const mode=${JSON.stringify(mode)};
     const codec=${JSON.stringify(codec)};
