@@ -96,6 +96,7 @@ internal static class IceServerTests
         if (scenario == "dispose") await peer.DisposeAsync();
         try { await gathering.WaitAsync(ct); throw new InvalidOperationException("Silent gather succeeded"); }
         catch (TimeoutException) when (scenario == "timeout") { }
+        catch (IOException error) when (scenario == "request-timeout" && error.InnerException is TimeoutException) { }
         catch (OperationCanceledException) when (scenario is "cancel" or "dispose") { }
         Check(peer.GetGatheringDiagnostics().ActiveTransactions == 0);
         if (scenario != "dispose") peer.CompleteGathering();

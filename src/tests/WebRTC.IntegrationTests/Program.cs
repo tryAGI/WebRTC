@@ -42,7 +42,7 @@ foreach (var ipv6 in new[] { false, true })
         cases.Add(($"ICE URI STUN IPv6={ipv6} DNS={dns} pinned destination and SDP", () => IceServerTests.Stun(ipv6, dns)));
 cases.Add(("ICE URI bounded admission precedes resolution and recovers after cancellation", IceServerTests.Admission));
 cases.Add(("ICE URI resolved destination policy, unsafe families and unsupported transport", IceServerTests.Policy));
-foreach (var scenario in new[] { "cancel", "timeout", "dispose" })
+foreach (var scenario in new[] { "cancel", "timeout", "request-timeout", "dispose" })
     cases.Add(($"ICE URI gathering lifetime {scenario}", () => IceServerTests.Lifetime(scenario)));
 foreach (var transport in Enum.GetValues<TurnServerTransport>())
     cases.Add(($"ICE URI TURN {transport} DNS and allocation teardown", () => IceServerTests.Relay(transport)));

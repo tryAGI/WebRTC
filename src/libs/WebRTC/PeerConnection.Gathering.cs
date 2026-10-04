@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 
@@ -37,20 +38,31 @@ public sealed partial class PeerConnection
         GatherCandidateAsync(async ownerToken =>
         {
             // Admission is reserved BEFORE DNS and released only when this operation ends.
+            var startedAt = Stopwatch.GetTimestamp();
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ownerToken);
             deadline.CancelAfter(resolution.GatherTimeout);
+            void CheckDeadline()
+            {
+                ownerToken.ThrowIfCancellationRequested();
+                // Timer callbacks can be delayed behind the attempt's timeout continuation.
+                // Monotonic elapsed time keeps total-deadline classification consistent.
+                if (Stopwatch.GetElapsedTime(startedAt) >= resolution.GatherTimeout)
+                    throw new TimeoutException("ICE server gathering exceeded its total deadline.");
+                deadline.Token.ThrowIfCancellationRequested();
+            }
             try
             {
                 var endpoints = await server.ResolveAsync(_endpoint.AddressFamily, resolution, deadline.Token).ConfigureAwait(false);
                 Exception? lastFailure = null;
                 foreach (var endpoint in endpoints)
                 {
-                    deadline.Token.ThrowIfCancellationRequested();
+                    CheckDeadline();
                     try { return await gather(endpoint, deadline.Token).ConfigureAwait(false); }
                     // Failed allocations already dispose their owners. Identity/auth failures are terminal, never a downgrade.
                     catch (Exception error) when (error is SocketException or TimeoutException)
-                    { lastFailure = error; }
+                    { CheckDeadline(); lastFailure = error; }
                 }
+                CheckDeadline();
                 throw new IOException("All admitted ICE server addresses failed.", lastFailure);
             }
             catch (OperationCanceledException) when (!ownerToken.IsCancellationRequested)

@@ -229,7 +229,7 @@ IceServerUriTests.Vectors(); IceServerUriTests.Malformed(); IceServerUriTests.Co
 foreach (var ipv6 in new[] { false, true })
     foreach (var dns in new[] { false, true }) await IceServerTests.Stun(ipv6, dns);
 await IceServerTests.Policy(); await IceServerTests.Admission();
-foreach (var scenario in new[] { "cancel", "timeout", "dispose" }) await IceServerTests.Lifetime(scenario);
+foreach (var scenario in new[] { "cancel", "timeout", "request-timeout", "dispose" }) await IceServerTests.Lifetime(scenario);
 foreach (var transport in Enum.GetValues<TurnServerTransport>()) await IceServerTests.Relay(transport);
 await IceServerTests.Relay(TurnServerTransport.Tls, true);
 Console.WriteLine("NativeAOT ICE server URI/DNS, destination policy, original TLS identity and bounded gathering lifetime passed");
