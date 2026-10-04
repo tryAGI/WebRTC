@@ -39,6 +39,23 @@ internal static class SctpResetTests
         await pair.Left.SendMessageAsync(0, 51, "after reset"u8.ToArray(), cancellationToken: timeout.Token);
         Check((await SctpTests.Read(pair.Right, timeout.Token)).Data.AsSpan().SequenceEqual("after reset"u8));
     }
+    internal static async Task ResetThenShutdown()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        for(var cycle=0;cycle<24;cycle++)
+        {
+            await using var pair=await SctpPair.Create(SctpTests.Fast() with { Streams=2 },timeout.Token);
+            var reset=pair.Left.ResetOutgoingStreamsAsync(new ushort[] {0},timeout.Token);
+            ResetEvent(await ReadEvent(pair.Right,timeout.Token),false);
+            // Start shutdown immediately after applying the peer's reset. Its response
+            // and the final transport lifetime can reach the requester in one scheduling turn.
+            var shutdown=pair.Right.CloseAsync(timeout.Token);
+            await reset;
+            ResetEvent(await ReadEvent(pair.Left,timeout.Token),true);
+            await shutdown;
+            Check(await pair.Left.Completion.WaitAsync(timeout.Token)==null);
+        }
+    }
     internal static async Task Backpressure()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));

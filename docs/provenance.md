@@ -302,3 +302,15 @@ attribute cap, and session/audio/application keep their 128 total cap. RTP forma
 now also reject nonnumeric/out-of-range payload types and semantic numeric duplicates. Authored protocol tests cover 33/34/64/128 alternatives,
 select only supported Opus, and reject duplicate/over-budget inventories. No
 upstream parser implementation or fixture was imported.
+
+A previous independent CI run exposed a video test publication race (assembly
+count was observed before queue delivery) and an intermittent canceled reset
+wait at immediate SCTP shutdown. The video assertion now waits for its expected
+queue evictions before consuming the final frame. A validated successful reset
+result is preserved when internal terminal cancellation wins the asynchronously
+scheduled wait; caller cancellation and unconfirmed/refused resets still fail.
+An authored 24-cycle real UDP/DTLS/SCTP reset-then-shutdown regression checks
+successful reset notifications and clean terminal association state. The prior
+independent DCEP failure was not reproduced in 400 local repeat connections,
+including 320 under bounded CPU contention; these repeats do not establish its
+precise historical wire order or a formal concurrency/security audit.

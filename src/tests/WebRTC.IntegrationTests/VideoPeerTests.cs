@@ -25,7 +25,7 @@ internal static partial class VideoPeerTests
         await left.SendVideoRtpAsync(bootstrap, 0, true, ct);
         var payload = codec == VideoCodec.H264 ? new byte[] { 0x65, 0x22, 0x33 } : new byte[] { 0x10, 1, 2, 3 };
         for (uint n = 1; n <= 4; n++) await left.SendVideoRtpAsync(payload, 3000 * n, true, ct);
-        while (right.GetVideoDiagnostics().CompletedFrames < (codec == VideoCodec.H264 ? 4 : 5)) await Task.Delay(5, ct);
+        while (right.GetVideoDiagnostics().CompletedFrames < (codec == VideoCodec.H264 ? 4 : 5) || right.GetVideoDiagnostics().DroppedQueueFrames < 3) await Task.Delay(5, ct);
         var frame = await First(right.ReceiveVideoAsync(ct), ct);
         Check(frame.Timestamp == 12000 && frame.SynchronizationSource == left.VideoSource && frame.Codec == codec && right.GetVideoDiagnostics().DroppedQueueFrames >= 3);
         Check(frame.Payload.SequenceEqual(codec == VideoCodec.H264 ? new byte[] { 0, 0, 0, 1, 0x65, 0x22, 0x33 } : new byte[] { 1, 2, 3 }));

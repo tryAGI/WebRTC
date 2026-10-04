@@ -51,7 +51,17 @@ public sealed partial class SctpAssociation
                     reset = BeginOutgoingReset(streams, streamIds.IsEmpty, unchecked(_nextPeerResetSequence - 1));
                 wait = _resetAdmission.Task;
             }
-            if (reset != null) { await reset.Done.Task.WaitAsync(linked.Token).ConfigureAwait(false); return; }
+            if (reset != null)
+            {
+                try { await reset.Done.Task.WaitAsync(linked.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (reset.Done.Task.IsCompletedSuccessfully && !cancellationToken.IsCancellationRequested)
+                {
+                    // SCTP's terminal cancellation can win the asynchronously scheduled wait
+                    // after a validated successful response. Preserve that confirmed result,
+                    // while caller cancellation and unconfirmed/refused resets still fail.
+                }
+                return;
+            }
             await wait.WaitAsync(linked.Token).ConfigureAwait(false);
         }
     }

@@ -103,6 +103,7 @@ foreach (var reliability in new[] { DataChannelReliability.RetransmissionLimited
 cases.Add(("SCTP stream reset and SSN/request rollover", () => SctpResetTests.Raw(false, false)));
 cases.Add(("SCTP simultaneous directional reset", () => SctpResetTests.Raw(false, true)));
 cases.Add(("SCTP reset all streams", () => SctpResetTests.Raw(true, false)));
+cases.Add(("SCTP confirmed reset survives immediate peer shutdown", SctpResetTests.ResetThenShutdown));
 cases.Add(("SCTP reset preserves old messages under backpressure", SctpResetTests.Backpressure));
 cases.Add(("SCTP reset waits for partial message abandonment", SctpResetTests.DeferredAbandonment));
 cases.Add(("SCTP reset request loss", () => SctpResetTests.Loss(false)));
