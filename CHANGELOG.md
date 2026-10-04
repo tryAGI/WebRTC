@@ -5,6 +5,8 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+## [0.2.3] - 2026-10-04
+
 - Initiate SCTP from both WebRTC endpoints regardless of DTLS setup, as required
   by RFC 8841 section 9.3. Previously a DTLS server waited passively, allowing
   a second passive SCTP peer to stall after successful ICE/DTLS. Add a pinned

@@ -20,7 +20,7 @@ requires both WebRTC SCTP endpoints to initiate an association. SDP `setup`
 controls DTLS and does not select the SCTP initiator. Through package 0.2.2,
 `PeerConnection` incorrectly used a passive SCTP responder when acting as the
 DTLS server. Another passive SCTP endpoint therefore stalls after successful
-ICE/DTLS until the SCTP deadline. The fixed implementation always initiates SCTP;
+ICE/DTLS until the SCTP deadline. Package **0.2.3** always initiates SCTP;
 DCEP stream parity still follows DTLS, as required by RFC 8832.
 
 The immutable published 0.2.2 regression project reproduces this exact failure:
@@ -79,7 +79,8 @@ that larger buffer's lifecycle is unchanged.
 ## Required Advantage adapter change
 
 1. Upgrade the explicitly selected experimental adapter from 0.1.0-dev.37 to the
-   **0.2.2**. Keep the existing production default.
+   **0.2.3**, including retained evidence and the SCTP initiation fix. Keep the
+   existing production default.
 2. Measure call creation/admission, `MediaReady`, complete `ConnectAsync`, local
    channel OPEN and cleanup independently. `MediaReady` proves authenticated
    media readiness, not SCTP or DCEP readiness.
