@@ -1,8 +1,7 @@
 name: Validate
 
 on:
-  push:
-    branches: [main]
+  workflow_call:
   pull_request:
   workflow_dispatch:
 
@@ -19,9 +18,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.x
+      - name: Publication guard tests
+        run: python3 -m unittest discover -s scripts -p "test_*.py"
       - run: dotnet build WebRTC.slnx -c Release
       - run: dotnet run --project src/tests/WebRTC.ProtocolTests -c Release --no-build
       - run: dotnet run --project src/tests/WebRTC.IntegrationTests -c Release --no-build
@@ -33,6 +36,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.x
@@ -44,6 +49,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - run: docker build -f tests/interop/Pion/Dockerfile -t tryagi-webrtc-interop .
       - run: docker run --rm tryagi-webrtc-interop
 
@@ -53,4 +60,6 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - run: ./tests/interop/Chromium/run.sh

@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.snk binary
+*.png binary
+*.jpg binary
+*.webm binary
+*.opus binary

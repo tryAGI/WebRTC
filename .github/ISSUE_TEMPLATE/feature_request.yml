@@ -1,0 +1,17 @@
+name: Feature request
+description: Propose a concrete interoperability or transport improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case and current limitation
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and standards
+      description: Link the relevant protocol section and explain how compatibility could be tested locally.
+    validations:
+      required: true

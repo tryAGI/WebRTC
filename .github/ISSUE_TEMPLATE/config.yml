@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Private vulnerability report
+    url: https://github.com/tryAGI/WebRTC/security/advisories/new
+    about: Report security-sensitive findings privately.
+  - name: Questions and design discussions
+    url: https://github.com/tryAGI/WebRTC/discussions
+    about: Discuss usage, transport scope and proposals.

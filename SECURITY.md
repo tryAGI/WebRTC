@@ -1,4 +1,19 @@
-# Security scope
+# Security policy
+
+## Reporting a vulnerability
+
+Use [GitHub private vulnerability reporting](https://github.com/tryAGI/WebRTC/security/advisories/new).
+Do not post exploit details, credentials, private SDP addresses or media in a public
+issue. Include the affected version/commit, a minimal local reproduction and impact.
+There is no guaranteed response time; maintainers will investigate and coordinate a fix.
+
+## Supported versions
+
+The latest `0.x` line is experimental and receives fixes as development proceeds.
+Older development packages are not maintained separately. No production-readiness
+or independent security-audit claim is made.
+
+## Security scope
 
 The project has not received an independent security audit. Parser and cryptographic
 verification tests do not establish complete WebRTC transport security.

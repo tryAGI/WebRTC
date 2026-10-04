@@ -9,5 +9,5 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0-noble-aot
 WORKDIR /workspace
 COPY . .
 COPY --from=peer /pion-peer /usr/local/bin/pion-peer
-RUN dotnet build WebRTC.slnx -c Release
+RUN dotnet build WebRTC.slnx -c Release -p:MinVerSkip=true -p:Version=0.1.0-test
 CMD ["sh", "-c", "pion-peer & peer_pid=$!; trap 'kill $peer_pid 2>/dev/null || true' EXIT; dotnet run --project src/tests/WebRTC.IntegrationTests -c Release --no-build -- --pion-uri http://127.0.0.1:8080"]

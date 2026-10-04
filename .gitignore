@@ -8,3 +8,7 @@ artifacts/
 .env.*
 *.env
 *.user
+
+# Python publication checks
+__pycache__/
+*.pyc

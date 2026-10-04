@@ -1,0 +1,84 @@
+name: Publish
+
+on:
+  push:
+    branches: [main]
+    tags: ['v0.**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+
+  publish:
+    name: Publish verified 0.x package
+    needs: validate
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v0.')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Require source published on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Pack exact source
+        run: |
+          dotnet pack src/libs/WebRTC/WebRTC.csproj -c Release -o artifacts/package \
+            -p:RepositoryCommit="$GITHUB_SHA" -p:SourceRevisionId="$GITHUB_SHA"
+      - name: Verify package
+        run: python3 scripts/verify-package.py artifacts/package "$GITHUB_SHA"
+      - name: Verify release tag matches package
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          proof = json.load(open('artifacts/package/package-proof.json'))
+          if os.environ['RELEASE_TAG'] != 'v' + proof['version']:
+              raise SystemExit('Release tag does not match package version')
+          PY
+      - name: Retain package and source proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: webrtc-package-${{ github.ref_name }}-${{ github.sha }}
+          path: artifacts/package/*
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish immutable package
+        env:
+          NUGET_KEY: ${{ secrets.NUGET_KEY }}
+        run: |
+          test -n "$NUGET_KEY" || { echo 'Existing NUGET_KEY must be enabled for tryAGI/WebRTC'; exit 1; }
+          python3 scripts/publish-package.py artifacts/package "$GITHUB_SHA"
+
+  release:
+    name: GitHub release
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v0.')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Create release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            args=()
+            if [[ "$RELEASE_TAG" == *-* ]]; then args+=(--prerelease); fi
+            gh release create "$RELEASE_TAG" --verify-tag --generate-notes \
+              --repo "$GITHUB_REPOSITORY" "${args[@]}"
+          fi

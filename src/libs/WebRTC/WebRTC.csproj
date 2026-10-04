@@ -3,9 +3,16 @@
     <AssemblyName>tryAGI.WebRTC</AssemblyName>
     <RootNamespace>tryAGI.WebRTC</RootNamespace>
     <PackageId>tryAGI.WebRTC</PackageId>
-    <Version>0.1.0-alpha.1</Version>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <MinVerMinimumMajorMinor>0.1</MinVerMinimumMajorMinor>
+    <MinVerDefaultPreReleaseIdentifiers>dev</MinVerDefaultPreReleaseIdentifiers>
+    <RepositoryUrl>https://github.com/tryAGI/WebRTC</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <Authors>tryAGI and contributors</Authors>
-    <Description>Independent .NET 10 initial Opus/video/data peer with bounded SDP, UDP ICE, fingerprint-bound DTLS/SRTP and reliable/partial SCTP/DCEP channels. Same-socket STUN and owned UDP/TCP/TLS TURN paths support bounded local relay ICE; External H264/VP8 capabilities drive bounded video frames; Automatic compound RTCP reports and bounded negotiated PLI are implemented; general negotiation, broader feedback and actual playback remain in development.</Description>
+    <Description>MIT WebRTC transport for .NET 10: bounded ICE/STUN/TURN, fingerprint-authenticated DTLS/SRTP, Opus/H264/VP8 packet transport and SCTP data channels. Experimental 0.x; framework-only runtime.</Description>
+    <PackageProjectUrl>https://github.com/tryAGI/WebRTC</PackageProjectUrl>
+    <PackageTags>webrtc;dotnet;ice;stun;turn;dtls;srtp;sctp;opus;h264;vp8;nativeaot</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <IsAotCompatible>true</IsAotCompatible>
@@ -15,7 +22,11 @@
     <PublicSign>true</PublicSign>
     <AssemblyOriginatorKeyFile>../../public.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
+  <Target Name="RequireExperimentalPackageVersion" BeforeTargets="GenerateNuspec" DependsOnTargets="MinVer">
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(PackageVersion)', '^0\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$'))" Text="WebRTC publication is restricted to 0.x versions." />
+  </Target>
   <ItemGroup>
+    <PackageReference Include="MinVer" Version="8.0.0" PrivateAssets="all" />
     <None Include="../../../README.md" Pack="true" PackagePath="/" />
     <None Include="../../../LICENSE" Pack="true" PackagePath="/" />
   </ItemGroup>
