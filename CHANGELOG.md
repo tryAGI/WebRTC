@@ -5,7 +5,8 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
-No changes yet.
+- Reconcile parallel main/tag NuGet publication conflicts with bounded index retries;
+  require matching version, source commit and DLL before accepting an existing package.
 
 ## [0.2.1] - 2026-10-04
 

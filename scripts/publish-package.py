@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Publish only verified packages; reruns accept an existing identical assembly/source."""
 import os
+import re
+import time
 import subprocess
 import sys
 import tempfile
@@ -36,6 +38,17 @@ def existing_matches(expected_sha: str, proof: dict) -> bool:
     return True
 
 
+def reconcile_conflict(expected_sha: str, proof: dict) -> bool:
+    # A parallel main/tag upload can be accepted before the flat-container index
+    # becomes readable. Never treat HTTP 409 alone as proof of identical contents.
+    for delay in (0, 10, 20, 40, 60, 60):
+        if delay:
+            time.sleep(delay)
+        if existing_matches(expected_sha, proof):
+            return True
+    return False
+
+
 if __name__ == "__main__":
     directory, sha = Path(sys.argv[1]), sys.argv[2]
     proof = module.verify(directory, sha)
@@ -52,4 +65,6 @@ if __name__ == "__main__":
             raise SystemExit("NuGet push timed out; check registry state before retrying") from None
         print((result.stdout + result.stderr).replace(key, "[redacted]"))
         if result.returncode:
+            if re.search(r"\b409\b", result.stdout + result.stderr) and reconcile_conflict(sha, proof):
+                raise SystemExit(0)
             raise SystemExit(result.returncode)
