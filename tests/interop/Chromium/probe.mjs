@@ -11,7 +11,10 @@ const chrome = spawn('/ms-playwright/chromium-1234/chrome-linux/chrome', [
   '--disable-component-update', '--disable-sync', '--no-first-run', '--no-default-browser-check',
   '--allow-loopback-in-peer-connection', '--disable-features=WebRtcHideLocalIpsWithMdns',
   '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=9222', '--user-data-dir='+profile, 'about:blank'
-], { stdio: 'ignore' });
+], { stdio: ['ignore','ignore','pipe'] });
+let startupError='';
+chrome.stderr.on('data',chunk=>startupError=(startupError+chunk.toString()).slice(-4096));
+let spawnFailure;chrome.on('error',error=>spawnFailure=error);
 let socket;
 const deadline = AbortSignal.timeout(45000);
 try {
@@ -20,6 +23,7 @@ try {
     await new Promise(resolve=>setTimeout(resolve,50));
   }
   for (let i = 0; i < 100; i++) {
+    if(spawnFailure || chrome.exitCode!==null || chrome.signalCode!==null) throw new Error('Chromium startup failed: '+(spawnFailure || chrome.exitCode || chrome.signalCode)+' '+startupError);
     try { const response = await fetch('http://127.0.0.1:9222/json/version', { signal: deadline }); if (response.ok) break; } catch { }
     await new Promise(resolve => setTimeout(resolve, 50));
   }
@@ -84,7 +88,7 @@ try {
   console.log(JSON.stringify(result.result.value, null, 2));
 } finally {
   socket?.close();
-  const stopped=chrome.exitCode===null ? new Promise(resolve=>chrome.once('exit',resolve)) : Promise.resolve();
+  const stopped=chrome.exitCode===null && chrome.signalCode===null && !spawnFailure ? new Promise(resolve=>chrome.once('exit',resolve)) : Promise.resolve();
   chrome.kill('SIGTERM');
   const force=setTimeout(()=>chrome.kill('SIGKILL'),2000);
   await stopped;clearTimeout(force);
