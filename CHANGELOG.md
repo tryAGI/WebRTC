@@ -5,6 +5,8 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+## [0.2.5] - 2026-10-05
+
 - Use the negotiated BUNDLE-tagged section for remote transport candidates,
   rather than combining unrelated media-section candidates. Add a local two-route
   regression: both routes answer ICE, but only the tagged route originates bundled
@@ -18,6 +20,10 @@ Version `0.x` is experimental. Release notes are also available on
   through ICE and peer establishment evidence. Preserve existing admission checks
   and trace categories; add actual host/relay rejection, truncation and disposal
   regressions to managed and executed NativeAOT tests.
+
+- Record a fresh real-provider timeout with incoming DTLS data rejected before
+  parsing. The BUNDLE route regression is reproduced locally; its relationship to
+  that provider's signaling remains unproven until deployed repeat acceptance.
 
 ## [0.2.4] - 2026-10-04
 
