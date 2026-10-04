@@ -47,6 +47,7 @@ public sealed record PeerDiagnosticsOptions
 public readonly record struct PacketStageEvent(int Version, long PacketId, int PathGeneration, DiagnosticPath Path,
     PacketDirection Direction, PacketStage Stage, PacketReason Reason, long TimestampTicks, long DurationTicks,
     int Bytes, int QueueDepth, uint? Source, ushort? Sequence, uint? RtpTimestamp, long? SourceEpoch, DiagnosticProtocol Protocol = DiagnosticProtocol.Transport, PacketStage? PreviousStage = null);
+public readonly record struct PacketStageCount(PacketDirection Direction, PacketStage Stage, PacketReason Reason, long Count);
 public sealed record DiagnosticClock(long AnchorTicks, long Frequency, DateTimeOffset ApproximateUtcAnchor,
     bool KernelReceiveTimestampSupported = false, bool SocketOverflowCounterSupported = false);
 public sealed record PeerDiagnosticSnapshot(Guid PeerEpoch, Guid CaptureEpoch, DiagnosticClock Clock, DiagnosticCaptureState State,
@@ -62,7 +63,7 @@ public sealed class PeerDiagnosticSession : IDisposable
     // Conservative record budget (value-only event is smaller); two rings are accounted together.
     public const int EventBudgetBytes = 160;
     private readonly object _bufferGate = new(), _publishGate = new();
-    private readonly PacketStageEvent[] _trace, _metrics, _publishSamples;
+    private PacketStageEvent[] _trace, _metrics, _publishSamples;
     private readonly long[] _counts = new long[2 * StageCount * ReasonCount];
     private readonly long[] _published = new long[2 * StageCount * ReasonCount];
     public const int FixedCounterBudgetBytes = 2 * ((int)PacketStage.Shutdown + 1) * ((int)PacketReason.CatchUpBurst + 1) * sizeof(long) * 2 + ((int)PacketStage.Shutdown + 1) * sizeof(int);
@@ -182,6 +183,19 @@ public sealed class PeerDiagnosticSession : IDisposable
             0, 0, null, null, null, null));
     }
     internal int QueueHighWater(PacketStage stage) => Volatile.Read(ref _queueHighWater[(int)stage]);
+    /// <summary>Bounded aggregate snapshot, including retained counters after stop. Contains no packet identities.</summary>
+    public IReadOnlyList<PacketStageCount> GetEventCounts()
+    {
+        var result = new List<PacketStageCount>();
+        for (var direction = 0; direction < 2; direction++)
+        for (var stage = 0; stage < StageCount; stage++)
+        for (var reason = 0; reason < ReasonCount; reason++)
+        {
+            var count = Interlocked.Read(ref _counts[(direction * StageCount + stage) * ReasonCount + reason]);
+            if (count != 0) result.Add(new((PacketDirection)direction, (PacketStage)stage, (PacketReason)reason, count));
+        }
+        return result.AsReadOnly();
+    }
     public PeerDiagnosticSnapshot GetSnapshot()
     {
         Active(Stopwatch.GetTimestamp());
@@ -234,6 +248,7 @@ public sealed class PeerDiagnosticSession : IDisposable
             lock (_bufferGate) size = DrainCore(_metrics, ref _metricRead, ref _metricCount, samples);
             for (var i = 0; i < size; i++)
             {
+                if (Volatile.Read(ref _state) >= (int)DiagnosticCaptureState.Cancelled) break;
                 var sample = samples[i];
                 try
                 {
@@ -277,7 +292,11 @@ public sealed class PeerDiagnosticSession : IDisposable
         var previous = Volatile.Read(ref _state);
         while (previous < (int)state)
         { var actual = Interlocked.CompareExchange(ref _state, (int)state, previous); if (actual == previous) break; previous = actual; }
-        lock (_bufferGate) { Array.Clear(_trace); Array.Clear(_metrics); _traceCount = _metricCount = 0; }
+        lock (_bufferGate)
+        {
+            Array.Clear(_trace); Array.Clear(_metrics); _traceCount = _metricCount = 0;
+            _trace = []; _metrics = []; _publishSamples = [];
+        }
     }
     public void Dispose()
     {

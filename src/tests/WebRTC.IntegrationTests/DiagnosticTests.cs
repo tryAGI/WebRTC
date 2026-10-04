@@ -31,15 +31,23 @@ internal static class DiagnosticTests
         await Connect(a, b, ct); var payload = Payload();
         await a.SendOpusAsync(payload, uint.MaxValue - 959, true, ct); await a.SendOpusAsync(payload, 0, false, ct);
         await First(b, ct); await First(b, ct);
-        await b.SendOpusAsync(payload, 960, cancellationToken: ct); await First(a, ct);
+        for (uint n = 0; n < 8; n++)
+        {
+            await b.SendOpusAsync(payload, 960 + n * 960, cancellationToken: ct); await First(a, ct);
+            if (relay == null) { await a.SendOpusAsync(payload, 960 + n * 960, cancellationToken: ct); await First(b, ct); }
+        }
         var incoming = Drain(relay == null ? right : left);
-        var delivery = incoming.Last(e => e.Stage == PacketStage.ConsumerDelivery);
-        var stages = incoming.Where(e => e.PacketId == delivery.PacketId).ToArray();
-        foreach (var stage in new[] { PacketStage.Demultiplexed, PacketStage.IceEnqueued, PacketStage.IceDequeued,
+        var required = new[] { PacketStage.Demultiplexed, PacketStage.IceEnqueued, PacketStage.IceDequeued,
             PacketStage.AuthenticationStarted, PacketStage.Authenticated, PacketStage.SecureMediaEnqueued, PacketStage.SecureMediaDequeued,
-            PacketStage.AudioEnqueued, PacketStage.AudioDequeued, PacketStage.ConsumerDelivery })
-            Check(stages.Any(e => e.Stage == stage), "Missing stage " + stage);
-        Check(stages.Zip(stages.Skip(1)).All(pair => pair.First.TimestampTicks <= pair.Second.TimestampTicks));
+            PacketStage.AudioEnqueued, PacketStage.AudioDequeued, PacketStage.ConsumerDelivery };
+        var deliveries = incoming.Where(e => e.Stage == PacketStage.ConsumerDelivery).ToArray();
+        // Nonblocking capture explicitly permits counted record loss. Require a complete correlated packet,
+        // rather than assuming the last packet won every concurrent ring admission.
+        var delivery = deliveries.FirstOrDefault(d => required.All(stage => incoming.Any(e => e.PacketId == d.PacketId && e.Stage == stage)));
+        Check(delivery.Stage == PacketStage.ConsumerDelivery, "No complete packet timeline; capture drops=" + (relay == null ? right : left).GetSnapshot().TraceEventsDropped);
+        var stages = incoming.Where(e => e.PacketId == delivery.PacketId).ToArray();
+        var ordered = required.Select(stage => stages.Single(e => e.Stage == stage)).ToArray();
+        Check(ordered.Zip(ordered.Skip(1)).All(pair => pair.First.TimestampTicks <= pair.Second.TimestampTicks));
         Check(delivery.Source != null && delivery.Sequence != null && delivery.RtpTimestamp != null && delivery.SourceEpoch != null);
         var expected = relay switch { TurnServerTransport.Udp => DiagnosticPath.TurnUdp, TurnServerTransport.Tcp => DiagnosticPath.TurnTcp,
             TurnServerTransport.Tls => DiagnosticPath.TurnTls, _ => DiagnosticPath.HostUdp };
@@ -57,6 +65,10 @@ internal static class DiagnosticTests
         var evidence = b.GetRtpEvidence(); Check(evidence.ReceivedStreams.Count == 1 && evidence.ReceivedStreams[0].Source == null);
         Check(evidence.ReceivedStreams[0].ClockRate == 48000 && evidence.ReceivedStreams[0].Ready);
         Check(b.GetRtpEvidence(true).ReceivedStreams[0].Source == a.AudioSource);
+        // The socket/stream reader is already armed with the previous session.
+        using var live = a.AttachDiagnostics(Capture());
+        await b.SendOpusAsync(payload, 30000, cancellationToken: ct); await First(a, ct);
+        Check(live.GetSnapshot().LastAuthenticatedTicks != null, "Live replacement missed its first arriving packet");
     }
 
     internal static async Task QueueAndLifecycle()
@@ -177,7 +189,9 @@ internal static class DiagnosticTests
         };
         ActivitySource.AddActivityListener(activities);
         await a.SendOpusAsync(Payload(), 2880, cancellationToken: ct); await Task.Delay(40, ct); await First(b, ct);
-        var parent = Activity.Current; capture.Publish(); Check(capture.GetSnapshot().CollectorFailures > 0 && Activity.Current == parent);
+        var parent = Activity.Current; var beforePublish = capture.GetSnapshot(); capture.Publish();
+        Check(capture.GetSnapshot().CollectorFailures > 0, "Activity failure was not observed; metric samples=" + beforePublish.BufferedMetricEvents);
+        Check(Activity.Current == parent, "Activity collector changed caller context");
         await a.SendOpusAsync(Payload(), 3840, cancellationToken: ct); await First(b, ct);
         capture.DisposePublisher();
         for (var n = 0; n < 10; n++)

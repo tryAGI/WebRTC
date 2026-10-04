@@ -35,6 +35,7 @@ internal sealed class TurnServerConnection : IAsyncDisposable
     private IceUdpTransport? _diagnosticTransport;
     internal DiagnosticPath DiagnosticPath { get; private set; }
     internal PacketDiagnostic LastReceiveTrace;
+    private PeerDiagnosticSession? CurrentDiagnostics => _diagnosticTransport == null ? null : Volatile.Read(ref _diagnosticTransport.Diagnostics);
     private PacketDiagnostic BeginReceive() => (_diagnosticTransport == null ? null : Volatile.Read(ref _diagnosticTransport.Diagnostics))?.Begin(
         PacketDirection.Receive, DiagnosticPath, _diagnosticTransport?.DiagnosticGeneration ?? 0, 0) ?? default;
     internal IPEndPoint LocalEndPoint => new IceCandidate((IPEndPoint)_socket.LocalEndPoint!).EndPoint;
@@ -147,7 +148,7 @@ internal sealed class TurnServerConnection : IAsyncDisposable
         {
             var received = await _socket.ReceiveFromAsync(buffer, SocketFlags.None,
                 new IPEndPoint(_server.AddressFamily == AddressFamily.InterNetwork ? IPAddress.Any : IPAddress.IPv6Any, 0), ct).ConfigureAwait(false);
-            if (LastReceiveTrace.Owner == null) LastReceiveTrace = BeginReceive();
+            if (!ReferenceEquals(LastReceiveTrace.Owner, CurrentDiagnostics)) LastReceiveTrace = BeginReceive();
             LastReceiveTrace.Size(received.ReceivedBytes); LastReceiveTrace.Mark(PacketStage.ManagedReceiveCompleted, durationTicks: 0);
             return received;
         }
@@ -182,7 +183,7 @@ internal sealed class TurnServerConnection : IAsyncDisposable
         {
             var count = await _stream!.ReadAsync(buffer[offset..], ct).ConfigureAwait(false);
             if (count == 0) throw new EndOfStreamException();
-            if (LastReceiveTrace.Owner == null) LastReceiveTrace = BeginReceive();
+            if (!ReferenceEquals(LastReceiveTrace.Owner, CurrentDiagnostics)) LastReceiveTrace = BeginReceive();
             LastReceiveTrace.Mark(PacketStage.StreamReadCompleted, durationTicks: 0); offset += count;
         }
         LastReceiveTrace.Size(buffer.Length);

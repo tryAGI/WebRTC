@@ -395,7 +395,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
                 SocketReceiveFromResult received;
                 try { received = await _socket.ReceiveFromAsync(buffer, SocketFlags.None, sourceTemplate, _lifetime.Token).ConfigureAwait(false); }
                 catch (SocketException exception) when (IsRemoteNetworkError(exception) && !_lifetime.IsCancellationRequested) { continue; }
-                if (trace.Owner == null) trace = Volatile.Read(ref Diagnostics)?.Begin(PacketDirection.Receive, DiagnosticPath.HostUdp, DiagnosticGeneration, received.ReceivedBytes) ?? default;
+                if (!ReferenceEquals(trace.Owner, Volatile.Read(ref Diagnostics))) trace = Volatile.Read(ref Diagnostics)?.Begin(PacketDirection.Receive, DiagnosticPath.HostUdp, DiagnosticGeneration, received.ReceivedBytes) ?? default;
                 trace.Size(received.ReceivedBytes); trace.Mark(PacketStage.ManagedReceiveCompleted, durationTicks: 0);
                 var handling = trace.Owner == null ? 0 : Stopwatch.GetTimestamp();
                 var source = (IPEndPoint)received.RemoteEndPoint;

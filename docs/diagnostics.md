@@ -151,8 +151,8 @@ Normal detailed events use `SampleEvery`. Threshold-duration events, drops and
 lifecycle events are retained independently; their earlier stages may be absent.
 Ring-full or buffer-lock contention drops **diagnostic records**, never media.
 `TraceEventsDropped` and `MetricEventsDropped` are separate from existing audio,
-ICE, TURN and secure-media drop counters. Counters remain exact for recorded stage
-calls while histogram samples can be lost; every lost sample is counted. An
+ICE, TURN and secure-media drop counters. `GetEventCounts()` exposes the bounded aggregate counters, including after stop.
+Counters remain exact for recorded stage calls while histogram samples can be lost; every lost sample is counted. An
 incomplete trace cannot establish that an unrecorded stage did not happen.
 
 `Dropped` includes `PreviousStage`, identifying the boundary, and a bounded reason:

@@ -55,9 +55,15 @@ internal static class DiagnosticBoundaryTests
         var evidence = b.GetRtpEvidence(true).ReceivedStreams.Single();
         Check(evidence.ResetEpoch == baseline.ResetEpoch && evidence.CumulativeLost == 2, "Loss/reorder state inconsistent");
         var events = new PacketStageEvent[capture.TraceCapacity]; var count = capture.Drain(events); var observed = events[..count];
-        Check(observed.Any(e => e.Stage == PacketStage.Dropped && e.Reason == PacketReason.ReplayOrTooOld), "Duplicate did not hit SRTP replay boundary");
-        Check(observed.Any(e => e.Stage == PacketStage.Dropped && e.Reason == PacketReason.Authentication), "Corrupt tag did not hit authentication boundary");
-        Check(observed.Any(e => e.Stage == PacketStage.AudioEnqueued && e.Reason == PacketReason.Reordered), "Reorder handling was not observable");
+        void RequireObserved(PacketStage stage, PacketReason reason)
+        {
+            Check(capture.GetEventCounts().Any(e => e.Stage == stage && e.Reason == reason && e.Count > 0), "Missing exact stage counter: " + reason);
+            if (!observed.Any(e => e.Stage == stage && e.Reason == reason))
+                Check(capture.GetSnapshot().TraceEventsDropped > 0, "Missing trace record without an explicit capture-drop signal");
+        }
+        RequireObserved(PacketStage.Dropped, PacketReason.ReplayOrTooOld);
+        RequireObserved(PacketStage.Dropped, PacketReason.Authentication);
+        RequireObserved(PacketStage.AudioEnqueued, PacketReason.Reordered);
         var completed = observed.Where(e => e.Stage == PacketStage.ManagedReceiveCompleted).ToArray();
         Check(completed.Zip(completed.Skip(1)).Any(p => p.Second.TimestampTicks - p.First.TimestampTicks > Stopwatch.Frequency / 20), "Pre-managed receive gap was not observable");
         // Processing after the delayed receive must not be labeled as the injected network delay.
