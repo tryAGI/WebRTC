@@ -93,7 +93,10 @@ jobs:
                             Path('CHANGELOG.md').read_text(), re.M | re.S)
           if not match:
               raise SystemExit('Missing dated changelog section for release')
-          Path('release-notes.md').write_text('Experimental 0.x release. Provider/device E2E acceptance remains; see README and docs/acceptance.md.\n\n' + match[1].strip() + '\n')
+          notes = re.sub(r'\]\((?!https?://|#)([^)]+)\)',
+                         lambda m: '](https://github.com/tryAGI/WebRTC/blob/' + os.environ['RELEASE_TAG'] + '/' + m[1] + ')',
+                         match[1].strip())
+          Path('release-notes.md').write_text('Experimental 0.x release. Provider/device E2E acceptance remains; see README and docs/acceptance.md.\n\n' + notes + '\n')
           PY
           if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" artifacts/package/*.nupkg artifacts/package/package-proof.json \

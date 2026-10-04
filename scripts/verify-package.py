@@ -42,6 +42,9 @@ def verify(directory: Path, expected_sha: str) -> dict:
             raise ValueError("Wrong target framework, assembly or missing package readme")
         if any(n.startswith(("runtimes/", "tools/", "build/", "buildTransitive/")) or (n.lower().endswith((".so", ".dylib", ".exe", ".dll")) and n != "lib/net10.0/tryAGI.WebRTC.dll") for n in archive.namelist()):
             raise ValueError("Unexpected native, tool or build assets in runtime package")
+        readme = archive.read("README.md").decode("utf-8")
+        if any(not link.startswith(("https://", "#")) for link in re.findall(r"\]\(([^)]+)\)", readme)):
+            raise ValueError("NuGet README requires absolute HTTPS links or local anchors")
         assembly = archive.read(libraries[0])
         return {"package": package.name, "version": value("version"), "repository_commit": expected_sha,
                 "assembly_sha256": hashlib.sha256(assembly).hexdigest(), "runtime_nuget_dependencies": []}

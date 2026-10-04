@@ -4,8 +4,8 @@
 
 [![Publish](https://github.com/tryAGI/WebRTC/actions/workflows/dotnet.yml/badge.svg)](https://github.com/tryAGI/WebRTC/actions/workflows/dotnet.yml)
 [![NuGet](https://img.shields.io/nuget/vpre/tryAGI.WebRTC.svg)](https://www.nuget.org/packages/tryAGI.WebRTC)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![.NET 10](https://img.shields.io/badge/.NET-10-512BD4.svg)](src/libs/WebRTC/WebRTC.csproj)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/tryAGI/WebRTC/blob/main/LICENSE)
+[![.NET 10](https://img.shields.io/badge/.NET-10-512BD4.svg)](https://github.com/tryAGI/WebRTC/blob/main/src/libs/WebRTC/WebRTC.csproj)
 
 Build encrypted audio, video and data transports with explicit network admission,
 bounded resource use and a runtime that depends only on the .NET shared framework.
@@ -16,7 +16,7 @@ signaling, media encoding/decoding and playback.
 > Independent Pion and Chromium checks pass for the documented scope; real
 > DId/Advantage/Simli sessions and physical Apple Watch playback are still acceptance
 > work. This is not yet a drop-in replacement for those adapters or a security-audited
-> general WebRTC stack. See [completion gates](docs/acceptance.md).
+> general WebRTC stack. See [completion gates](https://github.com/tryAGI/WebRTC/blob/main/docs/acceptance.md).
 
 ## Install
 
@@ -26,7 +26,7 @@ dotnet add package tryAGI.WebRTC --prerelease
 
 Requires .NET 10 or later. Main builds publish `0.x` development packages after all
 validation jobs succeed; `v0.x.y` tags create releases. See
-[publication and immutable-source verification](docs/package-publication.md).
+[publication and immutable-source verification](https://github.com/tryAGI/WebRTC/blob/main/docs/package-publication.md).
 
 ## Start a peer
 
@@ -51,7 +51,7 @@ candidate/destination policy. Signal ICE credentials and DTLS fingerprints over 
 authenticated channel. No public STUN/TURN server or provider endpoint is contacted
 by default. An answerer uses `CreateAnswer(remoteOffer)`.
 
-[Peer lifecycle and API](docs/peer-connection.md) covers gathering/trickle, channels,
+[Peer lifecycle and API](https://github.com/tryAGI/WebRTC/blob/main/docs/peer-connection.md) covers gathering/trickle, channels,
 encoded media, readiness, cancellation and disposal. `MediaReady` allows authenticated
 media to start before data-channel setup finishes; callers still observe `Completion`.
 
@@ -68,10 +68,10 @@ media to start before data-channel setup finishes; callers still observe `Comple
 | Compatibility | Independent local Pion and Chromium; actual decoded Opus/video and protected loss recovery | Consumer/provider/device E2E remains |
 | NativeAOT | Whole-library rooting, publish and executed smoke lane | Linux x64 CI evidence; other native targets need their own acceptance |
 
-See the scope documents for [ICE](docs/ice-transport.md), [server URIs](docs/ice-server-uris.md),
-[TURN](docs/turn-transport.md), [DTLS](docs/dtls.md), [SRTP](docs/srtp.md),
-[SDP](docs/sdp.md), [data channels](docs/data-channels.md),
-[video](docs/video-peer.md) and [RTCP](docs/rtcp.md).
+See the scope documents for [ICE](https://github.com/tryAGI/WebRTC/blob/main/docs/ice-transport.md), [server URIs](https://github.com/tryAGI/WebRTC/blob/main/docs/ice-server-uris.md),
+[TURN](https://github.com/tryAGI/WebRTC/blob/main/docs/turn-transport.md), [DTLS](https://github.com/tryAGI/WebRTC/blob/main/docs/dtls.md), [SRTP](https://github.com/tryAGI/WebRTC/blob/main/docs/srtp.md),
+[SDP](https://github.com/tryAGI/WebRTC/blob/main/docs/sdp.md), [data channels](https://github.com/tryAGI/WebRTC/blob/main/docs/data-channels.md),
+[video](https://github.com/tryAGI/WebRTC/blob/main/docs/video-peer.md) and [RTCP](https://github.com/tryAGI/WebRTC/blob/main/docs/rtcp.md).
 
 ## Validate locally
 
@@ -99,7 +99,7 @@ two-way decoded Opus, RTP pacing, protected packet loss/recovery and H264/VP8 re
 ./tests/interop/Chromium/run.sh
 ```
 
-See [browser evidence and tooling](tests/interop/Chromium/README.md). Docker is required;
+See [browser evidence and tooling](https://github.com/tryAGI/WebRTC/blob/main/tests/interop/Chromium/README.md). Docker is required;
 these checks run in an isolated network with disposable browser profiles.
 
 **NativeAOT**, on a Linux x64 host with the .NET native toolchain:
@@ -115,18 +115,18 @@ local diagnosis; passing a subset does not replace the full validation suite.
 ## Security and provenance
 
 Runtime source is newly authored against the standards in
-[architecture](docs/architecture.md). No SIPSorcery or Pion implementation has been
+[architecture](https://github.com/tryAGI/WebRTC/blob/main/docs/architecture.md). No SIPSorcery or Pion implementation has been
 imported into the runtime. Build and independent test tooling have separate licenses
-and dependency graphs; see [source provenance](docs/provenance.md) and
-[build tooling](docs/build-tooling.md). MIT licensing does not establish security.
+and dependency graphs; see [source provenance](https://github.com/tryAGI/WebRTC/blob/main/docs/provenance.md) and
+[build tooling](https://github.com/tryAGI/WebRTC/blob/main/docs/build-tooling.md). MIT licensing does not establish security.
 
-Read [SECURITY.md](SECURITY.md) for trust boundaries and private vulnerability reporting.
+Read [SECURITY.md](https://github.com/tryAGI/WebRTC/blob/main/SECURITY.md) for trust boundaries and private vulnerability reporting.
 Strong naming provides assembly identity, not publisher authentication.
 
 ## Contribute
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [code of conduct](CODE_OF_CONDUCT.md) and
-[changelog](CHANGELOG.md). Focused fixes, resource-bound regressions and independent
+See [CONTRIBUTING.md](https://github.com/tryAGI/WebRTC/blob/main/CONTRIBUTING.md), [code of conduct](https://github.com/tryAGI/WebRTC/blob/main/CODE_OF_CONDUCT.md) and
+[changelog](https://github.com/tryAGI/WebRTC/blob/main/CHANGELOG.md). Focused fixes, resource-bound regressions and independent
 interoperability reports are welcome.
 
 - [Report a bug or propose a feature](https://github.com/tryAGI/WebRTC/issues/new/choose)
@@ -135,5 +135,5 @@ interoperability reports are welcome.
 
 ## License
 
-[MIT](LICENSE) — tryAGI and contributors. Separately licensed test/build tooling
+[MIT](https://github.com/tryAGI/WebRTC/blob/main/LICENSE) — tryAGI and contributors. Separately licensed test/build tooling
 retains its original notices.

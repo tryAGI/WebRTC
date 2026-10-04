@@ -67,6 +67,19 @@ class PackageVerification(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     module.verify(path, SHA)
 
+    def test_readme_links_work_in_nuget_gallery(self):
+        for link, accepted in [("https://github.com/tryAGI/WebRTC/blob/main/SECURITY.md", True),
+                               ("#install", True), ("SECURITY.md", False),
+                               ("docs/acceptance.md", False), ("/LICENSE", False)]:
+            with self.subTest(link=link), tempfile.TemporaryDirectory() as scratch:
+                path = Path(scratch)
+                self.package(path, mutations=lambda files: files.update({"README.md": "[Documentation](" + link + ")"}))
+                if accepted:
+                    module.verify(path, SHA)
+                else:
+                    with self.assertRaises(ValueError):
+                        module.verify(path, SHA)
+
     def test_rejects_wrong_id_license_repository(self):
         for old, new in [("tryAGI.WebRTC</id>", "Other</id>"), (">MIT</license>", ">Unknown</license>"),
                          ("https://github.com/tryAGI/WebRTC", "https://example.invalid/other")]:

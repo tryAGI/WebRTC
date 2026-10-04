@@ -7,6 +7,12 @@ Version `0.x` is experimental. Release notes are also available on
 
 No changes recorded yet.
 
+## [0.1.1] - 2026-10-04
+
+- Fix documentation, license and contribution links in the NuGet README.
+- Reject relative README links in the package publication guard.
+- Resolve changelog links against the release tag in GitHub release notes.
+
 ## [0.1.0] - 2026-10-04
 
 - Initial framework-only .NET 10 transport: bounded STUN/ICE/TURN, authenticated
