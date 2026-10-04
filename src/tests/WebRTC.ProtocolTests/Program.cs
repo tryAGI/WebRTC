@@ -5,6 +5,13 @@ using tryAGI.WebRTC;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("RTCP independent signed report, Unicode CNAME and PLI vectors", RtcpTests.Vectors),
+    ("RTCP SDES/PRIV/BYE boundaries and immutable views", RtcpTests.SdesAndBye),
+    ("RTCP compound identity and opaque unsupported feedback", RtcpTests.CompoundAndUnknown),
+    ("RTCP byte/packet/item/count bounds and hostile corpus", RtcpTests.BoundsAndCorpus),
+    ("RTCP reception loss/duplicate/reorder/restart/jitter statistics", RtcpTests.Reception),
+    ("RTCP NTP fraction and era rollover", RtcpTests.Clock),
+    ("RTCP endpoint scheduling, early coalescing and topology changes", RtcpTests.Schedule),
     ("Video SDP codec selection, directions and DTLS roles", SdpVideoTests.Selection),
     ("Video SDP equivalent profiles, Level1b, defaults and asymmetry", SdpVideoTests.Profiles),
     ("Video SDP sender parameter sets and capability bounds", SdpVideoTests.ParametersAndBounds),

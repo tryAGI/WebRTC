@@ -50,6 +50,10 @@ connection-state and encoded-frame types when implementing the respective milest
    Bounded authenticated-RTP H264/VP8 reassembly now has independent Pion public
    payloader and fingerprint-bound DTLS/SRTP evidence; initial H264/VP8 video SDP now routes bounded frames through owned PeerConnection;
    automatic feedback and decoder/provider acceptance remain. See [video peer](video-peer.md). See [encoded video](video-frames.md).
+   Bounded RTCP semantic codec, reception statistics/NTP and single-endpoint
+   scheduling now have independent Pion codec plus DTLS/SRTCP exchange and rooted
+   native evidence; integration into negotiated automatic peer feedback remains.
+   See [RTCP primitives](rtcp.md).
    See [owned initial peer](peer-connection.md) for readiness and queue semantics.
 5. Ordered/unordered SCTP/DCEP channels with bounded reassembly, flow control,
    reliable/limited-retransmission/timed policies, directional reset/channel close/reuse

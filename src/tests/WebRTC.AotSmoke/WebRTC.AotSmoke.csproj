@@ -29,4 +29,8 @@
     <Compile Include="../WebRTC.IntegrationTests/SctpFixture.cs" Link="SctpFixture.cs" />
     <Compile Include="../WebRTC.IntegrationTests/DataChannelGenerationTests.cs" Link="DataChannelGenerationTests.cs" />
 </ItemGroup>
+<ItemGroup>
+    <Compile Include="../WebRTC.ProtocolTests/RtcpTests.cs" Link="RtcpTests.cs" />
+    <Compile Include="../WebRTC.IntegrationTests/RtcpTests.cs" Link="RtcpNetworkTests.cs" />
+</ItemGroup>
 </Project>

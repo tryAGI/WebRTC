@@ -54,6 +54,7 @@ func main() {
 	mux := http.NewServeMux()
 	registerTurnService(mux, slots)
 	registerSrtp(mux)
+	registerRtcp(mux)
 	registerPeerConnections(mux, slots)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("POST /peer", func(w http.ResponseWriter, r *http.Request) {

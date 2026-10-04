@@ -25,6 +25,8 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Early requests require authentication and bound buffered state", EarlyCheckBounds),
     ("Early request remote identity is checked after signaling", EarlyIdentity),
 };
+foreach (var profile in Enum.GetValues<SrtpProfile>())
+    cases.Add(($"RTCP semantic vectors over encrypted ICE {profile}", () => RtcpNetworkTests.Network(profile)));
 foreach (var codec in Enum.GetValues<VideoCodec>())
     foreach (var profile in Enum.GetValues<SrtpProfile>())
         foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
@@ -189,6 +191,9 @@ for (var option = 0; option < args.Length; option += 2)
 }
 if (pionUri != null)
 {
+    foreach (var profile in Enum.GetValues<SrtpProfile>())
+        foreach (var role in Enum.GetValues<DtlsRole>())
+            cases.Add(($"Pion RTCP semantic codec and secure exchange {profile} {role}", () => RtcpInteropTests.Pion(pionUri, role, profile)));
     foreach (var codec in Enum.GetValues<VideoCodec>())
         foreach (var offerer in new[] { false, true })
             foreach (var passive in new[] { false, true })

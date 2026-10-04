@@ -236,3 +236,20 @@ The initial full video peer harness adds local H264/VP8 tracks using existing pi
 Pion public MediaEngine/TrackLocalStaticRTP/ReadRTP/WriteRTP APIs, not upstream
 examples. Synthetic payloads only establish transport reconstruction, not valid
 movie decoding. No new Go module, runtime codec, native package or notice change.
+
+## RTCP semantic primitives and independent harness
+
+The SR/RR/SDES CNAME/BYE/PLI semantic codec, reception accounting, NTP fields and
+endpoint scheduling are newly authored from RFC3550/4585/5506/8108 prose and wire
+contracts. No RFC appendix code/pseudocode, upstream implementation, fixture or
+example is copied or translated. A separate temporary Python `struct.pack` writer
+builds the synthetic signed-report/Unicode/compound vector from public fields.
+Protocol corpus, statistic expectations and deterministic clocks are authored here.
+The existing pinned Pion RTCP v1.2.19 public Marshal/Unmarshal and packet model APIs
+produce independently encoded test controls and re-encode our synthetic fixture.
+Pinned commit `09df03af9612ef9ed56c073b9a8de82f2ee035d2` root LICENSE was checked;
+its MIT copyright/terms already match retained linked-module notices. RTCP becomes
+a direct test import with no version, transitive graph, hash or notice changes.
+Our existing authored fingerprint-bound DTLS/SRTCP harness carries these controls
+in both roles/all profiles. This adds no runtime dependency, imported code,
+security-audit, complete-peer feedback, provider or hardware acceptance claim.
