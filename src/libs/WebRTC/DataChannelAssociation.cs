@@ -17,6 +17,8 @@ public sealed class DataChannelAssociation : IAsyncDisposable
     private readonly DataChannelLimits _limits;
     private readonly object _gate = new();
     private readonly Dictionary<ushort, DataChannel> _channels = [];
+    // One peer generation per reserved ID; its messages share the aggregate receive budget.
+    private readonly Dictionary<ushort, DataChannel> _pendingChannels = [];
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Channel<DataChannel> _accepted;
     private readonly TaskCompletionSource<Exception?> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -126,11 +128,17 @@ public sealed class DataChannelAssociation : IAsyncDisposable
         try { await _sctp.ResetOutgoingStreamsAsync(new ushort[] { channel.StreamId }, _lifetime.Token).ConfigureAwait(false); }
         catch (Exception error)
         {
-            lock (_gate) { channel.DiscardIncoming = true; channel.End(error); } // Preserve acknowledged messages and keep the ID reserved when reset fails.
+            lock (_gate)
+            {
+                channel.DiscardIncoming = true; channel.End(error);
+                if (_pendingChannels.Remove(channel.StreamId, out var pending))
+                { DiscardChannelCore(pending); pending.End(error); }
+            } // Preserve acknowledged messages and keep the ID reserved when reset fails.
         }
     }
-    private void ProcessReset(SctpStreamReset reset)
+    private async Task ProcessResetAsync(SctpStreamReset reset)
     {
+        List<DataChannel> admitted = [];
         lock (_gate)
         {
             foreach (var stream in reset.StreamIds)
@@ -138,11 +146,20 @@ public sealed class DataChannelAssociation : IAsyncDisposable
                 if (!_channels.TryGetValue(stream, out var channel)) continue;
                 channel.BeginClosing();
                 if (reset.Outgoing) channel.OutgoingReset = true;
-                else { channel.IncomingReset = true; StartChannelReset(channel); }
+                else
+                {
+                    if (channel.IncomingReset) throw new IOException("A further peer generation reset arrived before confirmation.");
+                    channel.IncomingReset = true; StartChannelReset(channel);
+                }
                 if (channel.IncomingReset && channel.OutgoingReset)
-                { channel.End(channel.OpeningFailure); _channels.Remove(stream); }
+                {
+                    channel.End(channel.OpeningFailure); _channels.Remove(stream);
+                    if (_pendingChannels.Remove(stream, out var pending))
+                    { _channels.Add(stream, pending); admitted.Add(pending); }
+                }
             }
         }
+        foreach (var channel in admitted) await AcknowledgeAcceptedAsync(channel).ConfigureAwait(false);
     }
     internal void ReleaseMessage(int bytes)
     {
@@ -161,13 +178,14 @@ public sealed class DataChannelAssociation : IAsyncDisposable
         {
             await foreach (var item in _sctp.ReceiveEventsAsync(_lifetime.Token).ConfigureAwait(false))
             {
-                if (item is SctpStreamReset reset) { ProcessReset(reset); continue; }
+                if (item is SctpStreamReset reset) { await ProcessResetAsync(reset).ConfigureAwait(false); continue; }
                 var message = (SctpMessage)item;
                 if (message.PayloadProtocolIdentifier == 50) { await ProcessDcepAsync(message).ConfigureAwait(false); continue; }
-                DataChannel channel;
+                DataChannel channel; bool pending;
                 lock (_gate)
                 {
-                    if (!_channels.TryGetValue(message.StreamId, out channel!) || (!channel.CanReceive && !channel.DiscardIncoming))
+                    pending = _pendingChannels.TryGetValue(message.StreamId, out channel!);
+                    if (!pending && (!_channels.TryGetValue(message.StreamId, out channel!) || (!channel.CanReceive && !channel.DiscardIncoming)))
                         throw new IOException("User data on an unopened channel.");
                 }
                 var ppid = message.PayloadProtocolIdentifier;
@@ -186,6 +204,8 @@ public sealed class DataChannelAssociation : IAsyncDisposable
                         if (channel.DiscardIncoming) break;
                         if (_queuedMessages < _limits.MaximumQueuedMessages && _queuedBytes + bytes.Length <= _limits.ReceiveBufferBytes)
                         { _queuedMessages++; _queuedBytes += bytes.Length; channel.Deliver(new(text ? DataChannelMessageKind.Text : DataChannelMessageKind.Binary, bytes)); break; }
+                        // Waiting here would block the outgoing reset event needed to admit this generation.
+                        if (pending) throw new IOException("Pending data-channel generation receive budget exceeded.");
                         wait = _space.Task;
                     }
                     await wait.WaitAsync(_lifetime.Token).ConfigureAwait(false);
@@ -200,6 +220,9 @@ public sealed class DataChannelAssociation : IAsyncDisposable
             {
                 var channelFailure = reason ?? (_lifetime.IsCancellationRequested ? new ObjectDisposedException(nameof(DataChannelAssociation)) : null);
                 foreach (var channel in _channels.Values) channel.End(channelFailure);
+                foreach (var channel in _pendingChannels.Values)
+                { DiscardChannelCore(channel); channel.End(channelFailure); }
+                _pendingChannels.Clear();
                 _accepted.Writer.TryComplete(reason); _space.TrySetException(reason ?? new IOException("Data channels closed."));
                 _completion.TrySetResult(reason);
             }
@@ -223,10 +246,23 @@ public sealed class DataChannelAssociation : IAsyncDisposable
         DataChannel channel;
         lock (_gate)
         {
-            if (_channels.Count >= _limits.MaximumChannels || _channels.ContainsKey(message.StreamId)) throw new IOException("DCEP channel bound or duplicate OPEN.");
+            if (_channels.TryGetValue(message.StreamId, out var old))
+            {
+                if (!old.IncomingReset || old.OutgoingReset || old.Completion.IsCompleted || _pendingChannels.ContainsKey(message.StreamId))
+                    throw new IOException("DCEP channel bound or duplicate OPEN.");
+                // The peer has reset its sending direction, but our explicit reset result can be lost/reordered.
+                // Retain the reserved ID and defer ACK/public admission until that result is received.
+                _pendingChannels.Add(message.StreamId, new(this, message.StreamId, parameters, _limits.MaximumQueuedMessages));
+                return;
+            }
+            if (_channels.Count >= _limits.MaximumChannels) throw new IOException("DCEP channel bound or duplicate OPEN.");
             channel = new(this, message.StreamId, parameters, _limits.MaximumQueuedMessages); _channels.Add(message.StreamId, channel);
         }
-        await _sctp.SendMessageAsync(message.StreamId, 50, new byte[] { 2 }, cancellationToken: _lifetime.Token).ConfigureAwait(false);
+        await AcknowledgeAcceptedAsync(channel).ConfigureAwait(false);
+    }
+    private async Task AcknowledgeAcceptedAsync(DataChannel channel)
+    {
+        await _sctp.SendMessageAsync(channel.StreamId, 50, new byte[] { 2 }, cancellationToken: _lifetime.Token).ConfigureAwait(false);
         channel.Acknowledge();
         if (!_accepted.Writer.TryWrite(channel)) throw new IOException("Data-channel acceptance bound exceeded.");
     }

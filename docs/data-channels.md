@@ -126,7 +126,20 @@ notification reservation includes pending and queued resets; default/maximum is
 
 `DataChannel.CloseAsync` stops new sends and waits for both directional resets.
 Previously acknowledged messages remain on the old channel object after closure;
-new OPEN may reuse the ID only after both resets complete. A send waiting for
+the public channel and local OPEN may reuse the ID only after both resets complete.
+A peer's next OPEN may race our explicit outgoing reset result. After the incoming
+reset proves the previous receive generation ended, one validated next OPEN per
+reserved ID is held without sending ACK or exposing the new channel. Early user
+messages allowed by RFC 8832 share the aggregate message/byte budget and remain
+separate from unread old messages. After both reset notifications, the new channel
+is acknowledged and accepted. A duplicate OPEN, another incoming generation reset,
+malformed message, or pending-message overflow fails the owner explicitly. Pending
+messages are discarded and credit returned on failed reset or owner termination.
+They cannot wait for receive credit inside the serialized reader, which would block
+the reset event needed for admission. Pending channel metadata is additionally
+bounded to one object per occupied ID (at most `MaximumChannels`, each label and
+protocol at most 1024 UTF-8 bytes); their queues share the ordinary aggregate limit.
+A send waiting for
 admission checks its original channel generation before entering the SCTP queue.
 Cancellation stops only the caller's wait, preserving the admitted wire exchange.
 A refused reset leaves the ID reserved and preserves earlier buffered messages.
@@ -197,6 +210,19 @@ controls with valid CRC are rejected before a later valid control succeeds. Its
 module graph and original MIT notices are test-only. Closure cases exercise both
 initiators, simultaneous closure and ID reuse in both DTLS roles. CRC-valid duplicate
 and out-of-range reset IDs are rejected before a later valid retry succeeds.
+The independent peer also reorders one successful reset result behind its next OPEN
+in both DTLS roles. Owned raw-peer tests lose the result and require an explicit
+retry before public admission, preserving old unread and new early messages; they
+also reject duplicate/malformed OPEN, unconfirmed incoming reset, another pending
+generation reset and message/byte overflow. These seven scenarios run in NativeAOT.
+
+The pinned Pion peer's observed wire behavior closes an already reused stream when
+it receives a retry of the previous reset request, even while replaying the previous
+success result. Our independent reordering fixture does not hide or redefine this
+behavior: it releases the held result immediately after sending the next OPEN,
+without inducing that Pion retry/reuse interaction. Actual result loss is covered
+by the separate owned raw peer with reset-result caching. This limitation is not a
+claim of full Pion interoperability under every reset-loss/reuse sequence.
 The full independent suite additionally repeats simultaneous closure twenty times
 in each DTLS role to exercise terminal SCTP/DTLS ordering.
 No Pion implementation is included in the .NET runtime. Tests remain local and key-free.

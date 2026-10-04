@@ -100,6 +100,12 @@ Pion public Close/Read/State/OPEN APIs; no reset implementation source was inspe
 or imported. Our authored fault injector corrupts duplicate/out-of-range reset IDs
 and recalculates CRC32C with the Go standard library. No dependency graph or notice
 changes are needed for this extension.
+Next-generation admission and bounded early user-data handling are newly authored
+from RFC 8831 closure and RFC 8832 OPEN/early-data procedures. The independent test
+wrapper holds one authenticated synthetic reset-result packet until its following
+OPEN has been sent, using only existing public connections and bounded SCTP framing.
+Owned loopback tests cover actual lost-result retry, generation isolation and hostile
+admission bounds. No additional peer source or RFC code component was imported.
 
 These packages run only in an isolated local test peer. None is a dependency of the
 .NET runtime library or its NuGet package. Our MIT license does not replace their

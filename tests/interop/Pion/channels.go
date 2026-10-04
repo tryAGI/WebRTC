@@ -19,7 +19,7 @@ import (
 func serveChannels(ctx context.Context, connection net.Conn, request offer) {
 	connection = &sctpLossConnection{Conn: connection, incoming: request.ExtensionScenario == "incoming-loss",
 		dropEnabled: request.ExtensionScenario == "incoming-loss" || request.ExtensionScenario == "peer-loss" || request.ExtensionScenario == "malformed-forward", corruptForward: request.ExtensionScenario == "malformed-forward",
-		corruptReset: request.ExtensionScenario == "close-malformed"}
+		corruptReset: request.ExtensionScenario == "close-malformed", reorderResetResult: request.ExtensionScenario == "close-reordered-result"}
 	stopClose := context.AfterFunc(ctx, func() { _ = connection.Close() })
 	defer stopClose()
 	logger := logging.NewDefaultLoggerFactory()

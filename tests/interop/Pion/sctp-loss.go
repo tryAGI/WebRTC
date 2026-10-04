@@ -7,17 +7,22 @@ import (
 	"hash/crc32"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 )
 
 type sctpLossConnection struct {
 	net.Conn
-	incoming         bool
-	dropEnabled      bool
-	corruptForward   bool
-	corruptReset     bool
-	resetMutations   atomic.Int32
-	forwardMutations atomic.Int32
+	incoming           bool
+	dropEnabled        bool
+	corruptForward     bool
+	reorderResetResult bool
+	resetResultHeld    bool
+	heldResetResult    []byte
+	writeGate          sync.Mutex
+	corruptReset       bool
+	resetMutations     atomic.Int32
+	forwardMutations   atomic.Int32
 }
 
 func stripLostMessage(packet []byte) ([]byte, bool) {
@@ -152,7 +157,45 @@ func (c *sctpLossConnection) malformedReset(packet []byte) []byte {
 	return packet
 }
 
+// Hold one successful reset result until after the next OPEN is written.
+// This deliberately reorders the result behind the peer's next generation without
+// retrying an old request against the independent peer's already reused stream.
+func (c *sctpLossConnection) holdResetResult(packet []byte) bool {
+	if !c.reorderResetResult || c.resetResultHeld {
+		return false
+	}
+	for offset := 12; offset+4 <= len(packet); {
+		length := int(binary.BigEndian.Uint16(packet[offset+2:]))
+		padded := (length + 3) &^ 3
+		if length < 4 || offset+padded > len(packet) {
+			return false
+		}
+		if packet[offset] == 130 {
+			for p := offset + 4; p+4 <= offset+length; {
+				n := int(binary.BigEndian.Uint16(packet[p+2:]))
+				span := (n + 3) &^ 3
+				if n < 4 || p+n > offset+length {
+					return false
+				}
+				if binary.BigEndian.Uint16(packet[p:]) == 16 && n == 12 && binary.BigEndian.Uint32(packet[p+8:]) == 1 {
+					c.resetResultHeld = true
+					c.heldResetResult = append([]byte(nil), packet...)
+					return true
+				}
+				p += span
+			}
+		}
+		offset += padded
+	}
+	return false
+}
+
 func (c *sctpLossConnection) Write(packet []byte) (int, error) {
+	c.writeGate.Lock()
+	defer c.writeGate.Unlock()
+	if c.holdResetResult(packet) {
+		return len(packet), nil
+	}
 	originalLength := len(packet)
 	packet = c.malformedReset(packet)
 	if !c.dropEnabled || c.incoming {
@@ -162,6 +205,17 @@ func (c *sctpLossConnection) Write(packet []byte) (int, error) {
 		}
 		if err != nil {
 			return 0, err
+		}
+		if len(c.heldResetResult) != 0 && hasDcepOpen(packet) {
+			held := c.heldResetResult
+			c.heldResetResult = nil
+			n, err = c.Conn.Write(held)
+			if err == nil && n != len(held) {
+				err = io.ErrShortWrite
+			}
+			if err != nil {
+				return 0, err
+			}
 		}
 		return originalLength, nil
 	}
@@ -182,4 +236,19 @@ func (c *sctpLossConnection) Write(packet []byte) (int, error) {
 		return 0, io.ErrShortWrite
 	}
 	return len(packet), nil
+}
+
+func hasDcepOpen(packet []byte) bool {
+	for offset := 12; offset+4 <= len(packet); {
+		length := int(binary.BigEndian.Uint16(packet[offset+2:]))
+		padded := (length + 3) &^ 3
+		if length < 4 || offset+padded > len(packet) {
+			return false
+		}
+		if packet[offset] == 0 && length >= 17 && binary.BigEndian.Uint32(packet[offset+12:]) == 50 && packet[offset+16] == 3 {
+			return true
+		}
+		offset += padded
+	}
+	return false
 }

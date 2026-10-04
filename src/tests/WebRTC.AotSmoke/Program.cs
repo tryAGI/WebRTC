@@ -27,6 +27,11 @@ foreach (var transport in Enum.GetValues<TurnServerTransport>())
         }
 await VideoPeerTests.Direction();
 Console.WriteLine("NativeAOT owned SDP video peer negotiation, queues and silence expiry passed");
+foreach (var scenario in new[] { "valid", "duplicate", "bytes", "messages", "malformed", "unconfirmed-incoming", "further-reset" })
+{
+    await DataChannelGenerationTests.EarlyOpen(scenario);
+    Console.WriteLine($"NativeAOT bounded DCEP early next generation {scenario} passed");
+}
 Console.WriteLine("NativeAOT protocol smoke passed");
 await using var controlling = new IceUdpTransport(new(IPAddress.Loopback, 0));
 await using var controlled = new IceUdpTransport(new(IPAddress.Loopback, 0));

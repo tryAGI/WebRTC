@@ -113,8 +113,11 @@ internal static class DataChannelTests
                 Check(channel.StreamId == id, "Independent peer did not reuse the reset ID");
                 if (peerOpens)
                 {
-                    Check((await Read(channel, timeout.Token)).GetText() == $"generation:{generation}");
-                    Check(await channel.Completion.WaitAsync(timeout.Token) == null);
+                    try { Check((await Read(channel, timeout.Token)).GetText() == $"generation:{generation}"); }
+                    catch (OperationCanceledException error)
+                    { throw new IOException($"Independent generation receive stalled: {scenario}, {dtlsRole}, generation={generation}, SCTP={association.GetDiagnostics()}", error); }
+                    var channelEnd = await channel.Completion.WaitAsync(timeout.Token);
+                    Check(channelEnd == null, $"Independent channel closure failed: {scenario}, {dtlsRole}, generation={generation}, channel={channelEnd}, SCTP={association.GetDiagnostics()}");
                 }
                 else
                 {
