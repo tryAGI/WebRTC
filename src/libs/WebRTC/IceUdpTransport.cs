@@ -45,7 +45,7 @@ public sealed record IceUdpTransportDiagnostics(
     long SentChecks, long Retransmissions, long ValidatedRequests, long RoleConflicts, long DroppedDatagrams,
     int BufferedEarlyChecks, IceCandidateType? SelectedRemoteCandidateType = null,
     IceCandidateType? SelectedLocalCandidateType = null, IPEndPoint? SelectedLocalEndPoint = null,
-    int LocalPaths = 1, int PendingRelayPermissions = 0);
+    int LocalPaths = 1, int PendingRelayPermissions = 0, TimeSpan? CheckRoundTripTimeAge = null, TimeSpan? ConsentAge = null);
 
 /// <summary>
 /// Single-component UDP ICE connectivity over an owned host base and up to three owned UDP TURN allocations.
@@ -67,7 +67,10 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly TaskCompletionSource _connected = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<Exception> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly Channel<byte[]> _datagrams;
+    private readonly Channel<DiagnosticDatagram> _datagrams;
+    internal PeerDiagnosticSession? Diagnostics;
+    internal int DiagnosticGeneration => _selected is null ? 0 : 1;
+    internal DiagnosticPath SelectedDiagnosticPath => _selected?.Path.Relay?.DiagnosticPath ?? DiagnosticPath.HostUdp;
     private readonly List<Pair> _pairs = [];
     private readonly Dictionary<string, Transaction> _transactions = [];
     private readonly List<EarlyCheck> _earlyChecks = [];
@@ -78,6 +81,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
     private Pair? _selected;
     private long _startedAt, _selectedAt, _lastConsentAt, _nextConsentAt, _lastCheckSentAt;
     private TimeSpan? _lastRoundTrip;
+    private long _lastRoundTripAt;
     private bool _started, _stopped;
     private int _disposed;
     private Task? _disposeTask;
@@ -114,11 +118,11 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         _socket = new Socket(localEndPoint.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
         try { _socket.Bind(localEndPoint); }
         catch { _socket.Dispose(); throw; }
-        _datagrams = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(_options.ReceiveQueueCapacity)
+        _datagrams = Channel.CreateBounded<DiagnosticDatagram>(new BoundedChannelOptions(_options.ReceiveQueueCapacity)
         {
             FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = false,
             AllowSynchronousContinuations = false,
-        }, _ => Interlocked.Increment(ref _droppedDatagrams));
+        }, dropped => { Interlocked.Increment(ref _droppedDatagrams); var trace = dropped.Trace; trace.Mark(PacketStage.Dropped, PacketReason.QueueOverflow); });
         _hostPath = new(new IceCandidate(LocalEndPoint), null);
         _paths.Add(_hostPath);
         _receiver = Task.Run(ReceiveLoopAsync);
@@ -205,8 +209,25 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         await SendPathAsync(selected.Path, datagram, selected.Candidate.TransportEndPoint, cancellationToken).ConfigureAwait(false);
     }
 
-    public IAsyncEnumerable<byte[]> ReceiveDatagramsAsync(CancellationToken cancellationToken = default) =>
-        _datagrams.Reader.ReadAllAsync(cancellationToken);
+    public async IAsyncEnumerable<byte[]> ReceiveDatagramsAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    { await foreach (var item in ReceiveDiagnosticDatagramsAsync(cancellationToken).ConfigureAwait(false)) yield return item.Data; }
+    internal async IAsyncEnumerable<DiagnosticDatagram> ReceiveDiagnosticDatagramsAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await foreach (var item in _datagrams.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+        { var trace = item.Trace; trace.Mark(PacketStage.IceDequeued, queueDepth: _datagrams.Reader.Count); yield return item with { Trace = trace }; }
+    }
+    internal async ValueTask SendDiagnosticDatagramAsync(ReadOnlyMemory<byte> datagram, PacketDiagnostic trace, CancellationToken ct)
+    {
+        Pair selected;
+        lock (_gate)
+        {
+            ThrowIfStopped();
+            if (datagram.Length == 0 || datagram.Length > _options.MaximumDataDatagramSize) throw new ArgumentOutOfRangeException(nameof(datagram));
+            if (_selected is null || Elapsed(_lastConsentAt) >= _options.ConsentTimeout) throw new InvalidOperationException("Fresh nominated consent required.");
+            selected = _selected;
+        }
+        await SendPathAsync(selected.Path, datagram, selected.Candidate.TransportEndPoint, ct, trace).ConfigureAwait(false);
+    }
 
     public IceUdpTransportDiagnostics GetDiagnostics()
     {
@@ -215,7 +236,8 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
                 _selected is null ? null : Stopwatch.GetElapsedTime(_startedAt, _selectedAt), _lastRoundTrip,
                 _sentChecks, _retransmissions, _validatedRequests, _roleConflicts, Interlocked.Read(ref _droppedDatagrams), _earlyChecks.Count,
                 _selected?.Candidate.Type, _selected?.Path.Candidate.Type, _selected?.Path.Candidate.EndPoint,
-                _paths.Count(PathAllowed), _paths.Sum(p => p.PendingPermissions.Count));
+                _paths.Count(PathAllowed), _paths.Sum(p => p.PendingPermissions.Count),
+                _lastRoundTripAt == 0 ? null : Stopwatch.GetElapsedTime(_lastRoundTripAt), _selected == null ? null : Stopwatch.GetElapsedTime(_lastConsentAt));
     }
 
     private void ValidateCandidate(IceCandidate candidate)
@@ -367,13 +389,21 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         {
             while (!_lifetime.IsCancellationRequested)
             {
+                var owner = Volatile.Read(ref Diagnostics);
+                var trace = owner?.Begin(PacketDirection.Receive, DiagnosticPath.HostUdp, DiagnosticGeneration, 0) ?? default;
+                trace.Mark(PacketStage.ReceiveArmed);
                 SocketReceiveFromResult received;
                 try { received = await _socket.ReceiveFromAsync(buffer, SocketFlags.None, sourceTemplate, _lifetime.Token).ConfigureAwait(false); }
                 catch (SocketException exception) when (IsRemoteNetworkError(exception) && !_lifetime.IsCancellationRequested) { continue; }
+                if (trace.Owner == null) trace = Volatile.Read(ref Diagnostics)?.Begin(PacketDirection.Receive, DiagnosticPath.HostUdp, DiagnosticGeneration, received.ReceivedBytes) ?? default;
+                trace.Size(received.ReceivedBytes); trace.Mark(PacketStage.ManagedReceiveCompleted, durationTicks: 0);
+                var handling = trace.Owner == null ? 0 : Stopwatch.GetTimestamp();
                 var source = (IPEndPoint)received.RemoteEndPoint;
                 var length = received.ReceivedBytes;
                 if (length == 0) continue;
-                await HandleDatagramAsync(_hostPath, buffer.AsMemory(0, length), source).ConfigureAwait(false);
+                await HandleDatagramAsync(_hostPath, buffer.AsMemory(0, length), source, trace).ConfigureAwait(false);
+                trace.Mark(PacketStage.ReceiveHandlerCompleted, durationTicks: handling == 0 ? 0 : Stopwatch.GetTimestamp() - handling);
+                trace.Mark(PacketStage.ReceiveRearm);
             }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
@@ -465,10 +495,11 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         if (!message.TryGetXorMappedEndpoint(out _)) return;
         _transactions.Remove(transaction.Id);
         transaction.Pair.Active = null;
-        _lastRoundTrip = Elapsed(transaction.LastSendAt);
+        _lastRoundTrip = Elapsed(transaction.LastSendAt); _lastRoundTripAt = Stopwatch.GetTimestamp();
         if (transaction.Consent)
         {
-            if (Elapsed(_lastConsentAt) < _options.ConsentTimeout) _lastConsentAt = Stopwatch.GetTimestamp();
+            if (Elapsed(_lastConsentAt) < _options.ConsentTimeout)
+            { _lastConsentAt = Stopwatch.GetTimestamp(); Volatile.Read(ref Diagnostics)?.Lifecycle(PacketStage.Consent, transaction.LastSendAt); }
             return;
         }
         transaction.Pair.Validated = true;
@@ -529,6 +560,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         _nextConsentAt = Add(_selectedAt, _options.ConsentInterval);
         _transactions.Clear();
         foreach (var candidate in _pairs) candidate.Active = null;
+        Volatile.Read(ref Diagnostics)?.Lifecycle(PacketStage.Ice, _startedAt);
         _connected.TrySetResult();
     }
 
@@ -579,6 +611,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         await DisposePathsAsync().ConfigureAwait(false);
         CryptographicOperations.ZeroMemory(_localKey);
         if (_remoteKey is not null) CryptographicOperations.ZeroMemory(_remoteKey);
+        if (_ownsDiagnostics) DetachDiagnostics();
         _wake.Dispose();
         _lifetime.Dispose();
     }

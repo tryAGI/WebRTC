@@ -10,7 +10,7 @@ namespace tryAGI.WebRTC;
 
 public enum DtlsRole { Client, Server }
 public enum SecureMediaKind { Rtp, Rtcp }
-public sealed record SecureMediaDatagram(SecureMediaKind Kind, byte[] Data);
+public sealed record SecureMediaDatagram(SecureMediaKind Kind, byte[] Data) { internal PacketDiagnostic Trace { get; set; } }
 public sealed record DtlsSrtpOptions
 {
     public bool RequireCookie { get; init; }
@@ -66,6 +66,9 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
     private SrtpProfile? _profile;
     private int _assemblyBytes, _started, _disposed;
     private bool _sendPending, _ccsSeen, _finishAfterSend, _negotiated, _ready;
+    private long _lastAuthenticatedAt, _firstAuthenticatedRtpAt;
+    internal long FirstAuthenticatedRtpAt => Interlocked.Read(ref _firstAuthenticatedRtpAt);
+    internal long LastAuthenticatedAt => Interlocked.Read(ref _lastAuthenticatedAt);
     private long _startedAt, _readyAt, _lastFlightSentAt, _lastDuplicateResponseAt;
     private TimeSpan _retryDelay;
     private long _retransmissions, _rejected, _droppedApplication, _droppedMedia;
@@ -99,7 +102,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         _application = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(128)
         { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = true }, _ => Interlocked.Increment(ref _droppedApplication));
         _media = Channel.CreateBounded<SecureMediaDatagram>(new BoundedChannelOptions(128)
-        { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = true }, _ => Interlocked.Increment(ref _droppedMedia));
+        { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = true }, dropped => { Interlocked.Increment(ref _droppedMedia); var trace = dropped.Trace; trace.Mark(PacketStage.Dropped, PacketReason.QueueOverflow); });
     }
 
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
@@ -119,14 +122,23 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         }
     }
 
+    internal QueueEvidence QueueEvidence(PeerDiagnosticSession? capture)
+    {
+        var at = _media.Reader.TryPeek(out var packet) ? packet.Trace.LastStageTicks : 0;
+        return new(PacketStage.SecureMediaEnqueued, null, _media.Reader.Count, capture?.QueueHighWater(PacketStage.SecureMediaEnqueued),
+            at == 0 ? null : Stopwatch.GetElapsedTime(at));
+    }
     public DtlsSrtpDiagnostics GetDiagnostics() => new(_role, IsConnected ? _profile : null,
         _readyAt == 0 ? null : Stopwatch.GetElapsedTime(_startedAt, _readyAt), Interlocked.Read(ref _retransmissions),
         Interlocked.Read(ref _rejected), Interlocked.Read(ref _droppedApplication), Interlocked.Read(ref _droppedMedia));
 
     public IAsyncEnumerable<byte[]> ReceiveApplicationDatagramsAsync(CancellationToken cancellationToken = default) =>
         _application.Reader.ReadAllAsync(cancellationToken);
-    public IAsyncEnumerable<SecureMediaDatagram> ReceiveMediaDatagramsAsync(CancellationToken cancellationToken = default) =>
-        _media.Reader.ReadAllAsync(cancellationToken);
+    public async IAsyncEnumerable<SecureMediaDatagram> ReceiveMediaDatagramsAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await foreach (var item in _media.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+        { var trace = item.Trace; trace.Mark(PacketStage.SecureMediaDequeued, queueDepth: _media.Reader.Count); item.Trace = trace; yield return item; }
+    }
 
     public async ValueTask SendApplicationDatagramAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
@@ -145,16 +157,25 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
 
     public ValueTask SendRtpAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default) => SendMediaAsync(data, false, cancellationToken);
     public ValueTask SendRtcpAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default) => SendMediaAsync(data, true, cancellationToken);
-    private async ValueTask SendMediaAsync(ReadOnlyMemory<byte> data, bool rtcp, CancellationToken cancellationToken)
+    internal ValueTask SendDiagnosticRtpAsync(ReadOnlyMemory<byte> data, PacketDiagnostic trace, CancellationToken ct) => SendMediaAsync(data, false, ct, trace);
+    private async ValueTask SendMediaAsync(ReadOnlyMemory<byte> data, bool rtcp, CancellationToken cancellationToken, PacketDiagnostic trace = default)
     {
+        if (trace.Owner == null)
+        {
+            trace = Volatile.Read(ref _ice.Diagnostics)?.Begin(PacketDirection.Send, _ice.SelectedDiagnosticPath, _ice.DiagnosticGeneration, data.Length) ?? default;
+            trace.Protocol(rtcp ? DiagnosticProtocol.Rtcp : DiagnosticProtocol.Rtp); trace.Mark(PacketStage.CallerSubmission);
+        }
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-        await _sendGate.WaitAsync(linked.Token).ConfigureAwait(false);
+        try { await _sendGate.WaitAsync(linked.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) { trace.Mark(PacketStage.Dropped, PacketReason.Cancelled); throw; }
+        trace.Mark(PacketStage.SecureSendLockAcquired);
         try
         {
             RequireReady();
             byte[] packet;
             lock (_cryptoGate)
             {
+                trace.Mark(PacketStage.ProtectionLockAcquired); trace.Mark(PacketStage.ProtectionStarted);
                 var overhead = rtcp ? _srtpSender!.RtcpOverhead : _srtpSender!.RtpOverhead;
                 if (data.Length > _options.MaximumDatagramSize - overhead || (!rtcp && data.Length >= 2 && (data.Span[1] & 127) is >= 64 and <= 95))
                     throw new ArgumentOutOfRangeException(nameof(data), "Invalid RTP/RTCP mux packet size or payload type.");
@@ -162,8 +183,11 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
                 var success = rtcp ? _srtpSender.TryProtectRtcp(data.Span, packet, out _) : _srtpSender.TryProtectRtp(data.Span, packet, out _);
                 if (!success) throw new InvalidOperationException("Media packet violates framing, replay or key bounds.");
             }
-            await _ice.SendDatagramAsync(packet, linked.Token).ConfigureAwait(false);
+            trace.Size(packet.Length); trace.Mark(PacketStage.Protected);
+            await _ice.SendDiagnosticDatagramAsync(packet, trace, linked.Token).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) { trace.Mark(PacketStage.Dropped, PacketReason.Cancelled); throw; }
+        catch (Exception) { trace.Mark(PacketStage.Dropped, PacketReason.SendFailure); throw; }
         finally { _sendGate.Release(); }
     }
 
@@ -184,7 +208,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
                 QueueFlight([NewHandshake(1, hello)]);
                 await SendFlightAsync(false).ConfigureAwait(false);
             }
-            var receive = _ice.ReceiveDatagramsAsync(_lifetime.Token).GetAsyncEnumerator(_lifetime.Token);
+            var receive = _ice.ReceiveDiagnosticDatagramsAsync(_lifetime.Token).GetAsyncEnumerator(_lifetime.Token);
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(20));
             var next = receive.MoveNextAsync().AsTask();
             var tick = timer.WaitForNextTickAsync(_lifetime.Token).AsTask();
@@ -196,7 +220,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
                     if (next.IsCompleted)
                     {
                         if (!await next.ConfigureAwait(false)) throw new IOException("ICE ended before DTLS shutdown.");
-                        ProcessDatagram(receive.Current);
+                        ProcessDatagram(receive.Current.Data, receive.Current.Trace);
                         if (_sendPending) await SendFlightAsync(false).ConfigureAwait(false);
                         if (_finishAfterSend) { _finishAfterSend = false; Establish(); }
                         next = receive.MoveNextAsync().AsTask();
@@ -234,21 +258,32 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         }
     }
 
-    private void ProcessDatagram(byte[] datagram)
+    private void ProcessDatagram(byte[] datagram, PacketDiagnostic trace)
     {
-        if (datagram.Length == 0 || datagram.Length > _options.MaximumReceiveDatagramSize) { Reject(); return; }
+        if (datagram.Length == 0 || datagram.Length > _options.MaximumReceiveDatagramSize) { Reject(); trace.Mark(PacketStage.Dropped, PacketReason.InvalidFraming); return; }
         if (datagram[0] is >= 128 and <= 191)
         {
-            if (!_ready || datagram.Length < 2) { Reject(); return; }
+            if (!_ready || datagram.Length < 2) { Reject(); trace.Mark(PacketStage.Dropped, PacketReason.InvalidFraming); return; }
             var rtcp = datagram[1] is >= 192 and <= 223;
+            trace.Protocol(rtcp ? DiagnosticProtocol.Rtcp : DiagnosticProtocol.Rtp);
+            trace.Mark(PacketStage.AuthenticationStarted);
             lock (_cryptoGate)
             {
                 var size = datagram.Length - (rtcp ? _srtpReceiver!.RtcpOverhead : _srtpReceiver!.RtpOverhead);
-                if (size < 0) { Reject(); return; }
+                if (size < 0) { Reject(); trace.Mark(PacketStage.Dropped, PacketReason.InvalidFraming); return; }
                 var plaintext = new byte[size];
-                var success = rtcp ? _srtpReceiver.TryUnprotectRtcp(datagram, plaintext, out _) : _srtpReceiver.TryUnprotectRtp(datagram, plaintext, out _);
-                if (success) _media.Writer.TryWrite(new(rtcp ? SecureMediaKind.Rtcp : SecureMediaKind.Rtp, plaintext));
-                else Reject();
+                var success = rtcp ? _srtpReceiver.TryUnprotectRtcp(datagram, plaintext, out _, out var rejection) : _srtpReceiver.TryUnprotectRtp(datagram, plaintext, out _, out rejection);
+                if (success)
+                {
+                    var authenticatedAt = Stopwatch.GetTimestamp(); Interlocked.Exchange(ref _lastAuthenticatedAt, authenticatedAt);
+                    if (!rtcp && Interlocked.CompareExchange(ref _firstAuthenticatedRtpAt, authenticatedAt, 0) == 0 && trace.Owner is { } owner)
+                        owner.Lifecycle(PacketStage.FirstMedia, Interlocked.Read(ref owner.ConnectionStartedAt));
+                    if (!rtcp && RtpPacket.TryParse(plaintext, out var rtp)) trace.Identify(rtp.SynchronizationSource, rtp.SequenceNumber, rtp.Timestamp);
+                    trace.Size(plaintext.Length); trace.Mark(PacketStage.Authenticated);
+                    trace.Mark(PacketStage.SecureMediaEnqueued, queueDepth: Math.Min(128, _media.Reader.Count + 1));
+                    _media.Writer.TryWrite(new(rtcp ? SecureMediaKind.Rtcp : SecureMediaKind.Rtp, plaintext) { Trace = trace });
+                }
+                else { Reject(); trace.Mark(PacketStage.Dropped, rejection); }
             }
             return;
         }
@@ -257,9 +292,9 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         while (offset < datagram.Length)
         {
             var remaining = datagram.Length - offset;
-            if (remaining < 13) { Reject(); return; }
+            if (remaining < 13) { Reject(); trace.Mark(PacketStage.Dropped, PacketReason.InvalidFraming); return; }
             var size = 13 + BinaryPrimitives.ReadUInt16BigEndian(datagram.AsSpan(offset + 11));
-            if (size > remaining) { Reject(); return; }
+            if (size > remaining) { Reject(); trace.Mark(PacketStage.Dropped, PacketReason.InvalidFraming); return; }
             offset += size;
         }
         for (offset = 0; offset < datagram.Length;)

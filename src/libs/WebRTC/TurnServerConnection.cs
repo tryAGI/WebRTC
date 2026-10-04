@@ -32,6 +32,11 @@ internal sealed class TurnServerConnection : IAsyncDisposable
     private TaskCompletionSource? _writersDrained;
     private readonly TimeSpan _writeTimeout;
     internal bool IsStream { get; }
+    private IceUdpTransport? _diagnosticTransport;
+    internal DiagnosticPath DiagnosticPath { get; private set; }
+    internal PacketDiagnostic LastReceiveTrace;
+    private PacketDiagnostic BeginReceive() => (_diagnosticTransport == null ? null : Volatile.Read(ref _diagnosticTransport.Diagnostics))?.Begin(
+        PacketDirection.Receive, DiagnosticPath, _diagnosticTransport?.DiagnosticGeneration ?? 0, 0) ?? default;
     internal IPEndPoint LocalEndPoint => new IceCandidate((IPEndPoint)_socket.LocalEndPoint!).EndPoint;
     private TurnServerConnection(IPEndPoint local, IPEndPoint server, bool stream, TimeSpan writeTimeout)
     {
@@ -74,7 +79,9 @@ internal sealed class TurnServerConnection : IAsyncDisposable
                     CertificateChainPolicy = policy, AllowRenegotiation = false,
                 };
             }
-            connection = new(local, server, options.ServerTransport != TurnServerTransport.Udp, options.StreamWriteTimeout);
+            connection = new(local, server, options.ServerTransport != TurnServerTransport.Udp, options.StreamWriteTimeout)
+            { _diagnosticTransport = options.DiagnosticTransport, DiagnosticPath = options.ServerTransport switch
+                { TurnServerTransport.Tcp => DiagnosticPath.TurnTcp, TurnServerTransport.Tls => DiagnosticPath.TurnTls, _ => DiagnosticPath.TurnUdp } };
             if (connection.IsStream)
             {
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -97,9 +104,14 @@ internal sealed class TurnServerConnection : IAsyncDisposable
         catch { if (connection != null) await connection.DisposeAsync().ConfigureAwait(false); throw; }
         finally { foreach (var root in roots) root.Dispose(); }
     }
-    internal async ValueTask SendAsync(ReadOnlyMemory<byte> packet, CancellationToken ct, bool control = false)
+    internal async ValueTask SendAsync(ReadOnlyMemory<byte> packet, CancellationToken ct, bool control = false, PacketDiagnostic trace = default)
     {
-        if (!IsStream) { await _socket.SendToAsync(packet, SocketFlags.None, _server, ct).ConfigureAwait(false); return; }
+        if (!IsStream)
+        {
+            trace.Mark(PacketStage.SocketSendStarted);
+            await _socket.SendToAsync(packet, SocketFlags.None, _server, ct).ConfigureAwait(false);
+            trace.Mark(PacketStage.SocketSendCompleted); return;
+        }
         lock (_writerGate)
         {
             if (Volatile.Read(ref _stopped) != 0) throw new ObjectDisposedException(nameof(TurnServerConnection));
@@ -113,7 +125,9 @@ internal sealed class TurnServerConnection : IAsyncDisposable
         {
             await _writing.WaitAsync(cancel.Token).ConfigureAwait(false); entered = true;
             cancel.Token.ThrowIfCancellationRequested();
-            try { await _stream!.WriteAsync(packet, cancel.Token).ConfigureAwait(false); }
+            trace.Mark(PacketStage.TurnSendLockAcquired);
+            trace.Mark(PacketStage.SocketSendStarted);
+            try { await _stream!.WriteAsync(packet, cancel.Token).ConfigureAwait(false); trace.Mark(PacketStage.SocketSendCompleted); }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested && !_closed.IsCancellationRequested)
             { Stop(); throw new TimeoutException("TURN stream write completion deadline expired."); }
             catch { Stop(); throw; } // A canceled/failed write might have emitted a prefix. Never reuse that stream.
@@ -128,10 +142,16 @@ internal sealed class TurnServerConnection : IAsyncDisposable
     }
     internal async ValueTask<SocketReceiveFromResult> ReceiveAsync(Memory<byte> buffer, int maximumDatagram, CancellationToken ct)
     {
+        LastReceiveTrace = BeginReceive(); LastReceiveTrace.Mark(PacketStage.ReceiveArmed);
         if (!IsStream)
-            return await _socket.ReceiveFromAsync(buffer, SocketFlags.None,
+        {
+            var received = await _socket.ReceiveFromAsync(buffer, SocketFlags.None,
                 new IPEndPoint(_server.AddressFamily == AddressFamily.InterNetwork ? IPAddress.Any : IPAddress.IPv6Any, 0), ct).ConfigureAwait(false);
-        await _stream!.ReadExactlyAsync(buffer[..4], ct).ConfigureAwait(false);
+            if (LastReceiveTrace.Owner == null) LastReceiveTrace = BeginReceive();
+            LastReceiveTrace.Size(received.ReceivedBytes); LastReceiveTrace.Mark(PacketStage.ManagedReceiveCompleted, durationTicks: 0);
+            return received;
+        }
+        await ReadPartAsync(buffer[..4], ct).ConfigureAwait(false);
         var kind = buffer.Span[0]; var length = BinaryPrimitives.ReadUInt16BigEndian(buffer.Span[2..]);
         int size;
         if (kind is >= 0x40 and <= 0x4F)
@@ -144,15 +164,28 @@ internal sealed class TurnServerConnection : IAsyncDisposable
             var type = BinaryPrimitives.ReadUInt16BigEndian(buffer.Span); size = 20 + length;
             if ((length & 3) != 0 || size > buffer.Length || type != 0x0017 && size > 4096)
                 throw new InvalidDataException("TURN stream STUN frame exceeds the supported framing budget.");
-            await _stream.ReadExactlyAsync(buffer.Slice(4, 16), ct).ConfigureAwait(false);
+            await ReadPartAsync(buffer.Slice(4, 16), ct).ConfigureAwait(false);
             if (BinaryPrimitives.ReadUInt32BigEndian(buffer.Span[4..]) != 0x2112A442)
                 throw new InvalidDataException("TURN stream STUN magic cookie is invalid.");
-            await _stream.ReadExactlyAsync(buffer.Slice(20, length), ct).ConfigureAwait(false);
+            await ReadPartAsync(buffer.Slice(20, length), ct).ConfigureAwait(false);
             return new() { ReceivedBytes = size, RemoteEndPoint = _server };
         }
         else throw new InvalidDataException("Unsupported TURN stream frame prefix.");
-        await _stream.ReadExactlyAsync(buffer.Slice(4, size - 4), ct).ConfigureAwait(false);
+        await ReadPartAsync(buffer.Slice(4, size - 4), ct).ConfigureAwait(false);
         return new() { ReceivedBytes = size, RemoteEndPoint = _server };
+    }
+    // TCP observes NetworkStream reads; TLS observes decrypted SslStream reads. Neither is a kernel timestamp.
+    private async ValueTask ReadPartAsync(Memory<byte> buffer, CancellationToken ct)
+    {
+        var offset = 0;
+        while (offset < buffer.Length)
+        {
+            var count = await _stream!.ReadAsync(buffer[offset..], ct).ConfigureAwait(false);
+            if (count == 0) throw new EndOfStreamException();
+            if (LastReceiveTrace.Owner == null) LastReceiveTrace = BeginReceive();
+            LastReceiveTrace.Mark(PacketStage.StreamReadCompleted, durationTicks: 0); offset += count;
+        }
+        LastReceiveTrace.Size(buffer.Length);
     }
     internal void Stop()
     {

@@ -25,6 +25,17 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Early requests require authentication and bound buffered state", EarlyCheckBounds),
     ("Early request remote identity is checked after signaling", EarlyIdentity),
 };
+foreach (TurnServerTransport? relay in new TurnServerTransport?[] { null, TurnServerTransport.Udp, TurnServerTransport.Tcp, TurnServerTransport.Tls })
+    cases.Add(($"Diagnostics correlated receive/send path {relay?.ToString() ?? "host"}", () => DiagnosticTests.Stages(relay)));
+cases.Add(("Diagnostics live lifecycle, queues, bounded drops and expiry", DiagnosticTests.QueueAndLifecycle));
+cases.Add(("Diagnostics throwing collector isolation", () => DiagnosticTests.CollectorIsolation(false)));
+cases.Add(("Diagnostics slow collector isolation and dispose", () => DiagnosticTests.CollectorIsolation(true)));
+cases.Add(("Diagnostics delayed caller pacing and independent RTP clock catch-up", DiagnosticTests.CallerPacing));
+cases.Add(("Diagnostics disabled, sampled anomalies, Activity exceptions and cancellation races", DiagnosticTests.SamplingAndActivities));
+cases.Add(("Diagnostics reception rollover, reorder, loss and restart scopes", DiagnosticTests.ReceptionScopes));
+cases.Add(("Diagnostics delayed secure processing at ICE queue", DiagnosticBoundaryTests.SecureProcessingWait));
+cases.Add(("Diagnostics managed receive network delay, reorder, duplicate, corrupt and drop", DiagnosticBoundaryTests.NetworkFaults));
+cases.Add(("Diagnostics performance paced Opus three modes", DiagnosticTests.Performance));
 foreach (var ipv6 in new[] { false, true })
     foreach (var dns in new[] { false, true })
         cases.Add(($"ICE URI STUN IPv6={ipv6} DNS={dns} pinned destination and SDP", () => IceServerTests.Stun(ipv6, dns)));

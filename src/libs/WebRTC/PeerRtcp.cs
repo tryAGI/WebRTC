@@ -22,13 +22,15 @@ internal sealed class PeerRtcp
 {
     private sealed class Reception(uint source, int clock)
     {
+        internal readonly Guid StreamEpoch = Guid.NewGuid();
         internal readonly RtpReceptionTracker Tracker = new(source, clock);
         internal readonly bool Video = clock == 90000;
         internal RtcpSenderReport? SenderReport;
-        internal long ReceivedAt;
+        internal long ReceivedAt, LastRtpAt;
     }
     private sealed class Sender(uint source, int clock)
     {
+        internal readonly Guid StreamEpoch = Guid.NewGuid();
         internal readonly uint Source = source;
         internal readonly int Clock = clock;
         internal uint Timestamp, Count, Octets;
@@ -69,6 +71,8 @@ internal sealed class PeerRtcp
     private readonly long _started = Stopwatch.GetTimestamp();
     private long _sent, _read, _rejected, _pliSent, _pliReceived, _pliSuppressed, _lastPliAt;
     private TimeSpan? _rtt;
+    private long _rttAt;
+    private readonly Dictionary<uint, (RtcpReceptionReport Report, long At)> _remoteReports = [];
     private int _reportCursor;
     internal PeerRtcp(SdpNegotiatedSession session, PeerVideo video, uint audioSource, uint videoSource, string cname, PeerRtcpOptions options, int mtu)
     {
@@ -97,17 +101,19 @@ internal sealed class PeerRtcp
             sender.Timestamp = timestamp; sender.SentAt = Stopwatch.GetTimestamp(); sender.Count = unchecked(sender.Count + 1); sender.Octets = unchecked(sender.Octets + (uint)bytes);
         }
     }
-    internal void ReceivedRtp(uint source, ushort sequence, uint timestamp, bool video)
+    internal RtpReceptionSnapshot? ReceivedRtp(uint source, ushort sequence, uint timestamp, bool video, bool snapshot = false)
     {
         lock (_gate)
         {
             if (!_received.TryGetValue(source, out var reception))
             {
-                if (_received.Count == _options.MaximumReceptionSources) return;
+                if (_received.Count == _options.MaximumReceptionSources) return null;
                 reception = new(source, video ? 90000 : 48000); _received.Add(source, reception);
             }
             _controlSenders.Remove(source);
+            reception.LastRtpAt = Stopwatch.GetTimestamp();
             reception.Tracker.Observe(sequence, timestamp, Stopwatch.GetElapsedTime(_started));
+            return snapshot ? reception.Tracker.GetSnapshot() : null;
         }
     }
     internal IAsyncEnumerable<VideoKeyFrameRequest> KeyFrameRequests(CancellationToken ct) => _keyFrames.Reader.ReadAllAsync(ct);
@@ -155,11 +161,14 @@ internal sealed class PeerRtcp
                 if (source != null) { source.SenderReport = sr; source.ReceivedAt = now; }
             }
             foreach (var report in packets.SelectMany(p => p switch { RtcpSenderReport sr => sr.Reports, RtcpReceiverReport rr => rr.Reports, _ => Array.Empty<RtcpReceptionReport>() }))
+            {
+                if (Local(report.Source)) _remoteReports[report.Source] = (report, now);
                 if (report.LastSenderReport != 0 && _sentReports.TryGetValue((report.Source, report.LastSenderReport), out var sentAt))
                 {
                     var rtt = Stopwatch.GetElapsedTime(sentAt) - TimeSpan.FromSeconds(report.DelaySinceLastSenderReport / 65536.0);
-                    if (Stopwatch.GetElapsedTime(sentAt) <= TimeSpan.FromMinutes(1) && rtt >= TimeSpan.Zero && rtt <= TimeSpan.FromMinutes(1)) _rtt = rtt;
+                    if (Stopwatch.GetElapsedTime(sentAt) <= TimeSpan.FromMinutes(1) && rtt >= TimeSpan.Zero && rtt <= TimeSpan.FromMinutes(1)) { _rtt = rtt; _rttAt = now; }
                 }
+            }
             foreach (var pli in feedback)
             {
                 if (_lastPliAt != 0 && Stopwatch.GetElapsedTime(_lastPliAt) < _options.MinimumPictureLossInterval) { _pliSuppressed++; continue; }
@@ -403,6 +412,28 @@ internal sealed class PeerRtcp
     {
         foreach (var key in _sentReports.Where(p => Stopwatch.GetElapsedTime(p.Value) > TimeSpan.FromMinutes(1)).Select(p => p.Key).ToArray()) _sentReports.Remove(key);
         while (_sentReports.Count > 32) _sentReports.Remove(_sentReports.MinBy(p => p.Value).Key);
+    }
+    internal (TimeSpan? Value, TimeSpan? Age, bool Stale) RttEvidence()
+    {
+        lock (_gate) return (_rtt, _rttAt == 0 ? null : Stopwatch.GetElapsedTime(_rttAt), _rttAt == 0 || Stopwatch.GetElapsedTime(_rttAt) > TimeSpan.FromMinutes(1));
+    }
+    internal PeerRtpEvidence Evidence(bool identities)
+    {
+        lock (_gate)
+        {
+            var received = _received.Select(pair =>
+            {
+                var snapshot = pair.Value.Tracker.GetSnapshot();
+                return new RtpSourceEvidence(pair.Value.StreamEpoch, PacketDirection.Receive, identities ? pair.Key : null, snapshot.ClockRate, snapshot.ResetEpoch,
+                    pair.Value.LastRtpAt, pair.Value.LastRtpAt == 0 ? TimeSpan.MaxValue : Stopwatch.GetElapsedTime(pair.Value.LastRtpAt),
+                    snapshot.Ready, snapshot.FractionLost, snapshot.CumulativeLost, snapshot.HighestSequence, snapshot.JitterRtpTicks,
+                    snapshot.ReceivedPackets, snapshot.LastReason);
+            }).ToArray();
+            var transmitted = _remoteReports.Select(pair => new RemoteReceptionEvidence(pair.Key == _audioSender.Source ? _audioSender.StreamEpoch : _videoSender.StreamEpoch, PacketDirection.Send, identities ? pair.Key : null,
+                pair.Value.At, Stopwatch.GetElapsedTime(pair.Value.At), pair.Value.Report.FractionLost, pair.Value.Report.CumulativeLost,
+                pair.Value.Report.HighestSequence, pair.Value.Report.Jitter, pair.Key == _audioSender.Source ? 48000 : 90000)).ToArray();
+            return new(Array.AsReadOnly(received), Array.AsReadOnly(transmitted));
+        }
     }
     internal PeerRtcpDiagnostics Diagnostics()
     { lock (_gate) return new(_received.Count, _sent, _read, _rejected, _pliSent, _pliReceived, _pliSuppressed, _rtt, _schedule.EarlyFeedbackEnabled); }

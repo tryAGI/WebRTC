@@ -5,7 +5,16 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
-No changes recorded yet.
+- Add opt-in, bounded versioned packet-stage diagnostics with live attachment,
+  sampling, expiry, cancellation, queue/drop attribution and consumer-owned .NET
+  Meter/Activity publication outside media loops.
+- Trace host/TURN UDP/TCP/TLS receive boundaries, secure receive/audio queues and
+  audio/video send locks, protection and local send completion; preserve explicit
+  unknown kernel/TLS/socket timing and caller-owned pacing.
+- Expose non-mutating per-source RFC 3550 reception snapshots, remote reception
+  reports about transmitted streams, RTT age/staleness and route/consent evidence.
+- Add deterministic local fault/lifecycle/collector tests, NativeAOT execution and
+  measured paced-Opus allocation/CPU/delivery reports. See [diagnostics](docs/diagnostics.md).
 
 ## [0.1.1] - 2026-10-04
 

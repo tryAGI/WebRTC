@@ -55,6 +55,13 @@ by default. An answerer uses `CreateAnswer(remoteOffer)`.
 encoded media, readiness, cancellation and disposal. `MediaReady` allows authenticated
 media to start before data-channel setup finishes; callers still observe `Completion`.
 
+## Observe packet delays
+
+Attach diagnostics to a live peer for correlated managed receive/decrypt/queue/send
+stages, bounded packet capture and .NET metrics. Collection runs in a consumer-owned
+publication loop, separate from audio processing. Kernel arrival and physical playback
+remain explicit unknowns. See [diagnostics and collection example](https://github.com/tryAGI/WebRTC/blob/main/docs/diagnostics.md).
+
 ## Supported scope
 
 | Area | Implemented and tested | Current limits |

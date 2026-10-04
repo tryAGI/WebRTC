@@ -50,7 +50,7 @@ public sealed partial class IceUdpTransport
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, cancellationToken);
         try
         {
-            allocation = await TurnUdpAllocation.AllocateAsync(local, server, credentials, options, lifetime.Token).ConfigureAwait(false);
+            allocation = await TurnUdpAllocation.AllocateAsync(local, server, credentials, options with { DiagnosticTransport = this }, lifetime.Token).ConfigureAwait(false);
             lifetime.Token.ThrowIfCancellationRequested();
             var path = new LocalPath(allocation.Candidate, allocation);
             lock (_gate)
@@ -118,7 +118,7 @@ public sealed partial class IceUdpTransport
         try
         {
             await foreach (var packet in path.Relay!.ReceiveDatagramsAsync(_lifetime.Token).ConfigureAwait(false))
-                await HandleDatagramAsync(path, packet.Data, packet.Source).ConfigureAwait(false);
+                await HandleDatagramAsync(path, packet.Data, packet.Source, packet.Trace).ConfigureAwait(false);
             if (!_lifetime.IsCancellationRequested)
                 FailPath(path, await path.Relay.Completion.ConfigureAwait(false) ?? new IOException("Owned relay closed."));
         }
@@ -126,8 +126,9 @@ public sealed partial class IceUdpTransport
         catch (Exception error) { if (!_lifetime.IsCancellationRequested) FailPath(path, error); }
     }
 
-    private async ValueTask HandleDatagramAsync(LocalPath path, ReadOnlyMemory<byte> packet, IPEndPoint source)
+    private async ValueTask HandleDatagramAsync(LocalPath path, ReadOnlyMemory<byte> packet, IPEndPoint source, PacketDiagnostic trace = default)
     {
+        trace.Mark(PacketStage.Demultiplexed);
         if (packet.Length == 0) return;
         if (packet.Span[0] <= 3)
         {
@@ -144,12 +145,15 @@ public sealed partial class IceUdpTransport
                 if (!_stopped && PathAllowed(path) && _selected is not null && path == _selected.Path &&
                     source.Equals(_selected.Candidate.TransportEndPoint) && packet.Length <= _options.MaximumReceiveDataDatagramSize &&
                     Elapsed(_lastConsentAt) < _options.ConsentTimeout)
-                    _datagrams.Writer.TryWrite(packet.ToArray());
-                else Interlocked.Increment(ref _droppedDatagrams);
+                {
+                    trace.Mark(PacketStage.IceEnqueued, queueDepth: Math.Min(_options.ReceiveQueueCapacity, _datagrams.Reader.Count + 1));
+                    _datagrams.Writer.TryWrite(new(packet.ToArray(), trace));
+                }
+                else { Interlocked.Increment(ref _droppedDatagrams); trace.Mark(PacketStage.Dropped, PacketReason.InvalidRouteOrConsent); }
             }
         }
     }
-    private async ValueTask SendPathAsync(LocalPath path, ReadOnlyMemory<byte> packet, IPEndPoint peer, CancellationToken ct)
+    private async ValueTask SendPathAsync(LocalPath path, ReadOnlyMemory<byte> packet, IPEndPoint peer, CancellationToken ct, PacketDiagnostic trace = default)
     {
         lock (_gate)
         {
@@ -161,8 +165,13 @@ public sealed partial class IceUdpTransport
         }
         try
         {
-            if (path.Relay is null) await _socket.SendToAsync(packet, SocketFlags.None, peer, ct).ConfigureAwait(false);
-            else await path.Relay.SendDatagramAsync(peer, packet, ct).ConfigureAwait(false);
+            if (path.Relay is null)
+            {
+                trace.Mark(PacketStage.SocketSendStarted);
+                await _socket.SendToAsync(packet, SocketFlags.None, peer, ct).ConfigureAwait(false);
+                trace.Mark(PacketStage.SocketSendCompleted);
+            }
+            else await path.Relay.SendDiagnosticDatagramAsync(peer, packet, ct, trace).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception error) when (path.Relay is not null) { FailPath(path, error); throw; }

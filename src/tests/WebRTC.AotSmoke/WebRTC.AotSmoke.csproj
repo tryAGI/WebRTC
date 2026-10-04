@@ -41,4 +41,6 @@
     <Compile Include="../WebRTC.ProtocolTests/IceServerUriTests.cs" Link="IceServerUriTests.cs" />
     <Compile Include="../WebRTC.IntegrationTests/IceServerTests.cs" Link="IceServerTests.cs" />
 </ItemGroup>
+<ItemGroup><Compile Include="../WebRTC.IntegrationTests/DiagnosticTests.cs" Link="DiagnosticTests.cs" />
+<Compile Include="../WebRTC.IntegrationTests/DiagnosticBoundaryTests.cs" Link="DiagnosticBoundaryTests.cs" /></ItemGroup>
 </Project>

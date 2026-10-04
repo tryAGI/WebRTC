@@ -14,6 +14,20 @@ public sealed class RtpReceptionTracker
     private TimeSpan _arrival, _observedAt;
     private uint _timestamp;
     private double _jitter;
+    private long _resetEpoch;
+    private PacketReason _lastReason;
+    public RtpReceptionSnapshot GetSnapshot()
+    {
+        lock (_gate)
+        {
+            var expected = _highest - _base + 1;
+            var intervalExpected = expected - _priorExpected;
+            var intervalLoss = intervalExpected - (_received - _priorReceived);
+            var fraction = !_ready || intervalExpected <= 0 || intervalLoss <= 0 ? (byte)0 : (byte)Math.Min(255, 256.0 * intervalLoss / intervalExpected);
+            return new(_clock, _resetEpoch, _observedAt, _ready, fraction, _ready ? (int)Math.Clamp(expected - _received, -8388608, 8388607) : 0,
+                _ready ? unchecked((uint)_highest) : 0, (uint)Math.Clamp(_jitter, 0, uint.MaxValue), _received, _lastReason);
+        }
+    }
     public uint Source { get; }
     public bool IsReady { get { lock (_gate) return _ready; } }
     public RtpReceptionTracker(uint source, int clockRate)
@@ -29,6 +43,7 @@ public sealed class RtpReceptionTracker
             _observedAt = arrival;
             if (!_started) { _started = true; _last = sequence; _timestamp = timestamp; _arrival = arrival; return false; }
             var delta = unchecked((ushort)(sequence - _last));
+            _lastReason = delta == 0 ? PacketReason.Duplicate : delta > 65536 - 100 ? PacketReason.Reordered : PacketReason.None;
             if (!_ready)
             {
                 if (delta != 1) { _last = sequence; _timestamp = timestamp; _arrival = arrival; return false; }
@@ -50,6 +65,7 @@ public sealed class RtpReceptionTracker
     }
     private void Restart(ushort first, ushort second)
     {
+        _resetEpoch++;
         _base = first; _highest = second < first ? 65536L + second : second; _last = second;
         _received = 2; _priorExpected = _priorReceived = 0; _restartCandidate = false; _jitter = 0;
     }
@@ -70,6 +86,9 @@ public sealed class RtpReceptionTracker
         }
     }
 }
+
+public readonly record struct RtpReceptionSnapshot(int ClockRate, long ResetEpoch, TimeSpan ObservedAt, bool Ready,
+    byte FractionLost, int CumulativeLost, uint HighestSequence, uint JitterRtpTicks, long ReceivedPackets, PacketReason LastReason);
 
 public static class RtcpClock
 {

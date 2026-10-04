@@ -11,6 +11,7 @@ namespace tryAGI.WebRTC;
 
 public sealed record TurnUdpOptions
 {
+    internal IceUdpTransport? DiagnosticTransport { get; init; }
     public StunGatheringOptions Transactions { get; init; } = new();
     /// <summary>Client/server transport. The allocated relay/peer transport remains UDP.</summary>
     public TurnServerTransport ServerTransport { get; init; }
@@ -44,6 +45,7 @@ public sealed class TurnDatagram
     private readonly IPEndPoint _source;
     public IPEndPoint Source => new IceCandidate(_source).EndPoint;
     public byte[] Data { get; }
+    internal PacketDiagnostic Trace;
     internal TurnDatagram(IPEndPoint source, byte[] data) { _source = new IceCandidate(source).EndPoint; Data = data; }
 }
 public sealed record TurnUdpDiagnostics(bool AllocationActive, int Permissions, int Channels, TimeSpan RemainingLifetime,
@@ -58,6 +60,8 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
     private readonly TurnServerConnection _connection;
     private readonly IPEndPoint _server, _local;
     private readonly TurnUdpOptions _options;
+    internal DiagnosticPath DiagnosticPath => _connection.DiagnosticPath;
+    private PacketDiagnostic _receiveTrace;
     private readonly SemaphoreSlim _operation = new(1, 1), _maintenanceWake = new(0, 1);
     private readonly CancellationTokenSource _lifetime = new(), _maintenanceLifetime = new();
     private readonly Channel<TurnDatagram> _incoming;
@@ -87,7 +91,7 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
         _options = options; _server = new IceCandidate(server).EndPoint; _connection = connection;
         _local = connection.LocalEndPoint;
         _incoming = Channel.CreateBounded<TurnDatagram>(new BoundedChannelOptions(options.ReceiveQueueCapacity)
-        { FullMode = BoundedChannelFullMode.DropOldest, SingleWriter = true, SingleReader = false }, _ => Interlocked.Increment(ref _dropped));
+        { FullMode = BoundedChannelFullMode.DropOldest, SingleWriter = true, SingleReader = false }, dropped => { Interlocked.Increment(ref _dropped); var trace = dropped.Trace; trace.Mark(PacketStage.Dropped, PacketReason.QueueOverflow); });
         _reader = ReadAsync();
     }
     public static async Task<TurnUdpAllocation> AllocateAsync(IPEndPoint local, IPEndPoint server, TurnCredentials credentials,
@@ -131,6 +135,12 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
         if (seconds is < 1 or > 86400) throw new InvalidDataException("Unsupported TURN allocation lifetime.");
         _expires = After(seconds); _refreshAt = _expires - (long)(Math.Min(60, seconds * .2) * Stopwatch.Frequency);
         if (_maintenanceWake.CurrentCount == 0) _maintenanceWake.Release();
+    }
+    internal QueueEvidence QueueEvidence(PeerDiagnosticSession? capture)
+    {
+        var at = _incoming.Reader.TryPeek(out var packet) ? packet.Trace.LastStageTicks : 0;
+        return new(PacketStage.RelayEnqueued, DiagnosticPath, _incoming.Reader.Count, capture?.QueueHighWater(PacketStage.RelayEnqueued),
+            at == 0 ? null : Stopwatch.GetElapsedTime(at));
     }
     public TurnUdpDiagnostics GetDiagnostics()
     {
@@ -223,7 +233,9 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
         }
         finally { lock (_gate) binding.Pending = false; }
     }
-    public async ValueTask SendDatagramAsync(IPEndPoint peer, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
+    public ValueTask SendDatagramAsync(IPEndPoint peer, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default) =>
+        SendDiagnosticDatagramAsync(peer, data, cancellationToken, default);
+    internal async ValueTask SendDiagnosticDatagramAsync(IPEndPoint peer, ReadOnlyMemory<byte> data, CancellationToken cancellationToken, PacketDiagnostic trace)
     {
         var safe = Admit(peer); byte[] packet;
         lock (_gate)
@@ -246,11 +258,13 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
             }
         }
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-        await _connection.SendAsync(packet, cancel.Token).ConfigureAwait(false);
+        trace.Size(packet.Length);
+        await _connection.SendAsync(packet, cancel.Token, trace: trace).ConfigureAwait(false);
     }
     public async IAsyncEnumerable<TurnDatagram> ReceiveDatagramsAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        await foreach (var packet in _incoming.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false)) yield return packet;
+        await foreach (var packet in _incoming.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+        { packet.Trace.Mark(PacketStage.RelayDequeued, queueDepth: _incoming.Reader.Count); yield return packet; }
     }
     private async Task<byte[]> ControlAsync(ushort method, IPEndPoint? peer, ushort? channel, TurnCredentials? credentials, CancellationToken ct, bool release = false)
     {
@@ -377,7 +391,12 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
                 try { received = await _connection.ReceiveAsync(bytes, _options.MaximumDatagramSize, _lifetime.Token).ConfigureAwait(false); }
                 catch (SocketException error) when (error.SocketErrorCode == SocketError.MessageSize)
                 { lock (_gate) _rejected++; continue; }
+                _receiveTrace = _connection.LastReceiveTrace; _receiveTrace.Size(received.ReceivedBytes);
+                _receiveTrace.Mark(PacketStage.RelayFrameCompleted);
+                var handling = _receiveTrace.Owner == null ? 0 : Stopwatch.GetTimestamp();
                 lock (_gate) HandlePacket(bytes.AsSpan(0, received.ReceivedBytes), (IPEndPoint)received.RemoteEndPoint);
+                _receiveTrace.Mark(PacketStage.ReceiveHandlerCompleted, durationTicks: handling == 0 ? 0 : Stopwatch.GetTimestamp() - handling);
+                _receiveTrace.Mark(PacketStage.ReceiveRearm);
             }
         }
         catch (Exception error) { if (!_lifetime.IsCancellationRequested) Stop(error); }
@@ -424,7 +443,7 @@ public sealed class TurnUdpAllocation : IAsyncDisposable
         { _rejected++; return; }
         try { peer = Admit(peer); } catch (ArgumentException) { _rejected++; return; }
         if (!pendingChannel && (!_permissions.TryGetValue(peer.Address.ToString(), out var permission) || Now >= permission.Expires)) { _rejected++; return; }
-        _received++; _incoming.Writer.TryWrite(new(peer, data.ToArray()));
+        _received++; _receiveTrace.Size(data.Length); _receiveTrace.Mark(PacketStage.RelayEnqueued, queueDepth: Math.Min(_options.ReceiveQueueCapacity, _incoming.Reader.Count + 1)); _incoming.Writer.TryWrite(new(peer, data.ToArray()) { Trace = _receiveTrace });
     }
     private static int Count(StunMessage message, ushort type)
     { var attributes = message.GetAttributes(); var count = 0; while (attributes.MoveNext()) if (attributes.Type == type) count++; return count; }

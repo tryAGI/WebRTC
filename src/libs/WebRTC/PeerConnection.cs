@@ -49,7 +49,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private readonly TaskCompletionSource _mediaReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _dataReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<Exception?> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly Channel<EncodedOpusPacket> _audio;
+    private readonly Channel<QueuedAudio> _audio;
+    private readonly Guid _diagnosticEpoch = Guid.NewGuid();
+    private PeerDiagnosticSession? _diagnostics;
+    private readonly record struct QueuedAudio(EncodedOpusPacket Packet, PacketDiagnostic Trace);
+    private long _lastAudioSubmission;
+    private uint _lastAudioTimestamp;
     private readonly Channel<EncodedVideoFrame> _video;
     private readonly Channel<byte[]> _control;
     private PeerConnectionState _state;
@@ -110,8 +115,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
         do { VideoSource = BinaryPrimitives.ReadUInt32BigEndian(RandomNumberGenerator.GetBytes(4)); } while (VideoSource == 0 || VideoSource == AudioSource);
         _video = Channel.CreateBounded<EncodedVideoFrame>(new BoundedChannelOptions(options.Video.QueueCapacity)
         { FullMode = BoundedChannelFullMode.Wait, SingleReader = false, SingleWriter = true });
-        _audio = Channel.CreateBounded<EncodedOpusPacket>(new BoundedChannelOptions(options.AudioQueueCapacity)
-        { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = false, SingleWriter = true }, _ => Interlocked.Increment(ref _droppedAudio));
+        _audio = Channel.CreateBounded<QueuedAudio>(new BoundedChannelOptions(options.AudioQueueCapacity)
+        { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = false, SingleWriter = true }, dropped => { Interlocked.Increment(ref _droppedAudio); var trace = dropped.Trace; trace.Mark(PacketStage.Dropped, PacketReason.QueueOverflow); });
         _control = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(options.ControlQueueCapacity)
         { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = false, SingleWriter = true }, _ => Interlocked.Increment(ref _droppedControl));
     }
@@ -139,6 +144,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 throw new InvalidOperationException("Gathering is complete or its bounded candidate budget is reserved.");
             _activeGathering++;
         }
+        var gatheringAt = Stopwatch.GetTimestamp();
         try
         {
             using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
@@ -152,7 +158,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             }
             return candidate;
         }
-        finally { lock (_gate) _activeGathering--; }
+        finally { lock (_gate) _activeGathering--; Volatile.Read(ref _diagnostics)?.Lifecycle(PacketStage.Gathering, gatheringAt); }
     }
     /// <summary>Marks this initial generation's local gathering complete. No active gathering request may remain.</summary>
     public void CompleteGathering()
@@ -234,6 +240,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             if (candidates.Length > _options.Ice.MaximumCandidatePairs) throw new ArgumentException("Remote candidate limit exceeded.");
             RequireState(PeerConnectionState.Ready);
             _state = PeerConnectionState.Connecting; _startedAt = Stopwatch.GetTimestamp();
+            Volatile.Read(ref _diagnostics)?.Lifecycle(PacketStage.Connection, 0);
             _run = RunAsync(candidates, cancellationToken); return _connected.Task;
         }
     }
@@ -255,15 +262,27 @@ public sealed partial class PeerConnection : IAsyncDisposable
     {
         lock (_gate) RequireOpen();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-        await _audioSend.WaitAsync(linked.Token).ConfigureAwait(false);
+        var diagnostic = Volatile.Read(ref _diagnostics);
+        var trace = diagnostic?.Begin(PacketDirection.Send, _ice.SelectedDiagnosticPath, _ice.DiagnosticGeneration, payload.Length) ?? default;
+        var submitted = trace.Owner == null ? 0 : Stopwatch.GetTimestamp();
+        trace.Protocol(DiagnosticProtocol.AudioRtp);
+        trace.Mark(PacketStage.CallerSubmission);
+        try { await _audioSend.WaitAsync(linked.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) { trace.Mark(PacketStage.Dropped, PacketReason.Cancelled); throw; }
         try
         {
             lock (_gate) RequireOpen();
             if (!_mediaReady.Task.IsCompletedSuccessfully || !_session!.CanSendAudio) throw new InvalidOperationException("Sending Opus was not negotiated or media is not ready.");
             if (payload.Length < 1 || payload.Length > MaximumAudioPayloadBytes) throw new ArgumentOutOfRangeException(nameof(payload));
+            trace.Identify(AudioSource, _sequence, rtpTimestamp, 1);
+            var mediaDelta = unchecked((int)(rtpTimestamp - _lastAudioTimestamp));
+            var catchUp = submitted != 0 && _lastAudioSubmission != 0 && mediaDelta > 0 &&
+                Stopwatch.GetElapsedTime(_lastAudioSubmission, submitted).TotalSeconds < mediaDelta / 48000.0 / 2;
+            trace.Mark(PacketStage.SendLockAcquired, catchUp ? PacketReason.CatchUpBurst : PacketReason.None);
+            _lastAudioSubmission = submitted; _lastAudioTimestamp = rtpTimestamp;
             var packet = _routing!.Write(payload.Span, _sequence++, rtpTimestamp, marker);
             // Consume the sequence even if transmission is cancelled after protection; SRTP indexes cannot be reused.
-            await _dtls!.SendRtpAsync(packet, linked.Token).ConfigureAwait(false);
+            await _dtls!.SendDiagnosticRtpAsync(packet, trace, linked.Token).ConfigureAwait(false);
             _rtcp!.SentRtp(false, rtpTimestamp, payload.Length);
         }
         finally { _audioSend.Release(); }
@@ -273,21 +292,39 @@ public sealed partial class PeerConnection : IAsyncDisposable
     {
         lock (_gate) RequireOpen();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-        await _videoSend.WaitAsync(linked.Token).ConfigureAwait(false);
+        var trace = Volatile.Read(ref _diagnostics)?.Begin(PacketDirection.Send, _ice.SelectedDiagnosticPath, _ice.DiagnosticGeneration, payload.Length) ?? default;
+        trace.Protocol(DiagnosticProtocol.VideoRtp); trace.Mark(PacketStage.CallerSubmission);
+        try { await _videoSend.WaitAsync(linked.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) { trace.Mark(PacketStage.Dropped, PacketReason.Cancelled); throw; }
         try
         {
             lock (_gate) RequireOpen();
             if (!_mediaReady.Task.IsCompletedSuccessfully || !_session!.CanSendVideo) throw new InvalidOperationException("Sending video was not negotiated or media is not ready.");
             if (payload.Length < 1 || payload.Length > MaximumVideoPayloadBytes) throw new ArgumentOutOfRangeException(nameof(payload));
+            trace.Identify(VideoSource, _videoSequence, rtpTimestamp, 1); trace.Mark(PacketStage.SendLockAcquired);
             var packet = _videoRouting!.Write(payload.Span, _videoSequence++, rtpTimestamp, marker);
-            await _dtls!.SendRtpAsync(packet, linked.Token).ConfigureAwait(false);
+            await _dtls!.SendDiagnosticRtpAsync(packet, trace, linked.Token).ConfigureAwait(false);
             _rtcp!.SentRtp(true, rtpTimestamp, payload.Length);
         }
         finally { _videoSend.Release(); }
     }
     public IAsyncEnumerable<EncodedVideoFrame> ReceiveVideoAsync(CancellationToken cancellationToken = default) => _video.Reader.ReadAllAsync(cancellationToken);
     public PeerVideoDiagnostics GetVideoDiagnostics() => _videoRouting?.Diagnostics(Interlocked.Read(ref _droppedVideo)) ?? new(0, 0, 0, 0, 0, 0, 0);
-    public IAsyncEnumerable<EncodedOpusPacket> ReceiveAudioAsync(CancellationToken cancellationToken = default) => _audio.Reader.ReadAllAsync(cancellationToken);
+    public async IAsyncEnumerable<EncodedOpusPacket> ReceiveAudioAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await foreach (var item in _audio.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var trace = item.Trace; trace.Mark(PacketStage.AudioDequeued, queueDepth: _audio.Reader.Count);
+                trace.Mark(PacketStage.ConsumerDelivery); yield return item.Packet;
+            }
+        }
+        finally
+        {
+            if (cancellationToken.IsCancellationRequested) Volatile.Read(ref _diagnostics)?.Lifecycle(PacketStage.Shutdown, 0, PacketReason.Cancelled);
+        }
+    }
     public IAsyncEnumerable<byte[]> ReceiveRtcpAsync(CancellationToken cancellationToken = default) => _control.Reader.ReadAllAsync(cancellationToken);
     /// <summary>Advanced SR/RR/CNAME sending through a bounded shared RTCP budget. Caller owns report fields and regular-report timing.
     /// Feedback must use RequestVideoKeyFrame so it cannot bypass source, retry or scheduling limits.</summary>
@@ -349,7 +386,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             await _ice.ConnectAsync(_session!.RemoteCredentials, _session.IceRole, candidates, establishment.Token).ConfigureAwait(false);
             _dtls = new(_ice, _identity, _session.DtlsRole, Convert.FromHexString(_session.RemoteFingerprintSha256), _options.Dtls);
+            var dtlsAt = Stopwatch.GetTimestamp();
             await _dtls.ConnectAsync(establishment.Token).ConfigureAwait(false);
+            Volatile.Read(ref _diagnostics)?.Lifecycle(PacketStage.Dtls, dtlsAt);
             Interlocked.Exchange(ref _mediaAt, Stopwatch.GetTimestamp()); _mediaReady.TrySetResult();
             control = _rtcp?.RunAsync(_dtls, _lifetime.Token) ?? Task.Delay(Timeout.InfiniteTimeSpan, _lifetime.Token);
             media = ReceiveMediaAsync(); videoExpiry = _session.CanReceiveVideo ? ExpireVideoAsync() : Task.Delay(Timeout.InfiniteTimeSpan, _lifetime.Token);
@@ -358,13 +397,16 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 var sctpOptions = _options.Sctp with { LocalPort = _session.LocalData.SctpPort!.Value, RemotePort = _session.RemoteData!.SctpPort!.Value,
                     MaximumMessageSize = _session.MaximumMessageSize, MaximumPacketSize = Math.Min(_options.Sctp.MaximumPacketSize, _dtls.MaximumApplicationDatagramSize) };
                 _sctp = new(_dtls, _session.DtlsRole == DtlsRole.Client ? SctpRole.Initiator : SctpRole.Responder, sctpOptions);
+                var sctpAt = Stopwatch.GetTimestamp();
                 await _sctp.ConnectAsync(establishment.Token).ConfigureAwait(false);
+                Volatile.Read(ref _diagnostics)?.Lifecycle(PacketStage.Sctp, sctpAt);
                 _channels = new(_sctp, _options.Channels); _dataReady.TrySetResult();
             }
             else _dataReady.TrySetException(new NotSupportedException("Data channels were not negotiated."));
             establishment.Token.ThrowIfCancellationRequested();
             lock (_gate) { RequireOpen(); _state = PeerConnectionState.Connected; }
-            Interlocked.Exchange(ref _connectedAt, Stopwatch.GetTimestamp()); _connected.TrySetResult();
+            Interlocked.Exchange(ref _connectedAt, Stopwatch.GetTimestamp());
+            Volatile.Read(ref _diagnostics)?.Lifecycle(PacketStage.Connection, _startedAt); _connected.TrySetResult();
             establishment.Dispose();
             // Caller cancellation applies to establishment only, including a stalled SCTP handshake.
             var ends = new List<Task> { _ice.Completion, _dtls.Completion, media, videoExpiry, control, Task.Delay(Timeout.InfiniteTimeSpan, _lifetime.Token) };
@@ -413,8 +455,16 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 {
                     var collision = RtpPacket.TryParse(datagram.Data, out var audioRtp) && _videoRouting!.HasSource(audioRtp.SynchronizationSource);
                     var packet = collision ? null : _routing!.Read(datagram.Data);
-                    if (packet == null) Interlocked.Increment(ref _rejectedAudio);
-                    else { _rtcp!.ReceivedRtp(packet.SynchronizationSource, packet.SequenceNumber, packet.Timestamp, false); _audio.Writer.TryWrite(packet); }
+                    var trace = datagram.Trace; trace.Protocol(DiagnosticProtocol.AudioRtp);
+                    if (packet == null) { Interlocked.Increment(ref _rejectedAudio); trace.Mark(PacketStage.Dropped, PacketReason.SourceOrNegotiation); }
+                    else
+                    {
+                        var sourceState = _rtcp!.ReceivedRtp(packet.SynchronizationSource, packet.SequenceNumber, packet.Timestamp, false, trace.Owner != null);
+                        if (sourceState != null) trace.Identify(packet.SynchronizationSource, packet.SequenceNumber, packet.Timestamp, sourceState.Value.ResetEpoch);
+                        trace.Mark(PacketStage.AudioEnqueued, sourceState?.LastReason ?? PacketReason.None,
+                            queueDepth: Math.Min(_options.AudioQueueCapacity, _audio.Reader.Count + 1));
+                        _audio.Writer.TryWrite(new(packet, trace));
+                    }
                 }
             }
             else if (_rtcp == null || !_rtcp.Read(datagram.Data)) Interlocked.Increment(ref _rejectedControl);
@@ -454,6 +504,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     }
     private void Finish(Exception? reason)
     {
+        Volatile.Read(ref _diagnostics)?.Lifecycle(PacketStage.Shutdown, _startedAt, reason is OperationCanceledException ? PacketReason.Cancelled : PacketReason.Shutdown);
         lock (_gate) { if (_disposed) reason = null; _state = reason == null ? PeerConnectionState.Closed : PeerConnectionState.Failed; }
         var failure = reason ?? new ObjectDisposedException(nameof(PeerConnection));
         _connected.TrySetException(failure); _mediaReady.TrySetException(failure); _dataReady.TrySetException(failure);
@@ -480,6 +531,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         if (_run != null) await _run.ConfigureAwait(false);
         else { await CleanupAsync().ConfigureAwait(false); Finish(null); }
         lock (_gate) _state = PeerConnectionState.Closed;
+        DetachDiagnostics();
         _lifetime.Dispose();
     }
     public PeerConnectionDiagnostics GetDiagnostics() => new(State, Elapsed(_mediaAt), Elapsed(_connectedAt),

@@ -81,17 +81,20 @@ public sealed class SrtpContext : IDisposable
     }
 
     /// <summary>Authenticates, checks replay and decrypts. False leaves destination and state untouched.</summary>
-    public bool TryUnprotectRtp(ReadOnlySpan<byte> packet, Span<byte> destination, out int written)
+    public bool TryUnprotectRtp(ReadOnlySpan<byte> packet, Span<byte> destination, out int written) => TryUnprotectRtp(packet, destination, out written, out _);
+    internal bool TryUnprotectRtp(ReadOnlySpan<byte> packet, Span<byte> destination, out int written, out PacketReason reason)
     {
         lock (_gate)
         {
             RequireDirection(SrtpDirection.Receive);
-            written = 0;
+            written = 0; reason = PacketReason.InvalidFraming;
             var length = packet.Length - RtpOverhead;
             if (length < 12 || length > MaximumPacketLength || destination.Length < length || packet.Overlaps(destination) ||
                 !TryRtpHeader(packet[..length], out var headerLength, out var source, out var sequence) ||
-                !TryState(_rtpSources, source, out var state) || !TryIndex(state, sequence, out var index) ||
-                !state.CanAccept(index) || _rtpInvocations >= 1UL << 48) return false;
+                !TryState(_rtpSources, source, out var state) || !TryIndex(state, sequence, out var index) || _rtpInvocations >= 1UL << 48) return false;
+            // This is a replay-window decision, not evidence of authenticated duplicate identity.
+            if (!state.CanAccept(index)) { reason = PacketReason.ReplayOrTooOld; return false; }
+            reason = PacketReason.Authentication;
             Span<byte> plaintext = stackalloc byte[length];
             try
             {
@@ -100,12 +103,12 @@ public sealed class SrtpContext : IDisposable
                 packet[..headerLength].CopyTo(plaintext);
                 if (!_rtp.Decrypt(packet.Slice(headerLength, length - headerLength), plaintext[headerLength..],
                     packet[length..], packet[..headerLength], source, index, false)) return false;
-                if (!RtpPacket.TryParse(plaintext, out _)) return false;
+                if (!RtpPacket.TryParse(plaintext, out _)) { reason = PacketReason.InvalidFraming; return false; }
                 state.Accept(index);
                 _rtpSources[source] = state;
                 _rtpInvocations++;
                 plaintext.CopyTo(destination);
-                written = length;
+                written = length; reason = PacketReason.None;
                 return true;
             }
             finally { CryptographicOperations.ZeroMemory(plaintext); }
@@ -145,12 +148,13 @@ public sealed class SrtpContext : IDisposable
 
     /// <summary>Verifies SRTCP authentication/replay before releasing any plaintext.
     /// Accepts authenticated E=0 control packets; sending always encrypts.</summary>
-    public bool TryUnprotectRtcp(ReadOnlySpan<byte> packet, Span<byte> destination, out int written)
+    public bool TryUnprotectRtcp(ReadOnlySpan<byte> packet, Span<byte> destination, out int written) => TryUnprotectRtcp(packet, destination, out written, out _);
+    internal bool TryUnprotectRtcp(ReadOnlySpan<byte> packet, Span<byte> destination, out int written, out PacketReason reason)
     {
         lock (_gate)
         {
             RequireDirection(SrtpDirection.Receive);
-            written = 0;
+            written = 0; reason = PacketReason.InvalidFraming;
             var length = packet.Length - RtcpOverhead;
             if (length < 8 || length > MaximumPacketLength || destination.Length < length || packet.Overlaps(destination) ||
                 (packet[0] >> 6) != 2) return false;
@@ -161,8 +165,9 @@ public sealed class SrtpContext : IDisposable
             var index = indexWord & 0x7FFFFFFF;
             var encrypted = (indexWord & 0x80000000) != 0;
             var source = BinaryPrimitives.ReadUInt32BigEndian(packet[4..]);
-            if (!TryState(_rtcpSources, source, out var state) || !state.CanAccept(index) ||
-                _rtcpInvocations >= 1UL << 31) return false;
+            if (!TryState(_rtcpSources, source, out var state) || _rtcpInvocations >= 1UL << 31) return false;
+            if (!state.CanAccept(index)) { reason = PacketReason.ReplayOrTooOld; return false; }
+            reason = PacketReason.Authentication;
             Span<byte> plaintext = stackalloc byte[length];
             Span<byte> aad = stackalloc byte[length + 4];
             try
@@ -186,7 +191,7 @@ public sealed class SrtpContext : IDisposable
                 _rtcpSources[source] = state;
                 _rtcpInvocations++;
                 plaintext.CopyTo(destination);
-                written = length;
+                written = length; reason = PacketReason.None;
                 return true;
             }
             finally
