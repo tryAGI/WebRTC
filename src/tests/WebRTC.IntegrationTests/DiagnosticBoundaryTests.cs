@@ -48,6 +48,13 @@ internal static class DiagnosticBoundaryTests
         await Task.WhenAll(a.ConnectAsync(b.LocalCredentials, IceRole.Controlling, [new(b.LocalEndPoint)], ct),
             b.ConnectAsync(a.LocalCredentials, IceRole.Controlled, [new(a.LocalEndPoint)], ct));
         Volatile.Write(ref armed, 1);
+        // Pure consent deliberately bypasses candidate admission; inject a fresh authenticated connectivity check.
+        var check = new byte[1024];
+        var writer = new StunMessageWriter(check, 1, System.Security.Cryptography.RandomNumberGenerator.GetBytes(12));
+        Check(writer.TryAddAttribute(6, System.Text.Encoding.ASCII.GetBytes(b.LocalCredentials.UsernameFragment + ":" + a.LocalCredentials.UsernameFragment)), "STUN username");
+        Check(writer.TryAddUInt32(0x24, 1862270975) && writer.TryAddUInt64(0x802A, 42), "STUN role");
+        Check(writer.TryComplete(System.Text.Encoding.ASCII.GetBytes(b.LocalCredentials.Password), true, out var length), "STUN integrity");
+        await a.SendDatagramAsync(check.AsMemory(0, length), ct);
         try
         {
             await entered.Task.WaitAsync(ct);

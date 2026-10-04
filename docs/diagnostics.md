@@ -132,8 +132,9 @@ callback start. Receive handler duration includes awaited response handling; rea
 and the following arm expose managed scheduling. Pre-receive network delay remains
 outside those durations.
 
-For Opus send, `CatchUpBurst` records advancing RTP time delivered in less than half
-its media-clock interval. This is an observation, not a built-in pacer. Video and
+For Opus send, `CatchUpBurst` compares serialized send admission times and records
+advancing RTP time admitted in less than half its media-clock interval. Queued caller
+submission times do not substitute for send admission timing. This is an observation, not a built-in pacer. Video and
 advanced RTCP do not claim this Opus-specific classification. Internal RTCP report
 budget/raw-request scheduling and SCTP packet-stage tracing are not exported in v1;
 SCTP lifecycle is exported.

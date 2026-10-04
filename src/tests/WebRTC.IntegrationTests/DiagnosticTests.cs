@@ -204,6 +204,7 @@ internal static class DiagnosticTests
 
     internal static async Task Performance()
     {
+        using var experiment = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, collector) => { if (instrument.Meter.Name == PeerDiagnosticSession.InstrumentationName) collector.EnableMeasurementEvents(instrument); };
         listener.SetMeasurementEventCallback<long>((i, m, t, s) => { }); listener.SetMeasurementEventCallback<double>((i, m, t, s) => { }); listener.SetMeasurementEventCallback<int>((i, m, t, s) => { }); listener.Start();
@@ -212,7 +213,7 @@ internal static class DiagnosticTests
         for (var index = 0; index < 3; index++)
         {
             var mode = modes[(round + index) % modes.Length];
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)); var ct = timeout.Token;
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(experiment.Token); timeout.CancelAfter(TimeSpan.FromSeconds(15)); var ct = timeout.Token;
             await using var a = new PeerConnection(Options()); await using var b = new PeerConnection(Options()); await Connect(a, b, ct);
             using var capture = mode == "off" ? null : b.AttachDiagnostics(Capture() with { PacketTrace = mode == "trace" });
             var payload = Payload();

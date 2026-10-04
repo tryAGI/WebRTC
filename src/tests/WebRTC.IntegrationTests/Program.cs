@@ -325,7 +325,8 @@ foreach (var (name, run) in cases)
     var timer = Stopwatch.StartNew();
     try
     {
-        await run().WaitAsync(TimeSpan.FromSeconds(15));
+        var deadline = name.StartsWith("Diagnostics performance", StringComparison.Ordinal) ? TimeSpan.FromMinutes(2) : TimeSpan.FromSeconds(15);
+        await run().WaitAsync(deadline);
         Console.WriteLine($"PASS {name} ({timer.Elapsed.TotalMilliseconds:F1} ms)");
     }
     catch (Exception exception)

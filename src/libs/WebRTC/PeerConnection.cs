@@ -53,7 +53,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private readonly Guid _diagnosticEpoch = Guid.NewGuid();
     private PeerDiagnosticSession? _diagnostics;
     private readonly record struct QueuedAudio(EncodedOpusPacket Packet, PacketDiagnostic Trace);
-    private long _lastAudioSubmission;
+    private long _lastAudioSendAt;
     private uint _lastAudioTimestamp;
     private readonly Channel<EncodedVideoFrame> _video;
     private readonly Channel<byte[]> _control;
@@ -264,7 +264,6 @@ public sealed partial class PeerConnection : IAsyncDisposable
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         var diagnostic = Volatile.Read(ref _diagnostics);
         var trace = diagnostic?.Begin(PacketDirection.Send, _ice.SelectedDiagnosticPath, _ice.DiagnosticGeneration, payload.Length) ?? default;
-        var submitted = trace.Owner == null ? 0 : Stopwatch.GetTimestamp();
         trace.Protocol(DiagnosticProtocol.AudioRtp);
         trace.Mark(PacketStage.CallerSubmission);
         try { await _audioSend.WaitAsync(linked.Token).ConfigureAwait(false); }
@@ -276,10 +275,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
             if (payload.Length < 1 || payload.Length > MaximumAudioPayloadBytes) throw new ArgumentOutOfRangeException(nameof(payload));
             trace.Identify(AudioSource, _sequence, rtpTimestamp, 1);
             var mediaDelta = unchecked((int)(rtpTimestamp - _lastAudioTimestamp));
-            var catchUp = submitted != 0 && _lastAudioSubmission != 0 && mediaDelta > 0 &&
-                Stopwatch.GetElapsedTime(_lastAudioSubmission, submitted).TotalSeconds < mediaDelta / 48000.0 / 2;
+            var sendAt = trace.Owner == null ? 0 : Stopwatch.GetTimestamp();
+            var catchUp = sendAt != 0 && _lastAudioSendAt != 0 && sendAt >= _lastAudioSendAt && mediaDelta > 0 &&
+                Stopwatch.GetElapsedTime(_lastAudioSendAt, sendAt).TotalSeconds < mediaDelta / 48000.0 / 2;
             trace.Mark(PacketStage.SendLockAcquired, catchUp ? PacketReason.CatchUpBurst : PacketReason.None);
-            _lastAudioSubmission = submitted; _lastAudioTimestamp = rtpTimestamp;
+            _lastAudioSendAt = sendAt; _lastAudioTimestamp = rtpTimestamp;
             var packet = _routing!.Write(payload.Span, _sequence++, rtpTimestamp, marker);
             // Consume the sequence even if transmission is cancelled after protection; SRTP indexes cannot be reused.
             await _dtls!.SendDiagnosticRtpAsync(packet, trace, linked.Token).ConfigureAwait(false);
