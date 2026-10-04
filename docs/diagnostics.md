@@ -1,5 +1,9 @@
 # Opt-in realtime diagnostics (contract version 1)
 
+For timeout investigation, [retained establishment evidence](establishment.md)
+separately records ICE/DTLS/SCTP/DCEP outcomes and survives peer disposal.
+It does not require enabling packet capture.
+
 `tryAGI.WebRTC` uses the .NET framework's `Meter` and `ActivitySource`. Core has
 no exporter, logging/DI requirement or additional runtime package. Attach a live
 capture with `PeerConnection.AttachDiagnostics`; lower-level ICE owners can use

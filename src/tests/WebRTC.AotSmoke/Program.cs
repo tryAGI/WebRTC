@@ -9,6 +9,12 @@ await DtlsReceiveBoundsTests.IceBoundary();
 await DtlsReceiveBoundsTests.Exchange(1200);
 await DtlsReceiveBoundsTests.Exchange(2048);
 Console.WriteLine("NativeAOT independent receive limits and atomic oversized-record rejection passed");
+foreach (var stage in new[] { "dtls", "sctp", "dcep", "deadline" }) await EstablishmentTests.Stall(stage);
+foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive }) await EstablishmentTests.Repeated(setup);
+foreach (var cancel in new[] { false, true }) await EstablishmentTests.IceFailure(cancel);
+await EstablishmentTests.AuthenticationFailure();
+await EstablishmentTests.Bounds();
+Console.WriteLine("NativeAOT establishment failures, retained evidence, repeated peers and bounded history passed");
 Span<byte> binding = stackalloc byte[20];
 if (!StunMessage.TryWriteBindingRequest(binding, "012345678901"u8) ||
     !StunMessage.TryParse(binding, out var stun) || stun.Type != StunMessage.BindingRequest)

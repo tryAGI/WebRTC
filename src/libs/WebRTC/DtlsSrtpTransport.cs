@@ -73,6 +73,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
     private TimeSpan _retryDelay;
     private long _retransmissions, _rejected, _droppedApplication, _droppedMedia;
 
+    internal EstablishmentJournal? Establishment { get; init; }
     public DtlsRole Role => _role;
     public int MaximumApplicationDatagramSize => _options.MaximumDatagramSize - 37;
     public bool IsConnected => Volatile.Read(ref _ready) && !_completion.Task.IsCompleted;
@@ -111,6 +112,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         if (!_ice.IsConnected) throw new InvalidOperationException("DTLS requires a nominated ICE transport.");
         if (Interlocked.Exchange(ref _started, 1) != 0) throw new InvalidOperationException("DTLS has one handshake per instance.");
         _startedAt = Stopwatch.GetTimestamp();
+        Establishment?.Begin(EstablishmentPhase.Dtls, DiagnosticStep());
         _pump = RunAsync();
         using var registration = cancellationToken.Register(() => _lifetime.Cancel());
         try { await _connected.Task.WaitAsync(cancellationToken).ConfigureAwait(false); }
@@ -128,7 +130,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         return new(PacketStage.SecureMediaEnqueued, null, _media.Reader.Count, capture?.QueueHighWater(PacketStage.SecureMediaEnqueued),
             at == 0 ? null : Stopwatch.GetElapsedTime(at));
     }
-    public DtlsSrtpDiagnostics GetDiagnostics() => new(_role, IsConnected ? _profile : null,
+    public DtlsSrtpDiagnostics GetDiagnostics() => new(_role, _readyAt == 0 ? null : _profile,
         _readyAt == 0 ? null : Stopwatch.GetElapsedTime(_startedAt, _readyAt), Interlocked.Read(ref _retransmissions),
         Interlocked.Read(ref _rejected), Interlocked.Read(ref _droppedApplication), Interlocked.Read(ref _droppedMedia));
 
@@ -249,6 +251,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         catch (Exception error) { reason = error; }
         finally
         {
+            Establishment?.End(EstablishmentPhase.Dtls, reason);
             _lifetime.Cancel();
             Volatile.Write(ref _ready, false);
             _connected.TrySetException(reason);
@@ -411,7 +414,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         while (_assemblies.TryGetValue(_expectedSequence, out var complete) && complete.Complete)
         {
             _assemblies.Remove(_expectedSequence); _assemblyBytes -= complete.Body.Length;
-            try { ProcessHandshake(complete.Type, _expectedSequence, complete.Body); }
+            try { ProcessHandshake(complete.Type, _expectedSequence, complete.Body); Establishment?.Progress(EstablishmentPhase.Dtls, DiagnosticStep()); }
             catch (InvalidDataException) { Reject(); return; }
             if (_expectedSequence == ushort.MaxValue) throw new AuthenticationException("DTLS handshake sequence limit reached.");
             _expectedSequence++;
@@ -710,7 +713,9 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         CryptographicOperations.ZeroMemory(_master); _master = null;
         _ephemeral.Dispose();
         _transcript.Dispose();
-        _readyAt = Stopwatch.GetTimestamp(); Volatile.Write(ref _ready, true); _connected.TrySetResult();
+        _readyAt = Stopwatch.GetTimestamp(); Volatile.Write(ref _ready, true);
+        Establishment?.Progress(EstablishmentPhase.Dtls, HandshakeStep.DtlsComplete);
+        Establishment?.End(EstablishmentPhase.Dtls); _connected.TrySetResult();
         _assemblies.Clear(); _assemblyBytes = 0; _pendingEncrypted.Clear();
         if (_role == DtlsRole.Client) _flight.Clear();
     }
@@ -729,6 +734,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         if (_flight.Count == 0 || (_ready && (_role != DtlsRole.Server || Stopwatch.GetElapsedTime(_readyAt) >= TimeSpan.FromMinutes(4))) ||
             (_lastDuplicateResponseAt != 0 && Stopwatch.GetElapsedTime(_lastDuplicateResponseAt) < TimeSpan.FromMilliseconds(100))) return;
         _lastDuplicateResponseAt = Stopwatch.GetTimestamp(); _sendPending = true; Interlocked.Increment(ref _retransmissions);
+        Establishment?.Progress(EstablishmentPhase.Dtls, DiagnosticStep(), retransmission: true);
     }
 
     private async Task SendFlightAsync(bool retry)
@@ -759,7 +765,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
                 }
             }
             _sendPending = false; _lastFlightSentAt = Stopwatch.GetTimestamp();
-            if (retry) Interlocked.Increment(ref _retransmissions);
+            if (retry) { Interlocked.Increment(ref _retransmissions); Establishment?.Progress(EstablishmentPhase.Dtls, DiagnosticStep(), retransmission: true); }
         }
         finally { _sendGate.Release(); }
     }
@@ -792,6 +798,8 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         finally { _sendGate.Release(); }
         _lifetime.Dispose();
     }
+
+    private HandshakeStep DiagnosticStep() => (HandshakeStep)((int)HandshakeStep.DtlsClientHello + (int)_stage);
 
     private enum Stage { ClientHello, ServerHello, ServerCertificate, ServerKey, CertificateRequest, ServerDone, ClientCertificate, ClientKey, CertificateVerify, Finished, Complete }
     private sealed record FlightEntry(byte Type, ushort Epoch, byte HandshakeType, ushort Sequence, byte[] Body);

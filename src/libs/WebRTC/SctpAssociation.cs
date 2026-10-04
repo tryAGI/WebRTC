@@ -72,6 +72,8 @@ public sealed partial class SctpAssociation : IAsyncDisposable
     private Exception? _receiveFailure;
     private bool _hasRemoteInit, _ready, _closing, _peerShutdown, _shutdownSent, _shutdownAckSent, _finishAfterFlush, _sackNeeded, _peerShutdownComplete;
 
+    internal EstablishmentJournal? Establishment { get; init; }
+    public SctpRole Role => _role;
     public int MaximumMessageSize => _options.MaximumMessageSize;
     public DtlsRole DtlsRole => _transport.Role;
     public bool IsConnected { get { lock (_gate) return _ready && !_completion.Task.IsCompleted; } }
@@ -117,6 +119,7 @@ public sealed partial class SctpAssociation : IAsyncDisposable
         if (!_transport.IsConnected) throw new InvalidOperationException("SCTP requires authenticated DTLS.");
         if (Interlocked.Exchange(ref _started, 1) != 0) throw new InvalidOperationException("One association per instance.");
         _startedAt = Stopwatch.GetTimestamp();
+        Establishment?.Begin(EstablishmentPhase.Sctp, _role == SctpRole.Initiator ? HandshakeStep.SctpInitAck : HandshakeStep.SctpInit);
         _pump = RunAsync();
         try { await _connected.Task.WaitAsync(cancellationToken).ConfigureAwait(false); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { _lifetime.Cancel(); throw; }
@@ -322,6 +325,7 @@ public sealed partial class SctpAssociation : IAsyncDisposable
             await receive.DisposeAsync().ConfigureAwait(false);
             lock (_gate)
             {
+                Establishment?.End(EstablishmentPhase.Sctp, reason ?? new IOException("SCTP association closed."));
                 _ready = false;
                 var failure = reason ?? new IOException("SCTP association closed.");
                 _connected.TrySetException(failure); _space.TrySetException(failure); _drained.TrySetException(failure);
@@ -397,6 +401,7 @@ public sealed partial class SctpAssociation : IAsyncDisposable
             if (++_flightRetries > _options.MaximumRetransmissions) throw new TimeoutException("SCTP control retransmission limit reached.");
             QueueControl(_flight); _flightAt = Stopwatch.GetTimestamp(); _flightRto = TimeSpan.FromSeconds(Math.Min(60, 2 * _flightRto.TotalSeconds));
             Interlocked.Increment(ref _retransmissions);
+            if (!_ready) Establishment?.Progress(EstablishmentPhase.Sctp, _flight[0] == 10 ? HandshakeStep.SctpCookieAck : HandshakeStep.SctpInitAck, retransmission: true);
         }
         RetryForwardFlight(); RetryResetFlight();
         var oldest = _outbound.Values.Where(x => x.Sent && !x.GapAcknowledged && !x.Message.Abandoned).OrderBy(x => x.SentAt).FirstOrDefault();
@@ -533,6 +538,7 @@ public sealed partial class SctpAssociation : IAsyncDisposable
         if (acknowledgment)
         {
             _peerCookie = cookie;
+            Establishment?.Progress(EstablishmentPhase.Sctp, HandshakeStep.SctpCookieAck);
             SetFlight(SctpWire.Chunk(10, 0, cookie!));
         }
         else
@@ -542,6 +548,7 @@ public sealed partial class SctpAssociation : IAsyncDisposable
                 var seed = new byte[24]; body[..16].CopyTo(seed); SctpWire.U32(seed.AsSpan(16), _localTag); SctpWire.U32(seed.AsSpan(20), _initialTsn);
                 _cookie = HMACSHA256.HashData(_cookieKey, seed); _initAck = Init(2, _cookie);
             }
+            Establishment?.Progress(EstablishmentPhase.Sctp, HandshakeStep.SctpCookieEcho);
             QueueControl(_initAck!);
         }
     }
@@ -550,7 +557,9 @@ public sealed partial class SctpAssociation : IAsyncDisposable
     {
         if (!_hasRemoteInit) throw new IOException("SCTP cookie without negotiated parameters.");
         if (_ready) return;
-        _flight = null; _ready = true; _connected.TrySetResult();
+        _flight = null; _ready = true;
+        Establishment?.Progress(EstablishmentPhase.Sctp, HandshakeStep.SctpComplete);
+        Establishment?.End(EstablishmentPhase.Sctp); _connected.TrySetResult();
     }
 
     private void ProcessData(byte flags, ReadOnlySpan<byte> body)

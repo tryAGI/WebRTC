@@ -25,6 +25,14 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Early requests require authentication and bound buffered state", EarlyCheckBounds),
     ("Early request remote identity is checked after signaling", EarlyIdentity),
 };
+foreach (var stage in new[] { "dtls", "sctp", "dcep", "deadline" })
+    cases.Add(($"Establishment isolated timeout/cancellation and disposal {stage}", () => EstablishmentTests.Stall(stage)));
+foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
+    cases.Add(($"Establishment repeated independent peers {setup}", () => EstablishmentTests.Repeated(setup)));
+foreach (var cancel in new[] { false, true })
+    cases.Add(($"Establishment ICE silence versus caller cancellation {cancel}", () => EstablishmentTests.IceFailure(cancel)));
+cases.Add(("Establishment fingerprint authentication failure remains enforced", EstablishmentTests.AuthenticationFailure));
+cases.Add(("Establishment bounded phase history and exact channel totals", EstablishmentTests.Bounds));
 foreach (TurnServerTransport? relay in new TurnServerTransport?[] { null, TurnServerTransport.Udp, TurnServerTransport.Tcp, TurnServerTransport.Tls })
     cases.Add(($"Diagnostics correlated receive/send path {relay?.ToString() ?? "host"}", () => DiagnosticTests.Stages(relay)));
 cases.Add(("Diagnostics live lifecycle, queues, bounded drops and expiry", DiagnosticTests.QueueAndLifecycle));

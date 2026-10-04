@@ -108,7 +108,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         if (!Enum.IsDefined(options.VideoDirection)) throw new ArgumentOutOfRangeException(nameof(options));
         _options = options with { VideoCodecs = Array.AsReadOnly(videoCodecs) }; _identity = DtlsIdentity.Generate();
         try { _ice = new(new(options.LocalEndPoint.Address, options.LocalEndPoint.Port), options: options.Ice with
-            { RemoteCandidateFilter = SupportedCandidate }); }
+            { RemoteCandidateFilter = SupportedCandidate }) { Establishment = _establishment }; }
         catch { _identity.Dispose(); throw; }
         _endpoint = _ice.LocalEndPoint;
         do { AudioSource = BinaryPrimitives.ReadUInt32BigEndian(RandomNumberGenerator.GetBytes(4)); } while (AudioSource == 0);
@@ -382,10 +382,13 @@ public sealed partial class PeerConnection : IAsyncDisposable
         Exception? reason = null; Task? media = null, videoExpiry = null, control = null;
         using var establishment = CancellationTokenSource.CreateLinkedTokenSource(caller, _lifetime.Token);
         establishment.CancelAfter(_options.ConnectionTimeout);
+        _establishment.Begin(EstablishmentPhase.Connection);
+        _establishment.Begin(EstablishmentPhase.Ice, HandshakeStep.IceNomination);
         try
         {
             await _ice.ConnectAsync(_session!.RemoteCredentials, _session.IceRole, candidates, establishment.Token).ConfigureAwait(false);
-            _dtls = new(_ice, _identity, _session.DtlsRole, Convert.FromHexString(_session.RemoteFingerprintSha256), _options.Dtls);
+            _establishment.End(EstablishmentPhase.Ice);
+            _dtls = new(_ice, _identity, _session.DtlsRole, Convert.FromHexString(_session.RemoteFingerprintSha256), _options.Dtls) { Establishment = _establishment };
             var dtlsAt = Stopwatch.GetTimestamp();
             await _dtls.ConnectAsync(establishment.Token).ConfigureAwait(false);
             Volatile.Read(ref _diagnostics)?.Lifecycle(PacketStage.Dtls, dtlsAt);
@@ -396,17 +399,22 @@ public sealed partial class PeerConnection : IAsyncDisposable
             {
                 var sctpOptions = _options.Sctp with { LocalPort = _session.LocalData.SctpPort!.Value, RemotePort = _session.RemoteData!.SctpPort!.Value,
                     MaximumMessageSize = _session.MaximumMessageSize, MaximumPacketSize = Math.Min(_options.Sctp.MaximumPacketSize, _dtls.MaximumApplicationDatagramSize) };
-                _sctp = new(_dtls, _session.DtlsRole == DtlsRole.Client ? SctpRole.Initiator : SctpRole.Responder, sctpOptions);
+                _sctp = new(_dtls, _session.DtlsRole == DtlsRole.Client ? SctpRole.Initiator : SctpRole.Responder, sctpOptions) { Establishment = _establishment };
                 var sctpAt = Stopwatch.GetTimestamp();
                 await _sctp.ConnectAsync(establishment.Token).ConfigureAwait(false);
                 Volatile.Read(ref _diagnostics)?.Lifecycle(PacketStage.Sctp, sctpAt);
-                _channels = new(_sctp, _options.Channels); _dataReady.TrySetResult();
+                _channels = new(_sctp, _options.Channels) { Establishment = _establishment }; _dataReady.TrySetResult();
             }
-            else _dataReady.TrySetException(new NotSupportedException("Data channels were not negotiated."));
+            else
+            {
+                _establishment.NotNegotiated(EstablishmentPhase.Sctp); _establishment.NotNegotiated(EstablishmentPhase.Dcep);
+                _dataReady.TrySetException(new NotSupportedException("Data channels were not negotiated."));
+            }
             establishment.Token.ThrowIfCancellationRequested();
             lock (_gate) { RequireOpen(); _state = PeerConnectionState.Connected; }
             Interlocked.Exchange(ref _connectedAt, Stopwatch.GetTimestamp());
-            Volatile.Read(ref _diagnostics)?.Lifecycle(PacketStage.Connection, _startedAt); _connected.TrySetResult();
+            Volatile.Read(ref _diagnostics)?.Lifecycle(PacketStage.Connection, _startedAt);
+            _establishment.End(EstablishmentPhase.Connection); _connected.TrySetResult();
             establishment.Dispose();
             // Caller cancellation applies to establishment only, including a stalled SCTP handshake.
             var ends = new List<Task> { _ice.Completion, _dtls.Completion, media, videoExpiry, control, Task.Delay(Timeout.InfiniteTimeSpan, _lifetime.Token) };
@@ -419,9 +427,21 @@ public sealed partial class PeerConnection : IAsyncDisposable
             else if (videoExpiry.IsCompleted) { await videoExpiry.ConfigureAwait(false); reason = new IOException("Video expiry task ended unexpectedly."); }
             else if (media.IsCompleted) { await media.ConfigureAwait(false); reason = new IOException("Secure media stream ended."); }
         }
-        catch (Exception error) { reason = error; }
+        catch (Exception error)
+        {
+            reason = error is OperationCanceledException && establishment.IsCancellationRequested &&
+                !caller.IsCancellationRequested && !_lifetime.IsCancellationRequested
+                ? new TimeoutException("Peer establishment deadline expired.", error) : error;
+        }
         finally
         {
+            // Freeze the original outcome before child disposal or public Closed state can erase it.
+            _establishment.End(EstablishmentPhase.Ice, reason);
+            _establishment.End(EstablishmentPhase.Dtls, reason);
+            _establishment.End(EstablishmentPhase.Sctp, reason);
+            _establishment.End(EstablishmentPhase.Connection, reason);
+            var intentionalCancellation = _disposed && reason is OperationCanceledException;
+            _establishment.Terminal(reason == null || intentionalCancellation ? PeerConnectionState.Closed : PeerConnectionState.Failed, intentionalCancellation ? null : reason);
             _lifetime.Cancel();
             try { await CleanupAsync().ConfigureAwait(false); }
             catch (Exception error) { reason ??= error; }
@@ -529,7 +549,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private async Task DisposeCoreAsync()
     {
         if (_run != null) await _run.ConfigureAwait(false);
-        else { await CleanupAsync().ConfigureAwait(false); Finish(null); }
+        else { _establishment.Terminal(PeerConnectionState.Closed, null); await CleanupAsync().ConfigureAwait(false); Finish(null); }
         lock (_gate) _state = PeerConnectionState.Closed;
         DetachDiagnostics();
         _lifetime.Dispose();

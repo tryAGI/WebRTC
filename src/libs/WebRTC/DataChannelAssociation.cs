@@ -13,6 +13,7 @@ public sealed record DataChannelLimits
 /// <summary>Bounded DCEP channels and stream closure. Owns the SCTP message reader, not the association lifetime.</summary>
 public sealed class DataChannelAssociation : IAsyncDisposable
 {
+    internal EstablishmentJournal? Establishment { get; init; }
     private readonly SctpAssociation _sctp;
     private readonly DataChannelLimits _limits;
     private readonly object _gate = new();
@@ -64,13 +65,16 @@ public sealed class DataChannelAssociation : IAsyncDisposable
         }
         var sent = false;
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        var operation = Establishment?.Begin(EstablishmentPhase.Dcep, HandshakeStep.DcepAck) ?? 0;
         try
         {
             await _sctp.SendMessageAsync(channel.StreamId, 50, open, cancellationToken: linked.Token).ConfigureAwait(false); sent = true;
-            await channel.Opened.WaitAsync(linked.Token).ConfigureAwait(false); return channel;
+            await channel.Opened.WaitAsync(linked.Token).ConfigureAwait(false);
+            Establishment?.End(EstablishmentPhase.Dcep, operation: operation); return channel;
         }
         catch (Exception error)
         {
+            Establishment?.End(EstablishmentPhase.Dcep, error, operation);
             lock (_gate)
             {
                 channel.OpeningFailure = error; DiscardChannelCore(channel);

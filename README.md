@@ -57,6 +57,9 @@ media to start before data-channel setup finishes; callers still observe `Comple
 
 ## Observe packet delays
 
+Inspect [retained establishment evidence](https://github.com/tryAGI/WebRTC/blob/main/docs/establishment.md)
+for ICE/DTLS/SCTP/DCEP timeout attribution, including after disposal.
+
 Attach diagnostics to a live peer for correlated managed receive/decrypt/queue/send
 stages, bounded packet capture and .NET metrics. Collection runs in a consumer-owned
 publication loop, separate from audio processing. Kernel arrival and physical playback

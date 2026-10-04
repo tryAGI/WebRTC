@@ -5,6 +5,12 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+- Retain bounded ICE/DTLS/SCTP/local-DCEP establishment evidence after timeout and
+  disposal, including expected handshake steps, elapsed times and retries. Preserve
+  negotiated SRTP profile after shutdown and classify total deadlines as timeouts.
+  Add local isolated-failure, repeated-peer and history-bound regressions to executed
+  NativeAOT. See [Advantage issue #3 acceptance](docs/establishment.md).
+
 - Wait for the secure local Chromium document before starting the audio/video
   interoperability probe, instead of racing its provisional about:blank context.
 - Reconcile parallel main/tag NuGet publication conflicts with bounded index retries;

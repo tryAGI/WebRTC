@@ -69,6 +69,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
     private readonly TaskCompletionSource<Exception> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Channel<DiagnosticDatagram> _datagrams;
     internal PeerDiagnosticSession? Diagnostics;
+    internal EstablishmentJournal? Establishment { get; init; }
     internal int DiagnosticGeneration => _selected is null ? 0 : 1;
     internal DiagnosticPath SelectedDiagnosticPath => _selected?.Path.Relay?.DiagnosticPath ?? DiagnosticPath.HostUdp;
     private readonly List<Pair> _pairs = [];
@@ -336,6 +337,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
                     }
                     transaction = active;
                     _retransmissions++;
+                    Establishment?.Progress(EstablishmentPhase.Ice, HandshakeStep.IceNomination, retransmission: true);
                     break;
                 }
                 if (pair.Validated && _role == IceRole.Controlled) continue;
