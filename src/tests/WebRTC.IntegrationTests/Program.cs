@@ -29,6 +29,8 @@ foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
     foreach (var remoteRole in Enum.GetValues<SctpRole>())
         cases.Add(($"Establishment SCTP initiates independently of DTLS {setup} {remoteRole}",
             () => PeerSctpRoleTests.Exchange(setup, remoteRole)));
+foreach (var both in new[] { false, true })
+    cases.Add(($"Establishment simultaneous SCTP INIT loss both={both}", () => SctpSimultaneousTests.InitialLoss(both)));
 foreach (var stage in new[] { "dtls", "sctp", "dcep", "deadline" })
     cases.Add(($"Establishment isolated timeout/cancellation and disposal {stage}", () => EstablishmentTests.Stall(stage)));
 foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })

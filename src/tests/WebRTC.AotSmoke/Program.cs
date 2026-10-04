@@ -18,6 +18,8 @@ Console.WriteLine("NativeAOT establishment failures, retained evidence, repeated
 foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
     foreach (var remoteRole in Enum.GetValues<SctpRole>()) await PeerSctpRoleTests.Exchange(setup, remoteRole);
 Console.WriteLine("NativeAOT SCTP active/passive and simultaneous INIT in both DTLS roles passed");
+foreach (var both in new[] { false, true }) await SctpSimultaneousTests.InitialLoss(both);
+Console.WriteLine("NativeAOT simultaneous SCTP INIT loss recovery and retry counters passed");
 Span<byte> binding = stackalloc byte[20];
 if (!StunMessage.TryWriteBindingRequest(binding, "012345678901"u8) ||
     !StunMessage.TryParse(binding, out var stun) || stun.Type != StunMessage.BindingRequest)

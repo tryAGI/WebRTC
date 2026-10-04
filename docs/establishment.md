@@ -28,7 +28,12 @@ DTLS-server/passive remote, successful ICE/DTLS and `MediaReady`, then SCTP
 `SctpInit` timeout with zero retransmissions. A DTLS-client positive control
 connects against the same passive remote. Fixed-source tests require all four
 DTLS-role/remote-SCTP-role combinations to establish and exchange data both ways,
-including simultaneous INIT and DTLS-based stream parity. The low-level
+including simultaneous INIT and DTLS-based stream parity. An additional local
+proxy drops one or both initial encrypted SCTP INIT records after ICE/DTLS are
+established; tests require recovery and bidirectional DCEP data. The two-sided
+loss case must exercise at least one handshake retry: the first retry can establish
+the association before the other initiator needs to retransmit. These cases execute under
+NativeAOT as well. The low-level
 `SctpAssociation` still exposes the passive role for explicit transport use/tests.
 
 This confirmed standards defect is a candidate explanation for issue #3, not a

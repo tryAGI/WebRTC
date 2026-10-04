@@ -5,6 +5,10 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+- Exercise simultaneous SCTP initiators when one or both initial encrypted INIT
+  records are dropped. Verify bidirectional DCEP data, preserved DTLS stream
+  parity and handshake retransmission in managed and executed NativeAOT tests.
+
 ## [0.2.3] - 2026-10-04
 
 - Initiate SCTP from both WebRTC endpoints regardless of DTLS setup, as required

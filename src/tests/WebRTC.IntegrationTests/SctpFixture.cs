@@ -9,7 +9,7 @@ internal sealed class SctpPair : IAsyncDisposable
     public readonly DtlsSrtpTransport ClientDtls, ServerDtls;
     public readonly SctpAssociation Left, Right;
     public readonly SctpProxy Proxy;
-    private SctpPair(SctpOptions options, SctpOptions? remoteOptions)
+    private SctpPair(SctpOptions options, SctpOptions? remoteOptions, SctpRole rightRole)
     {
         var iceOptions = new IceUdpTransportOptions { CheckInterval = TimeSpan.FromMilliseconds(10), InitialRetransmissionTimeout = TimeSpan.FromMilliseconds(100) };
         _leftIce = new(new(IPAddress.Loopback, 0), options: iceOptions); _rightIce = new(new(IPAddress.Loopback, 0), options: iceOptions);
@@ -17,12 +17,12 @@ internal sealed class SctpPair : IAsyncDisposable
         var dtlsOptions = new DtlsSrtpOptions { InitialRetransmissionTimeout = TimeSpan.FromMilliseconds(100) };
         ClientDtls = new(_leftIce, _leftIdentity, DtlsRole.Client, _rightIdentity.GetFingerprintSha256(), dtlsOptions);
         ServerDtls = new(_rightIce, _rightIdentity, DtlsRole.Server, _leftIdentity.GetFingerprintSha256(), dtlsOptions);
-        Left = new(ClientDtls, SctpRole.Initiator, options); Right = new(ServerDtls, SctpRole.Responder, remoteOptions ?? options);
+        Left = new(ClientDtls, SctpRole.Initiator, options); Right = new(ServerDtls, rightRole, remoteOptions ?? options);
         Proxy = new(_leftIce.LocalEndPoint, _rightIce.LocalEndPoint);
     }
-    internal static async Task<SctpPair> Create(SctpOptions options, CancellationToken ct, int initialDrops = 0, bool connectSctp = true, SctpOptions? remoteOptions = null)
+    internal static async Task<SctpPair> Create(SctpOptions options, CancellationToken ct, int initialDrops = 0, bool connectSctp = true, SctpOptions? remoteOptions = null, SctpRole rightRole = SctpRole.Responder)
     {
-        var pair = new SctpPair(options, remoteOptions);
+        var pair = new SctpPair(options, remoteOptions, rightRole);
         try
         {
             await Task.WhenAll(pair._leftIce.ConnectAsync(pair._rightIce.LocalCredentials, IceRole.Controlling, [new(pair.Proxy.EndPoint)], ct),
