@@ -27,6 +27,40 @@ internal static class DiagnosticBoundaryTests
         Check(handler.Stage == PacketStage.ReceiveHandlerCompleted && handler.DurationTicks < dequeued.DurationTicks, "Queue wait was mislabeled receive processing");
         Check(!capture.Clock.KernelReceiveTimestampSupported, "Fabricated kernel timing");
     }
+    internal static async Task ManagedHandlerStall()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(6)); var ct = timeout.Token;
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); var armed = 0;
+        var fast = new IceUdpTransportOptions { ConsentInterval = TimeSpan.FromMilliseconds(100), ConsentTimeout = TimeSpan.FromSeconds(2) };
+        await using var a = new IceUdpTransport(new(IPAddress.Loopback, 0), options: fast);
+        await using var b = new IceUdpTransport(new(IPAddress.Loopback, 0), options: fast with
+        {
+            // Controlled fault in the existing destination-policy boundary, never a diagnostics callback.
+            RemoteCandidateFilter = candidate =>
+            {
+                if (Interlocked.CompareExchange(ref armed, 2, 1) == 1)
+                { entered.TrySetResult(); release.Wait(TimeSpan.FromSeconds(2)); }
+                return true;
+            },
+        });
+        using var capture = b.AttachDiagnostics(new() { PacketTrace = true, EventCapacity = 4096 });
+        await Task.WhenAll(a.ConnectAsync(b.LocalCredentials, IceRole.Controlling, [new(b.LocalEndPoint)], ct),
+            b.ConnectAsync(a.LocalCredentials, IceRole.Controlled, [new(a.LocalEndPoint)], ct));
+        Volatile.Write(ref armed, 1);
+        try
+        {
+            await entered.Task.WaitAsync(ct);
+            await a.SendDatagramAsync(new byte[] { 0x80, 4, 5 }, ct);
+            await Task.Delay(80, ct);
+        }
+        finally { release.Set(); }
+        await foreach (var packet in b.ReceiveDatagramsAsync(ct)) { Check(packet[2] == 5, "Wrong queued datagram"); break; }
+        var events = new PacketStageEvent[capture.TraceCapacity]; var count = capture.Drain(events);
+        Check(events[..count].Any(e => e.Stage == PacketStage.ReceiveHandlerCompleted && e.DurationTicks > Stopwatch.Frequency / 20),
+            "Controlled handler stall was not attributed to managed receive processing");
+        Check(!capture.Clock.KernelReceiveTimestampSupported, "Buffered socket arrival time was fabricated");
+    }
     internal static async Task NetworkFaults()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)); var ct = timeout.Token;

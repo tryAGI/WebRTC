@@ -203,7 +203,9 @@ dotnet run --project src/tests/WebRTC.IntegrationTests -c Release -- --case-filt
 ```
 
 The suite measures 100 actual 60-byte encoded Opus packets at 20 ms pacing for off,
-aggregate-only and bounded-trace modes, after warm-up. It reports process allocation
+aggregate-only and bounded-trace modes, after 50 paced warm-up packets per segment.
+Three rounds rotate mode order to reduce cold JIT/order bias; retain each round and
+compare medians/variation, rather than inferring a speedup from one noisy run. It reports process allocation
 (including both local peers, publication and reused consumer drain), process CPU,
 wall time and send-to-iterator-delivery p50/p99. Framework listener callbacks are
 no-ops; exporter costs and physical playback are excluded. Measurements are noisy,

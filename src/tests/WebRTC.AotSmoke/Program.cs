@@ -235,7 +235,7 @@ Console.WriteLine("NativeAOT ICE server URI/DNS, destination policy, original TL
 await DiagnosticTests.Stages(null);
 foreach (var transport in Enum.GetValues<TurnServerTransport>()) await DiagnosticTests.Stages(transport);
 await DiagnosticTests.QueueAndLifecycle(); await DiagnosticTests.CollectorIsolation(false); await DiagnosticTests.CollectorIsolation(true);
-await DiagnosticTests.CallerPacing(); await DiagnosticTests.SamplingAndActivities(); await DiagnosticTests.ReceptionScopes(); await DiagnosticBoundaryTests.SecureProcessingWait(); await DiagnosticBoundaryTests.NetworkFaults();
+await DiagnosticTests.CallerPacing(); await DiagnosticTests.SamplingAndActivities(); await DiagnosticTests.ReceptionScopes(); await DiagnosticBoundaryTests.ManagedHandlerStall(); await DiagnosticBoundaryTests.SecureProcessingWait(); await DiagnosticBoundaryTests.NetworkFaults();
 Console.WriteLine("NativeAOT opt-in diagnostics, UDP/TCP/TLS stages, collector isolation and controlled fault boundaries passed");
 return 0;
 

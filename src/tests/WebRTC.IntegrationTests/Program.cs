@@ -33,6 +33,7 @@ cases.Add(("Diagnostics slow collector isolation and dispose", () => DiagnosticT
 cases.Add(("Diagnostics delayed caller pacing and independent RTP clock catch-up", DiagnosticTests.CallerPacing));
 cases.Add(("Diagnostics disabled, sampled anomalies, Activity exceptions and cancellation races", DiagnosticTests.SamplingAndActivities));
 cases.Add(("Diagnostics reception rollover, reorder, loss and restart scopes", DiagnosticTests.ReceptionScopes));
+cases.Add(("Diagnostics managed receive handler stall and unknown kernel arrival", DiagnosticBoundaryTests.ManagedHandlerStall));
 cases.Add(("Diagnostics delayed secure processing at ICE queue", DiagnosticBoundaryTests.SecureProcessingWait));
 cases.Add(("Diagnostics managed receive network delay, reorder, duplicate, corrupt and drop", DiagnosticBoundaryTests.NetworkFaults));
 cases.Add(("Diagnostics performance paced Opus three modes", DiagnosticTests.Performance));

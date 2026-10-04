@@ -207,13 +207,18 @@ internal static class DiagnosticTests
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, collector) => { if (instrument.Meter.Name == PeerDiagnosticSession.InstrumentationName) collector.EnableMeasurementEvents(instrument); };
         listener.SetMeasurementEventCallback<long>((i, m, t, s) => { }); listener.SetMeasurementEventCallback<double>((i, m, t, s) => { }); listener.SetMeasurementEventCallback<int>((i, m, t, s) => { }); listener.Start();
-        foreach (var mode in new[] { "off", "aggregate", "trace" })
+        var modes = new[] { "off", "aggregate", "trace" };
+        for (var round = 0; round < 3; round++)
+        for (var index = 0; index < 3; index++)
         {
+            var mode = modes[(round + index) % modes.Length];
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)); var ct = timeout.Token;
             await using var a = new PeerConnection(Options()); await using var b = new PeerConnection(Options()); await Connect(a, b, ct);
             using var capture = mode == "off" ? null : b.AttachDiagnostics(Capture() with { PacketTrace = mode == "trace" });
             var payload = Payload();
-            for (uint n = 0; n < 10; n++) { await a.SendOpusAsync(payload, n * 960, cancellationToken: ct); await First(b, ct); }
+            using (var warmup = new PeriodicTimer(TimeSpan.FromMilliseconds(20)))
+            for (uint n = 0; n < 50; n++)
+            { await warmup.WaitForNextTickAsync(ct); await a.SendOpusAsync(payload, n * 960, cancellationToken: ct); await First(b, ct); }
             PacketStageEvent[] traceBuffer = capture == null ? [] : new PacketStageEvent[capture.TraceCapacity];
             capture?.Publish(); capture?.Drain(traceBuffer);
             const int packets = 100; var latencies = new double[packets];
@@ -222,13 +227,13 @@ internal static class DiagnosticTests
             for (uint n = 0; n < packets; n++)
             {
                 await pacing.WaitForNextTickAsync(ct); var submitted = Stopwatch.GetTimestamp();
-                await a.SendOpusAsync(payload, (n + 10) * 960, cancellationToken: ct); await First(b, ct);
+                await a.SendOpusAsync(payload, (n + 50) * 960, cancellationToken: ct); await First(b, ct);
                 latencies[n] = Stopwatch.GetElapsedTime(submitted).TotalMilliseconds;
                 if (n % 20 == 19) { capture?.Publish(); capture?.Drain(traceBuffer); }
             }
             var bytes = GC.GetTotalAllocatedBytes(precise: true) - allocated; var cpu = Process.GetCurrentProcess().TotalProcessorTime - cpuBefore;
             Array.Sort(latencies);
-            Console.WriteLine($"DIAGNOSTIC_BENCH mode={mode} packets={packets} payload_bytes={payload.Length} elapsed_ms={total.Elapsed.TotalMilliseconds:F2} cpu_ms={cpu.TotalMilliseconds:F2} allocated_bytes={bytes} bytes_per_packet={bytes / (double)packets:F2} delivery_p50_ms={latencies[49]:F3} delivery_p99_ms={latencies[98]:F3}");
+            Console.WriteLine($"DIAGNOSTIC_BENCH round={round + 1} mode={mode} packets={packets} payload_bytes={payload.Length} elapsed_ms={total.Elapsed.TotalMilliseconds:F2} cpu_ms={cpu.TotalMilliseconds:F2} allocated_bytes={bytes} bytes_per_packet={bytes / (double)packets:F2} delivery_p50_ms={latencies[49]:F3} delivery_p99_ms={latencies[98]:F3}");
             capture?.DisposePublisher();
         }
     }
