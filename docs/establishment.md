@@ -229,3 +229,39 @@ linker prerequisites follow [Microsoft NativeAOT guidance](https://learn.microso
 
 These authored fixtures use only local UDP and do not contain private consumer
 code or provider traces.
+
+## BUNDLE route regression
+
+Fresh separately invoked Advantage probes against the serving 0.2.4 adapter on
+2026-10-04 produced two successful establishments and one DTLS ServerHello timeout.
+The failed capture had no trace loss or omission: four 114-byte DTLS socket sends
+completed, and six 687-byte incoming DTLS datagrams were rejected at ICE with
+`InvalidRouteOrConsent`, before DTLS parsing. ICE nomination succeeded and consent
+responses continued; SCTP/DCEP never started. This establishes a receive/admission
+boundary, not the exact rejected predicate or the provider's SDP topology.
+
+Source inspection found a separate concrete negotiation defect: candidates from
+all accepted media sections were merged into one ICE checklist. [RFC 9143 sections
+7.3.1 and 10](https://www.rfc-editor.org/rfc/rfc9143.html#section-10) select transport
+properties from the negotiated BUNDLE-tagged section. The implementation now uses
+only that section's signaled candidate list. For a remote initial offer, it follows
+the tag selected by the local answer, including rejection of the suggested tag.
+Explicit post-negotiation trickle candidates still apply to the bundled transport.
+This change leaves source, path, consent, size, fingerprint and replay guards intact.
+The existing requirement for consistent explicit ICE/DTLS properties across accepted
+sections remains; this is not complete general JSEP or tag-only attribute support.
+
+An authored local two-route fixture reproduces the pre-DTLS timeout against the
+exact published 0.2.4 DLL, independently of the source library. Both UDP routes
+answer authenticated ICE; bundled server DTLS originates only from the tagged
+route. A higher-priority candidate on the non-tagged data section causes the old
+library to nominate the wrong route and drop ServerHello before parsing. The fixed
+source establishes bidirectional DCEP, retains wrong-source rejection and receives
+permitted authenticated Opus after that negative packet. The normal pinned 0.2.2
+baseline also executes the expected old failure; managed and executed NativeAOT
+lanes execute the fixed fixture and tag-selection cases.
+
+The provider's raw SDP and source tuples are intentionally absent from these
+fixtures. The matching local failure boundary does not prove that this BUNDLE
+case caused the real provider incident. Repeat acceptance against the actually
+deployed fixed package, retaining precise ICE counters, remains required for #3.

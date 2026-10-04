@@ -2,6 +2,9 @@ using tryAGI.WebRTC;
 using System.Net;
 using System.Net.Sockets;
 
+BundleTransportTests.Selection();
+await BundleTransportTests.Exchange();
+Console.WriteLine("NativeAOT negotiated BUNDLE tag, two-route DTLS and wrong-source rejection passed");
 foreach (var reason in new[] { IceDatagramRejectionReason.NoNominatedPair, IceDatagramRejectionReason.LocalPathUnavailable,
     IceDatagramRejectionReason.SourceMismatch, IceDatagramRejectionReason.Oversized, IceDatagramRejectionReason.PathMismatch })
     await IceAdmissionDiagnosticTests.Rejection(reason);

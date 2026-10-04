@@ -5,6 +5,13 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+- Use the negotiated BUNDLE-tagged section for remote transport candidates,
+  rather than combining unrelated media-section candidates. Add a local two-route
+  regression: both routes answer ICE, but only the tagged route originates bundled
+  DTLS. Preserve wrong-source rejection, bidirectional DCEP and authenticated
+  media after a rejected packet. Cover tag/media ordering and a rejected suggested
+  tag; execute the fixture under NativeAOT and against the pinned published baseline.
+
 - Retain seven exact ICE data-admission rejection counters independently of packet
   capture, including no nomination, unavailable/mismatched path, wrong source,
   oversize, expired consent and shutdown. Export immutable, address-free snapshots

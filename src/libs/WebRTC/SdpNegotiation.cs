@@ -93,7 +93,13 @@ public sealed class SdpNegotiatedSession
         OutgoingVideoHeaderExtensions = Extensions(answeredVideo, localOfferer ? SdpDirection.ReceiveOnly : SdpDirection.SendOnly);
         IncomingVideoHeaderExtensions = Extensions(answeredVideo, localOfferer ? SdpDirection.SendOnly : SdpDirection.ReceiveOnly);
         LocalAudio = localAudio; RemoteAudio = remoteAudio; LocalData = localData; RemoteData = remoteData; AudioCodec = codec;
-        var transport = remoteAudio ?? remoteVideo ?? remoteData ?? throw new InvalidOperationException("No accepted SDP media.");
+        var remoteMedia = new[] { remoteAudio, remoteVideo, remoteData }.OfType<SdpMediaDescription>().ToArray();
+        // RFC 9143 sections 7.3.1 and 10: the negotiated BUNDLE tag selects
+        // transport properties. Candidate lists on other sections are not alternatives.
+        // For a remote initial offer, use the tag selected in our answer, which
+        // can differ from its suggested tag when that section was rejected.
+        var tag = (localOfferer ? remote : local).BundleMids.FirstOrDefault();
+        var transport = tag is null ? remoteMedia.Single() : remoteMedia.Single(m => m.Mid == tag);
         RemoteCredentials = transport.IceCredentials!; RemoteFingerprintSha256 = transport.FingerprintSha256!;
         var setup = (localOfferer ? transport : localAudio ?? localVideo ?? localData)!.Setup;
         DtlsRole = localOfferer ? setup == SdpSetup.Active ? DtlsRole.Server : DtlsRole.Client :
@@ -102,8 +108,7 @@ public sealed class SdpNegotiatedSession
         MaximumMessageSize = localData == null ? 0 : (int)Math.Min(1048576UL,
             Math.Min(localData.MaximumMessageSize == 0 ? 1048576UL : localData.MaximumMessageSize,
                      remoteData!.MaximumMessageSize == 0 ? 1048576UL : remoteData.MaximumMessageSize));
-        RemoteCandidates = Array.AsReadOnly(new[] { remoteAudio, remoteVideo, remoteData }.OfType<SdpMediaDescription>()
-            .SelectMany(m => m.Candidates).Take(128).ToArray());
+        RemoteCandidates = Array.AsReadOnly(transport.Candidates.ToArray());
     }
     private static IReadOnlyDictionary<int, string> Extensions(SdpMediaDescription? media, SdpDirection direction) =>
         new ReadOnlyDictionary<int, string>(media == null ? new() : media.HeaderExtensions.Where(e =>

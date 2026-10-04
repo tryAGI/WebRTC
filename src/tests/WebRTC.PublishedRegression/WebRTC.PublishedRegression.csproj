@@ -6,5 +6,6 @@
   <ItemGroup>
     <PackageReference Include="tryAGI.WebRTC" Version="[0.2.2]" />
     <Compile Include="../WebRTC.IntegrationTests/PeerSctpRoleTests.cs" Link="PeerSctpRoleTests.cs" />
+    <Compile Include="../WebRTC.IntegrationTests/BundleTransportTests.cs" Link="BundleTransportTests.cs" />
   </ItemGroup>
 </Project>

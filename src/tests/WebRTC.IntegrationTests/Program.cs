@@ -25,6 +25,8 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Early requests require authentication and bound buffered state", EarlyCheckBounds),
     ("Early request remote identity is checked after signaling", EarlyIdentity),
 };
+cases.Add(("BUNDLE tag selects candidates independently of media order", () => { BundleTransportTests.Selection(); return Task.CompletedTask; }));
+cases.Add(("BUNDLE two actual ICE routes retain tagged DTLS and wrong-source rejection", () => BundleTransportTests.Exchange()));
 foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
     foreach (var remoteRole in Enum.GetValues<SctpRole>())
         cases.Add(($"Establishment SCTP initiates independently of DTLS {setup} {remoteRole}",
