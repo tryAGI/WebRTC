@@ -5,6 +5,9 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+- Require managed protocol/network regressions and published/executed whole-root
+  NativeAOT on native Linux arm64 CI, matching the Advantage establishment canary.
+
 ## [0.2.2] - 2026-10-04
 
 - Retain bounded ICE/DTLS/SCTP/local-DCEP establishment evidence after timeout and

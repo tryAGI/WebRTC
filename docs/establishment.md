@@ -117,8 +117,15 @@ before claiming its root cause repaired; missing fresh trace remains explicit.
 dotnet run --project src/tests/WebRTC.IntegrationTests -c Release -- --case-filter Establishment
 ```
 
-The standard three-platform CI and executed whole-root NativeAOT smoke include
+The standard three-platform CI, dedicated native Linux arm64 lane and executed
+whole-root NativeAOT smoke include
 isolated DTLS/SCTP silence, missing DCEP ACK, total-deadline classification,
 repeated independent peers in both DTLS roles and history wrap/disposal checks.
+The arm64 lane builds/runs the same managed protocol/network suite and executes
+its linux-arm64 native binary on an aarch64 host; it does not emulate the deployed
+ECS network or replace a provider canary. The native runner label follows
+[GitHub runner documentation](https://docs.github.com/en/actions/reference/runners/github-hosted-runners);
+linker prerequisites follow [Microsoft NativeAOT guidance](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/).
+
 These authored fixtures use only local UDP and do not contain private consumer
 code or provider traces.

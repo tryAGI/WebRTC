@@ -44,6 +44,32 @@ jobs:
       - run: dotnet publish src/tests/WebRTC.AotSmoke -c Release -r linux-x64 -p:PublishAot=true -o artifacts/aot
       - run: ./artifacts/aot/WebRTC.AotSmoke
 
+  native-arm64:
+    name: Linux arm64 protocols and NativeAOT
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Require native Linux arm64 host
+        run: |
+          test "$(uname -m)" = aarch64
+          dotnet --info
+      - name: NativeAOT linker prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clang zlib1g-dev
+      - run: dotnet build WebRTC.slnx -c Release
+      - run: dotnet run --project src/tests/WebRTC.ProtocolTests -c Release --no-build
+      - run: dotnet run --project src/tests/WebRTC.IntegrationTests -c Release --no-build
+      - run: dotnet publish src/tests/WebRTC.AotSmoke -c Release -r linux-arm64 -p:PublishAot=true -o artifacts/aot-arm64
+      - name: Execute native arm64 transport and establishment regressions
+        run: ./artifacts/aot-arm64/WebRTC.AotSmoke
+
   independent-ice:
     name: Independent Pion ICE and SRTP peer
     runs-on: ubuntu-latest
