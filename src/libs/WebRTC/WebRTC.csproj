@@ -22,6 +22,26 @@
     <PublicSign>true</PublicSign>
     <AssemblyOriginatorKeyFile>../../public.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
+  <Target Name="GenerateWebRtcBuildIdentity" BeforeTargets="CoreCompile" DependsOnTargets="MinVer;InitializeSourceControlInformation">
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(PackageVersion)', '^0\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?(\+[0-9A-Za-z.-]+)?$'))" Text="Build identity requires an experimental semantic package version." />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(SourceRevisionId)', '^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})?$'))" Text="Build identity source revision must be a full Git object ID or empty." />
+    <PropertyGroup>
+      <_WebRtcBuildIdentityFile>$(IntermediateOutputPath)WebRtcBuildInfo.g.cs</_WebRtcBuildIdentityFile>
+    </PropertyGroup>
+    <ItemGroup>
+      <_WebRtcBuildIdentityLine Include="// Generated from the same package/source properties used by the SDK. Do not edit." />
+      <_WebRtcBuildIdentityLine Include="namespace tryAGI.WebRTC%3B" />
+      <_WebRtcBuildIdentityLine Include="public static partial class WebRtcBuildInfo" />
+      <_WebRtcBuildIdentityLine Include="{" />
+      <_WebRtcBuildIdentityLine Include="    private static partial WebRtcBuildIdentity Create() =&gt; new(&quot;tryAGI.WebRTC&quot;, &quot;$(PackageVersion)&quot;, &quot;$(SourceRevisionId)&quot;)%3B" />
+      <_WebRtcBuildIdentityLine Include="}" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(_WebRtcBuildIdentityFile)" Lines="@(_WebRtcBuildIdentityLine)" Overwrite="true" WriteOnlyWhenDifferent="true" Encoding="UTF-8" />
+    <ItemGroup>
+      <Compile Include="$(_WebRtcBuildIdentityFile)" />
+      <FileWrites Include="$(_WebRtcBuildIdentityFile)" />
+    </ItemGroup>
+  </Target>
   <Target Name="RequireExperimentalPackageVersion" BeforeTargets="GenerateNuspec" DependsOnTargets="MinVer">
     <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(PackageVersion)', '^0\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$'))" Text="WebRTC publication is restricted to 0.x versions." />
   </Target>

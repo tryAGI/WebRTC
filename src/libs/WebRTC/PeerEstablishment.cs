@@ -19,7 +19,7 @@ public readonly record struct EstablishmentEvent(EstablishmentPhase Phase, Estab
 public sealed record EstablishmentPhaseEvidence(EstablishmentPhase Phase, EstablishmentStatus Status,
     HandshakeStep Step, EstablishmentFailure Failure, TimeSpan? StartedAfter, TimeSpan? Elapsed,
     long Retransmissions, long Attempts, long Succeeded, long Failed, int Pending);
-/// <summary>Version 1. Fixed-size numeric establishment evidence retained after timeout/disposal.
+/// <summary>Version 1. Bounded establishment evidence and build identity retained after timeout/disposal.
 /// TerminalState describes the peer before cleanup; public State may subsequently become Closed.
 /// DCEP describes local OPEN attempts; Pending and operation numbers distinguish concurrent attempts.</summary>
 public sealed record PeerEstablishmentEvidence(int Version, Guid PeerEpoch, long ClockAnchorTicks, long ClockFrequency,
@@ -27,6 +27,8 @@ public sealed record PeerEstablishmentEvidence(int Version, Guid PeerEpoch, long
     DtlsRole? DtlsRole, SctpRole? SctpRole, IReadOnlyList<EstablishmentPhaseEvidence> Phases,
     IReadOnlyList<EstablishmentEvent> Events, long EventsOverwritten)
 {
+    /// <summary>Exact package and source inputs of the library collecting this evidence.</summary>
+    public WebRtcBuildIdentity Build { get; init; } = WebRtcBuildInfo.Current;
     public long IceChecks { get; init; }
     public IReadOnlyList<IceDatagramRejectionCount> IceRejectedDatagrams { get; init; } = [];
     public long DtlsRejectedRecords { get; init; }

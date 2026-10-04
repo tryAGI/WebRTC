@@ -48,5 +48,7 @@
 <ItemGroup><Compile Include="../WebRTC.IntegrationTests/SctpSimultaneousTests.cs" Link="SctpSimultaneousTests.cs" /></ItemGroup>
 <ItemGroup><Compile Include="../WebRTC.IntegrationTests/HandshakeDiagnosticTests.cs" Link="HandshakeDiagnosticTests.cs" /></ItemGroup>
 <ItemGroup><Compile Include="../WebRTC.IntegrationTests/IceAdmissionDiagnosticTests.cs" Link="IceAdmissionDiagnosticTests.cs" /></ItemGroup>
-<ItemGroup><Compile Include="../WebRTC.IntegrationTests/BundleTransportTests.cs" Link="BundleTransportTests.cs" /></ItemGroup>
+<ItemGroup><Compile Include="../WebRTC.IntegrationTests/BundleTransportTests.cs" Link="BundleTransportTests.cs" />
+<Compile Include="../WebRTC.IntegrationTests/BundleTrickleTests.cs" Link="BundleTrickleTests.cs" />
+<Compile Include="../WebRTC.IntegrationTests/BuildIdentityTests.cs" Link="BuildIdentityTests.cs" /></ItemGroup>
 </Project>

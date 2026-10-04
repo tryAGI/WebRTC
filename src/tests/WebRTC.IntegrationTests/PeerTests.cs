@@ -56,9 +56,11 @@ internal static class PeerTests
         var answer = right.CreateAnswer(offer);
         await Reject<InvalidOperationException>(() => Task.Run(() => left.SetRemoteAnswer(answer.Replace("setup:active", "setup:actpass"))));
         Check(left.State == PeerConnectionState.HaveLocalOffer);
+        await Reject<InvalidOperationException>(() => Task.Run(() => left.AddRemoteCandidate("1 1 UDP 1 127.0.0.1 12345 typ host")));
         left.SetRemoteAnswer(answer);
         await Reject<InvalidOperationException>(() => Task.FromResult(left.CreateOffer()));
-        await Reject<InvalidOperationException>(() => Task.Run(() => left.AddRemoteCandidate("1 1 UDP 1 127.0.0.1 12345 typ host")));
+        left.AddRemoteCandidate("1 1 UDP 1 127.0.0.1 12345 typ host");
+        Check(left.State == PeerConnectionState.Ready && left.GetEstablishmentEvidence().Phases.All(p => p.Status == EstablishmentStatus.NotStarted));
         Check(!left.ToString().Contains("ice-pwd"));
         await Task.WhenAll(left.DisposeAsync().AsTask(), left.DisposeAsync().AsTask()); Check(left.State == PeerConnectionState.Closed && await left.Completion == null);
         await Reject<ObjectDisposedException>(() => Task.FromResult(left.CreateOffer()));

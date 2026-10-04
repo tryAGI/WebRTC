@@ -25,8 +25,16 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Early requests require authentication and bound buffered state", EarlyCheckBounds),
     ("Early request remote identity is checked after signaling", EarlyIdentity),
 };
+cases.Add(("Build identity remains available after disposal without reflection", BuildIdentityTests.Retained));
 cases.Add(("BUNDLE tag selects candidates independently of media order", () => { BundleTransportTests.Selection(); return Task.CompletedTask; }));
 cases.Add(("BUNDLE two actual ICE routes retain tagged DTLS and wrong-source rejection", () => BundleTransportTests.Exchange()));
+cases.Add(("BUNDLE trickle ready admission is bounded, filtered and cancellation-safe", BundleTrickleTests.Admission));
+foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
+    foreach (var dataTag in new[] { false, true })
+        foreach (var decoy in new[] { false, true })
+            foreach (var before in new[] { false, true })
+                cases.Add(($"BUNDLE trickle {setup} dataTag={dataTag} decoy={decoy} beforeConnect={before}",
+                    () => BundleTrickleTests.Exchange(setup, dataTag, decoy, before)));
 foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
     foreach (var remoteRole in Enum.GetValues<SctpRole>())
         cases.Add(($"Establishment SCTP initiates independently of DTLS {setup} {remoteRole}",

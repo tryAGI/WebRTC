@@ -70,6 +70,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private Task? _run, _dispose;
     private bool _disposed;
     private readonly List<IceCandidate> _localCandidates = [];
+    private readonly List<IceCandidate> _pendingRemoteCandidates = [];
     private int _activeGathering;
     private bool _gatheringComplete;
     private ushort _videoSequence = BinaryPrimitives.ReadUInt16BigEndian(RandomNumberGenerator.GetBytes(2));
@@ -235,18 +236,25 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             RequireState(PeerConnectionState.Ready);
             cancellationToken.ThrowIfCancellationRequested();
-            var candidates = _session!.RemoteCandidates.Select(c => c.GetResolvedUdpCandidate()).OfType<IceCandidate>()
-                .Where(SupportedCandidate).DistinctBy(c => c.EndPoint.ToString()).Take(_options.Ice.MaximumCandidatePairs + 1).ToArray();
+            var candidates = ConnectionCandidates();
             if (candidates.Length > _options.Ice.MaximumCandidatePairs) throw new ArgumentException("Remote candidate limit exceeded.");
             RequireState(PeerConnectionState.Ready);
             _state = PeerConnectionState.Connecting; _startedAt = Stopwatch.GetTimestamp();
+            _pendingRemoteCandidates.Clear();
             Volatile.Read(ref _diagnostics)?.Lifecycle(PacketStage.Connection, 0);
             _run = RunAsync(candidates, cancellationToken); return _connected.Task;
         }
     }
+    // Called under _gate. Include only candidates belonging to the negotiated BUNDLE transport.
+    private IceCandidate[] ConnectionCandidates() => _session!.RemoteCandidates
+        .Select(c => c.GetResolvedUdpCandidate()).OfType<IceCandidate>().Concat(_pendingRemoteCandidates)
+        .Where(SupportedCandidate).DistinctBy(c => c.EndPoint.ToString())
+        .Take(_options.Ice.MaximumCandidatePairs + 1).ToArray();
     private bool SupportedCandidate(IceCandidate candidate) => candidate.EndPoint.AddressFamily == _endpoint.AddressFamily &&
         (_options.CandidateFilter?.Invoke(candidate) ?? true) && (_options.Ice.RemoteCandidateFilter?.Invoke(candidate) ?? true);
-    /// <summary>Candidate attribute body, without the a=candidate: prefix; only the active credential generation is accepted.</summary>
+    /// <summary>Candidate attribute body, without the a=candidate: prefix. After successful offer/answer,
+    /// candidates may be supplied before or during ConnectAsync. Ready-state candidates are deduplicated
+    /// and bounded together with the negotiated SDP candidates; they do not start ICE by themselves.</summary>
     public void AddRemoteCandidate(string candidate)
     {
         var parsed = SdpIceCandidate.Parse(candidate).GetResolvedUdpCandidate();
@@ -254,7 +262,22 @@ public sealed partial class PeerConnection : IAsyncDisposable
         lock (_gate)
         {
             RequireOpen();
-            if (_state is not (PeerConnectionState.Connecting or PeerConnectionState.Connected)) throw new InvalidOperationException("ICE generation has not started.");
+            if (_state == PeerConnectionState.Ready)
+            {
+                var candidates = ConnectionCandidates();
+                // A caller-supplied destination policy may re-enter the peer.
+                RequireState(PeerConnectionState.Ready);
+                if (candidates.Any(c => c.EndPoint.Equals(parsed.EndPoint)) ||
+                    _pendingRemoteCandidates.Any(c => c.EndPoint.Equals(parsed.EndPoint))) return;
+                // Bound retained state even when an application changes its destination policy.
+                if (candidates.Length >= _options.Ice.MaximumCandidatePairs ||
+                    _pendingRemoteCandidates.Count >= _options.Ice.MaximumCandidatePairs)
+                    throw new ArgumentException("Remote candidate limit exceeded.", nameof(candidate));
+                _pendingRemoteCandidates.Add(parsed);
+                return;
+            }
+            if (_state is not (PeerConnectionState.Connecting or PeerConnectionState.Connected))
+                throw new InvalidOperationException("A successful remote offer/answer is required before trickling candidates.");
             _ice.AddRemoteCandidate(parsed);
         }
     }
@@ -537,7 +560,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
     {
         lock (_gate)
         {
-            if (_dispose == null) { _disposed = true; _lifetime.Cancel(); _dispose = DisposeCoreAsync(); }
+            if (_dispose == null)
+            {
+                _disposed = true; _pendingRemoteCandidates.Clear();
+                _lifetime.Cancel(); _dispose = DisposeCoreAsync();
+            }
             return new(_dispose);
         }
     }

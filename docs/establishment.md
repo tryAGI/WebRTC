@@ -1,5 +1,7 @@
 # Establishment failures and Advantage acceptance
 
+Current source also provides [retained build identity and bounded ready-state trickle](build-identity-and-trickle.md).
+
 [Issue #3](https://github.com/tryAGI/WebRTC/issues/3) records an actual Advantage
 canary on Linux arm64 / .NET 10 with **0.1.0-dev.37**: four independent provider
 connections, two successes and two consumer `media_connect` timeouts. All four

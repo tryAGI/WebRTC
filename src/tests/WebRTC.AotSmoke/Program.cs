@@ -2,9 +2,17 @@ using tryAGI.WebRTC;
 using System.Net;
 using System.Net.Sockets;
 
+await BuildIdentityTests.Retained();
 BundleTransportTests.Selection();
 await BundleTransportTests.Exchange();
 Console.WriteLine("NativeAOT negotiated BUNDLE tag, two-route DTLS and wrong-source rejection passed");
+await BundleTrickleTests.Admission();
+foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
+    foreach (var dataTag in new[] { false, true })
+        foreach (var decoy in new[] { false, true })
+            foreach (var before in new[] { false, true })
+                await BundleTrickleTests.Exchange(setup, dataTag, decoy, before);
+Console.WriteLine("NativeAOT bounded ready admission and 16 encrypted BUNDLE trickle permutations passed");
 foreach (var reason in new[] { IceDatagramRejectionReason.NoNominatedPair, IceDatagramRejectionReason.LocalPathUnavailable,
     IceDatagramRejectionReason.SourceMismatch, IceDatagramRejectionReason.Oversized, IceDatagramRejectionReason.PathMismatch })
     await IceAdmissionDiagnosticTests.Rejection(reason);
