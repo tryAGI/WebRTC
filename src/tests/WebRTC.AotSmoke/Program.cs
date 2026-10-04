@@ -15,6 +15,9 @@ foreach (var cancel in new[] { false, true }) await EstablishmentTests.IceFailur
 await EstablishmentTests.AuthenticationFailure();
 await EstablishmentTests.Bounds();
 Console.WriteLine("NativeAOT establishment failures, retained evidence, repeated peers and bounded history passed");
+foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
+    foreach (var remoteRole in Enum.GetValues<SctpRole>()) await PeerSctpRoleTests.Exchange(setup, remoteRole);
+Console.WriteLine("NativeAOT SCTP active/passive and simultaneous INIT in both DTLS roles passed");
 Span<byte> binding = stackalloc byte[20];
 if (!StunMessage.TryWriteBindingRequest(binding, "012345678901"u8) ||
     !StunMessage.TryParse(binding, out var stun) || stun.Type != StunMessage.BindingRequest)

@@ -44,4 +44,5 @@
 <ItemGroup><Compile Include="../WebRTC.IntegrationTests/DiagnosticTests.cs" Link="DiagnosticTests.cs" />
 <Compile Include="../WebRTC.IntegrationTests/DiagnosticBoundaryTests.cs" Link="DiagnosticBoundaryTests.cs" /></ItemGroup>
 <ItemGroup><Compile Include="../WebRTC.IntegrationTests/EstablishmentTests.cs" Link="EstablishmentTests.cs" /></ItemGroup>
+<ItemGroup><Compile Include="../WebRTC.IntegrationTests/PeerSctpRoleTests.cs" Link="PeerSctpRoleTests.cs" /></ItemGroup>
 </Project>

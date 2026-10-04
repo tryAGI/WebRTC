@@ -13,6 +13,29 @@ combined `MediaReady`, `ConnectAsync` and channel opening. There is no fresh
 provider trace proving that a particular protocol defect is fixed by a newer
 release. Keep the existing production transport default until repeat acceptance.
 
+## Confirmed SCTP setup defect
+
+RFC 8841 [section 9.3](https://www.rfc-editor.org/rfc/rfc8841.html#section-9.3)
+requires both WebRTC SCTP endpoints to initiate an association. SDP `setup`
+controls DTLS and does not select the SCTP initiator. Through package 0.2.2,
+`PeerConnection` incorrectly used a passive SCTP responder when acting as the
+DTLS server. Another passive SCTP endpoint therefore stalls after successful
+ICE/DTLS until the SCTP deadline. The fixed implementation always initiates SCTP;
+DCEP stream parity still follows DTLS, as required by RFC 8832.
+
+The immutable published 0.2.2 regression project reproduces this exact failure:
+DTLS-server/passive remote, successful ICE/DTLS and `MediaReady`, then SCTP
+`SctpInit` timeout with zero retransmissions. A DTLS-client positive control
+connects against the same passive remote. Fixed-source tests require all four
+DTLS-role/remote-SCTP-role combinations to establish and exchange data both ways,
+including simultaneous INIT and DTLS-based stream parity. The low-level
+`SctpAssociation` still exposes the passive role for explicit transport use/tests.
+
+This confirmed standards defect is a candidate explanation for issue #3, not a
+proven diagnosis of its original provider attempts. The original trace did not
+separate DTLS and SCTP. Fresh Advantage acceptance must identify the failing phase
+and verify the fixed package before issue #3 can close.
+
 ## Retained establishment evidence (version 1, package 0.2.2)
 
 `peer.GetEstablishmentEvidence()` works before starting, during establishment,
@@ -116,6 +139,18 @@ before claiming its root cause repaired; missing fresh trace remains explicit.
 ```sh
 dotnet run --project src/tests/WebRTC.IntegrationTests -c Release -- --case-filter Establishment
 ```
+
+The published baseline is independently runnable:
+
+```sh
+dotnet run --project src/tests/WebRTC.PublishedRegression -c Release
+```
+
+It pins the exact first-party `tryAGI.WebRTC` 0.2.2 package instead of referencing
+the source library; the dependency is confined to a non-packable test executable.
+Three-platform and native arm64 CI must observe the expected old timeout and
+successful positive control. Failure in another protocol or successful old
+passive/passive establishment does not count as a reproduction.
 
 The standard three-platform CI, dedicated native Linux arm64 lane and executed
 whole-root NativeAOT smoke include

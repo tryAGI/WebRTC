@@ -5,6 +5,13 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+- Initiate SCTP from both WebRTC endpoints regardless of DTLS setup, as required
+  by RFC 8841 section 9.3. Previously a DTLS server waited passively, allowing
+  a second passive SCTP peer to stall after successful ICE/DTLS. Add a pinned
+  published-0.2.2 reproduction, positive control and fixed-source regressions
+  with passive and simultaneously initiating peers in both DTLS roles, retaining
+  DTLS-based DCEP stream parity. Execute fixed regressions under NativeAOT too.
+
 - Require managed protocol/network regressions and published/executed whole-root
   NativeAOT on native Linux arm64 CI, matching the Advantage establishment canary.
 - Require the pinned independent Pion interoperability suite on native Linux arm64

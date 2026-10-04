@@ -26,6 +26,8 @@ jobs:
       - name: Publication guard tests
         run: python3 -m unittest discover -s scripts -p "test_*.py"
       - run: dotnet build WebRTC.slnx -c Release
+      - name: Reproduce published 0.2.2 SCTP defect and positive control
+        run: dotnet run --project src/tests/WebRTC.PublishedRegression -c Release --no-build
       - run: dotnet run --project src/tests/WebRTC.ProtocolTests -c Release --no-build
       - run: dotnet run --project src/tests/WebRTC.IntegrationTests -c Release --no-build
       - name: Dependency audit
@@ -64,6 +66,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y clang zlib1g-dev
       - run: dotnet build WebRTC.slnx -c Release
+      - name: Reproduce published 0.2.2 SCTP defect and positive control
+        run: dotnet run --project src/tests/WebRTC.PublishedRegression -c Release --no-build
       - run: dotnet run --project src/tests/WebRTC.ProtocolTests -c Release --no-build
       - run: dotnet run --project src/tests/WebRTC.IntegrationTests -c Release --no-build
       - run: dotnet publish src/tests/WebRTC.AotSmoke -c Release -r linux-arm64 -p:PublishAot=true -o artifacts/aot-arm64

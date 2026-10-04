@@ -25,6 +25,10 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Early requests require authentication and bound buffered state", EarlyCheckBounds),
     ("Early request remote identity is checked after signaling", EarlyIdentity),
 };
+foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
+    foreach (var remoteRole in Enum.GetValues<SctpRole>())
+        cases.Add(($"Establishment SCTP initiates independently of DTLS {setup} {remoteRole}",
+            () => PeerSctpRoleTests.Exchange(setup, remoteRole)));
 foreach (var stage in new[] { "dtls", "sctp", "dcep", "deadline" })
     cases.Add(($"Establishment isolated timeout/cancellation and disposal {stage}", () => EstablishmentTests.Stall(stage)));
 foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })

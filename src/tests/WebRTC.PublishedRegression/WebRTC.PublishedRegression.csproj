@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="tryAGI.WebRTC" Version="[0.2.2]" />
+    <Compile Include="../WebRTC.IntegrationTests/PeerSctpRoleTests.cs" Link="PeerSctpRoleTests.cs" />
+  </ItemGroup>
+</Project>

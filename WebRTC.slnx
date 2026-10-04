@@ -4,6 +4,7 @@
     <Project Path="src/tests/WebRTC.ProtocolTests/WebRTC.ProtocolTests.csproj" />
     <Project Path="src/tests/WebRTC.AotSmoke/WebRTC.AotSmoke.csproj" />
     <Project Path="src/tests/WebRTC.IntegrationTests/WebRTC.IntegrationTests.csproj" />
+    <Project Path="src/tests/WebRTC.PublishedRegression/WebRTC.PublishedRegression.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/interop/Chromium/BrowserPeer.csproj" />

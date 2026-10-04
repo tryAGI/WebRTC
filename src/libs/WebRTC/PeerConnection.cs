@@ -399,7 +399,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
             {
                 var sctpOptions = _options.Sctp with { LocalPort = _session.LocalData.SctpPort!.Value, RemotePort = _session.RemoteData!.SctpPort!.Value,
                     MaximumMessageSize = _session.MaximumMessageSize, MaximumPacketSize = Math.Min(_options.Sctp.MaximumPacketSize, _dtls.MaximumApplicationDatagramSize) };
-                _sctp = new(_dtls, _session.DtlsRole == DtlsRole.Client ? SctpRole.Initiator : SctpRole.Responder, sctpOptions) { Establishment = _establishment };
+                // RFC 8841 section 9.3: both SCTP endpoints initiate, independently of DTLS setup.
+                _sctp = new(_dtls, SctpRole.Initiator, sctpOptions) { Establishment = _establishment };
                 var sctpAt = Stopwatch.GetTimestamp();
                 await _sctp.ConnectAsync(establishment.Token).ConfigureAwait(false);
                 Volatile.Read(ref _diagnostics)?.Lifecycle(PacketStage.Sctp, sctpAt);
