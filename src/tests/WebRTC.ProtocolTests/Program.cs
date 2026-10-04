@@ -5,6 +5,10 @@ using tryAGI.WebRTC;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("Video SDP codec selection, directions and DTLS roles", SdpVideoTests.Selection),
+    ("Video SDP equivalent profiles, Level1b, defaults and asymmetry", SdpVideoTests.Profiles),
+    ("Video SDP sender parameter sets and capability bounds", SdpVideoTests.ParametersAndBounds),
+    ("Video SDP hostile answer and payload collision preflight", SdpVideoTests.HostileAnswer),
     ("Video H264 STAP/FU mode bounds and sequence/timestamp rollover", VideoTests.H264),
     ("Video VP8 descriptor extensions and partition reconstruction", VideoTests.Vp8),
     ("Video loss, late packets, duplicates and access-unit boundaries", VideoTests.LossAndDuplicates),

@@ -127,3 +127,5 @@ Whole-library NativeAOT executes the owner with all three SRTP profiles.
 Real DId/Advantage/Simli provider sessions, physical Watch playback and measured
 latency distributions remain separate acceptance gates. This initial peer provides
 neither a complete browser/JSEP implementation nor an independent security audit.
+
+Initial explicitly configured H264/VP8 SDP and bounded received-frame routing now extend this peer. See [video negotiation](video-peer.md) for capabilities, source ownership, aggregate memory bounds and remaining feedback/decoder gates.

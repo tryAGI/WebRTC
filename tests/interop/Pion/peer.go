@@ -25,6 +25,7 @@ type sessionRequest struct {
 	Sdp     string `json:"sdp"`
 	Passive bool   `json:"passive"`
 	Relay   bool   `json:"relay"`
+	Video   string `json:"video"`
 }
 type sessionResponse struct {
 	Id       string `json:"id"`
@@ -35,6 +36,7 @@ type fullSession struct {
 	peer     *webrtc.PeerConnection
 	cancel   context.CancelFunc
 	audio    atomic.Int32
+	video    atomic.Int32
 	data     atomic.Int32
 	failures atomic.Int32
 	relay    *turn.Server
@@ -50,6 +52,10 @@ func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
 		decoder.DisallowUnknownFields()
 		if decoder.Decode(&request) != nil {
 			http.Error(w, "invalid session", 400)
+			return request, false
+		}
+		if request.Video != "" && request.Video != "h264" && request.Video != "vp8" {
+			http.Error(w, "invalid video codec", 400)
 			return request, false
 		}
 		// The default acceptance lane has no public DNS, STUN/TURN or provider endpoints.
@@ -95,6 +101,20 @@ func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
 		err := media.RegisterCodec(webrtc.RTPCodecParameters{RTPCodecCapability: capability, PayloadType: 111}, webrtc.RTPCodecTypeAudio)
 		if err == nil {
 			err = media.RegisterHeaderExtension(webrtc.RTPHeaderExtensionCapability{URI: "urn:ietf:params:rtp-hdrext:sdes:mid"}, webrtc.RTPCodecTypeAudio)
+		}
+		var videoCapability webrtc.RTPCodecCapability
+		if err == nil && request.Video != "" {
+			videoCapability = webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000, SDPFmtpLine: "max-fs=3600;max-fr=30"}
+			videoPt := webrtc.PayloadType(96)
+			if request.Video == "h264" {
+				videoCapability.MimeType = webrtc.MimeTypeH264
+				videoCapability.SDPFmtpLine = "profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=0"
+				videoPt = 102
+			}
+			err = media.RegisterCodec(webrtc.RTPCodecParameters{RTPCodecCapability: videoCapability, PayloadType: videoPt}, webrtc.RTPCodecTypeVideo)
+			if err == nil {
+				err = media.RegisterHeaderExtension(webrtc.RTPHeaderExtensionCapability{URI: "urn:ietf:params:rtp-hdrext:sdes:mid"}, webrtc.RTPCodecTypeVideo)
+			}
 		}
 		api := webrtc.NewAPI(webrtc.WithSettingEngine(settings), webrtc.WithMediaEngine(media))
 		configuration := webrtc.Configuration{}
@@ -150,6 +170,25 @@ func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
 				}
 			}
 		}()
+		var videoTrack *webrtc.TrackLocalStaticRTP
+		if request.Video != "" {
+			videoTrack, err = webrtc.NewTrackLocalStaticRTP(videoCapability, "video", "tryagi")
+			var videoSender *webrtc.RTPSender
+			if err == nil {
+				videoSender, err = pc.AddTrack(videoTrack)
+			}
+			if err != nil {
+				fail()
+				return
+			}
+			go func() {
+				for {
+					if _, _, e := videoSender.ReadRTCP(); e != nil {
+						return
+					}
+				}
+			}()
+		}
 		pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 			go func() {
 				for {
@@ -161,16 +200,21 @@ func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
 						return
 					}
 					codec := track.Codec()
-					if codec.MimeType != webrtc.MimeTypeOpus || codec.ClockRate != 48000 || len(packet.Payload) > 1275 {
+					echoTrack := localTrack
+					if codec.MimeType == webrtc.MimeTypeOpus && codec.ClockRate == 48000 && len(packet.Payload) <= 1275 {
+						session.audio.Add(1)
+					} else if videoTrack != nil && codec.MimeType == videoCapability.MimeType && codec.ClockRate == 90000 && len(packet.Payload) <= 4096 {
+						echoTrack = videoTrack
+						session.video.Add(1)
+					} else {
 						session.failures.Add(1)
 						cancel()
 						return
 					}
-					session.audio.Add(1)
 					// Public track writer supplies its negotiated PT/SSRC. Do not echo the
 					// other sender's MID extension into our separately signaled track.
 					echo := &rtp.Packet{Header: rtp.Header{Version: 2, SequenceNumber: packet.SequenceNumber, Timestamp: packet.Timestamp, Marker: packet.Marker}, Payload: packet.Payload}
-					if localTrack.WriteRTP(echo) != nil {
+					if echoTrack.WriteRTP(echo) != nil {
 						session.failures.Add(1)
 						cancel()
 						return
@@ -277,7 +321,7 @@ func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
 		if session.relay != nil {
 			allocations = session.relay.AllocationCount()
 		}
-		_ = json.NewEncoder(w).Encode(map[string]int32{"audio": session.audio.Load(), "data": session.data.Load(), "failures": session.failures.Load(), "relayAllocations": int32(allocations)})
+		_ = json.NewEncoder(w).Encode(map[string]int32{"audio": session.audio.Load(), "video": session.video.Load(), "data": session.data.Load(), "failures": session.failures.Load(), "relayAllocations": int32(allocations)})
 	})
 	mux.HandleFunc("DELETE /session/{id}", func(w http.ResponseWriter, r *http.Request) {
 		gate.Lock()

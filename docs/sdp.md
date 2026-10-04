@@ -73,8 +73,9 @@ profiles. Tests use loopback candidates and no provider endpoints.
 
 This is not full RFC 9429 JSEP conformance or an application-ready peer connection.
 General signaling state/rollback, renegotiation, ICE restart, multiple-interface gathering,
-TURN TCP/TLS/name resolution, video codec selection, multiple-media MID/SSRC routing,
+name resolution, multiple accepted video sections/general MID routing,
 RTCP feedback, codec decoding and timed media delivery remain. Synthetic packet
 transport is not audible playback or measured provider/Apple Watch voice latency.
 The [initial owned peer](peer-connection.md) now supplies the initial signaling
-lifecycle and bounded Opus routing above these helpers.
+lifecycle and bounded Opus routing above these helpers. Explicit H264/VP8 codec
+selection and video routing now extend that initial peer; see [video negotiation](video-peer.md).

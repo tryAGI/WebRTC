@@ -42,6 +42,14 @@ public sealed class SdpNegotiatedSession
 {
     public SdpMediaDescription? LocalAudio { get; }
     public SdpMediaDescription? RemoteAudio { get; }
+    public SdpMediaDescription? LocalVideo { get; }
+    public SdpMediaDescription? RemoteVideo { get; }
+    public SdpVideoFormat? VideoFormat { get; }
+    public SdpDirection VideoDirection { get; }
+    public IReadOnlyDictionary<int, string> OutgoingVideoHeaderExtensions { get; }
+    public IReadOnlyDictionary<int, string> IncomingVideoHeaderExtensions { get; }
+    public bool CanSendVideo => LocalVideo != null && VideoDirection is SdpDirection.SendReceive or SdpDirection.SendOnly;
+    public bool CanReceiveVideo => LocalVideo != null && VideoDirection is SdpDirection.SendReceive or SdpDirection.ReceiveOnly;
     public SdpMediaDescription? LocalData { get; }
     public SdpMediaDescription? RemoteData { get; }
     public SdpRtpCodec? AudioCodec { get; }
@@ -57,7 +65,7 @@ public sealed class SdpNegotiatedSession
     public int MaximumMessageSize { get; }
     public IReadOnlyList<SdpIceCandidate> RemoteCandidates { get; }
     internal SdpNegotiatedSession(SdpSessionDescription local, SdpSessionDescription remote, SdpMediaDescription? localAudio,
-        SdpMediaDescription? remoteAudio, SdpMediaDescription? localData, SdpMediaDescription? remoteData, SdpRtpCodec? codec, bool localOfferer)
+        SdpMediaDescription? remoteAudio, SdpMediaDescription? localData, SdpMediaDescription? remoteData, SdpRtpCodec? codec, bool localOfferer, SdpMediaDescription? localVideo = null, SdpMediaDescription? remoteVideo = null)
     {
         var answeredDirection = (localOfferer ? remoteAudio : localAudio)?.Direction ?? SdpDirection.Inactive;
         AudioDirection = !localOfferer ? answeredDirection : answeredDirection switch { SdpDirection.SendOnly => SdpDirection.ReceiveOnly, SdpDirection.ReceiveOnly => SdpDirection.SendOnly, _ => answeredDirection };
@@ -68,51 +76,80 @@ public sealed class SdpNegotiatedSession
         IncomingAudioHeaderExtensions = new ReadOnlyDictionary<int, string>(answeredAudio == null ? new() :
             answeredAudio.HeaderExtensions.Where(e => answeredAudio.HeaderExtensionDirections[e.Key] == SdpDirection.SendReceive ||
                 answeredAudio.HeaderExtensionDirections[e.Key] == (localOfferer ? SdpDirection.SendOnly : SdpDirection.ReceiveOnly)).ToDictionary(e => e.Key, e => e.Value));
+        LocalVideo = localVideo; RemoteVideo = remoteVideo;
+        var answeredVideo = localOfferer ? remoteVideo : localVideo;
+        VideoDirection = !localOfferer ? answeredVideo?.Direction ?? SdpDirection.Inactive : answeredVideo?.Direction switch
+        { SdpDirection.SendOnly => SdpDirection.ReceiveOnly, SdpDirection.ReceiveOnly => SdpDirection.SendOnly, var d => d ?? SdpDirection.Inactive };
+        VideoFormat = localVideo == null ? null : new(localVideo.Codecs.Single(c => c.PayloadType == answeredVideo!.Codecs[0].PayloadType), remoteVideo!.Codecs.Single(c => c.PayloadType == answeredVideo!.Codecs[0].PayloadType));
+        OutgoingVideoHeaderExtensions = Extensions(answeredVideo, localOfferer ? SdpDirection.ReceiveOnly : SdpDirection.SendOnly);
+        IncomingVideoHeaderExtensions = Extensions(answeredVideo, localOfferer ? SdpDirection.SendOnly : SdpDirection.ReceiveOnly);
         LocalAudio = localAudio; RemoteAudio = remoteAudio; LocalData = localData; RemoteData = remoteData; AudioCodec = codec;
-        var transport = remoteAudio ?? remoteData ?? throw new InvalidOperationException("No accepted SDP media.");
+        var transport = remoteAudio ?? remoteVideo ?? remoteData ?? throw new InvalidOperationException("No accepted SDP media.");
         RemoteCredentials = transport.IceCredentials!; RemoteFingerprintSha256 = transport.FingerprintSha256!;
-        var setup = (localOfferer ? transport : localAudio ?? localData)!.Setup;
+        var setup = (localOfferer ? transport : localAudio ?? localVideo ?? localData)!.Setup;
         DtlsRole = localOfferer ? setup == SdpSetup.Active ? DtlsRole.Server : DtlsRole.Client :
             setup == SdpSetup.Active ? DtlsRole.Client : DtlsRole.Server;
         IceRole = localOfferer || remote.IceLite ? IceRole.Controlling : IceRole.Controlled;
         MaximumMessageSize = localData == null ? 0 : (int)Math.Min(1048576UL,
             Math.Min(localData.MaximumMessageSize == 0 ? 1048576UL : localData.MaximumMessageSize,
                      remoteData!.MaximumMessageSize == 0 ? 1048576UL : remoteData.MaximumMessageSize));
-        RemoteCandidates = Array.AsReadOnly(new[] { remoteAudio, remoteData }.OfType<SdpMediaDescription>()
+        RemoteCandidates = Array.AsReadOnly(new[] { remoteAudio, remoteVideo, remoteData }.OfType<SdpMediaDescription>()
             .SelectMany(m => m.Candidates).Take(128).ToArray());
     }
+    private static IReadOnlyDictionary<int, string> Extensions(SdpMediaDescription? media, SdpDirection direction) =>
+        new ReadOnlyDictionary<int, string>(media == null ? new() : media.HeaderExtensions.Where(e =>
+            media.HeaderExtensionDirections[e.Key] == SdpDirection.SendReceive || media.HeaderExtensionDirections[e.Key] == direction).ToDictionary(e => e.Key, e => e.Value));
     public override string ToString() => "Negotiated SDP session (credentials redacted)";
 }
 
-/// <summary>Initial bundled Opus/data-channel offer-answer subset. Renegotiation, video selection and ICE gathering are separate gates.</summary>
-public static class SdpNegotiation
+/// <summary>Initial bundled Opus/H264/VP8/data-channel negotiation. General JSEP and multiple video sections remain separate gates.</summary>
+public static partial class SdpNegotiation
 {
     public const string MidExtension = "urn:ietf:params:rtp-hdrext:sdes:mid";
     public static string CreateOpusOffer(SdpLocalTransport transport, uint source, bool dataChannels = true,
         SdpDirection direction = SdpDirection.SendReceive)
+        => CreateOffer(transport, source, source == 1 ? 2U : 1U, [], dataChannels, direction);
+
+    public static string CreateOffer(SdpLocalTransport transport, uint audioSource, uint videoSource,
+        IEnumerable<VideoCodecCapability> videoCapabilities, bool dataChannels = true,
+        SdpDirection audioDirection = SdpDirection.SendReceive, SdpDirection videoDirection = SdpDirection.ReceiveOnly)
     {
+        var source = audioSource; var direction = audioDirection;
         ArgumentNullException.ThrowIfNull(transport);
+        var video = VideoCapabilities(videoCapabilities);
+        if (videoSource == 0 || videoSource == source || !Enum.IsDefined(videoDirection)) throw new ArgumentOutOfRangeException(nameof(videoSource));
         if (source == 0 || !Enum.IsDefined(direction)) throw new ArgumentOutOfRangeException(nameof(source));
-        var builder = Header(dataChannels ? ["audio", "data"] : ["audio"]);
+        var builder = Header(new[] { "audio" }.Concat(video.Length == 0 ? [] : new[] { "video" }).Concat(dataChannels ? new[] { "data" } : []).ToArray());
         WriteAudio(builder, transport, "audio", 111, direction, SdpSetup.ActPass, source, 1);
+        if (video.Length != 0) WriteVideo(builder, transport, "video", video, videoDirection, SdpSetup.ActPass, videoSource, 1);
         if (dataChannels) WriteData(builder, transport, "data", SdpSetup.ActPass);
         return builder.ToString();
     }
 
     public static string CreateOpusAnswer(SdpSessionDescription offer, SdpLocalTransport transport, uint source, bool dataChannels = true, SdpSetup preferredSetup = SdpSetup.Active,
         SdpDirection direction = SdpDirection.SendReceive)
+        => CreateAnswer(offer, transport, source, source == 1 ? 2U : 1U, [], dataChannels, preferredSetup, direction);
+
+    public static string CreateAnswer(SdpSessionDescription offer, SdpLocalTransport transport, uint audioSource, uint videoSource,
+        IEnumerable<VideoCodecCapability> videoCapabilities, bool dataChannels = true, SdpSetup preferredSetup = SdpSetup.Active,
+        SdpDirection audioDirection = SdpDirection.SendReceive, SdpDirection videoDirection = SdpDirection.ReceiveOnly)
     {
+        var source = audioSource; var direction = audioDirection;
         ArgumentNullException.ThrowIfNull(offer); ArgumentNullException.ThrowIfNull(transport);
+        var capabilities = VideoCapabilities(videoCapabilities);
+        if (videoSource == 0 || videoSource == source || !Enum.IsDefined(videoDirection)) throw new ArgumentOutOfRangeException(nameof(videoSource));
         if (source == 0 || preferredSetup is not (SdpSetup.Active or SdpSetup.Passive) || !Enum.IsDefined(direction)) throw new ArgumentOutOfRangeException(nameof(source));
-        SdpMediaDescription? audio = null, data = null;
+        SdpMediaDescription? audio = null, data = null, video = null;
+        SdpRtpCodec? selectedVideo = null;
         foreach (var media in offer.Media)
         {
             if (media.IsRejected) continue;
             if (audio == null && media.Kind == "audio" && IsRtp(media) && media.RtcpMux && Opus(media) != null) audio = media;
+            else if (video == null && media.Kind == "video" && IsRtp(media) && media.RtcpMux && SelectVideo(media, capabilities) is { } selected) { video = media; selectedVideo = selected; }
             else if (dataChannels && data == null && IsData(media)) data = media;
         }
-        var active = new[] { audio, data }.OfType<SdpMediaDescription>().ToArray();
-        if (active.Length == 0) throw new NotSupportedException("The offer has no supported Opus/data media.");
+        var active = new[] { audio, video, data }.OfType<SdpMediaDescription>().ToArray();
+        if (active.Length == 0) throw new NotSupportedException("The offer has no supported Opus/video/data media.");
         ValidateTransport(offer, active);
         var setup = active[0].Setup switch { SdpSetup.ActPass => preferredSetup, SdpSetup.Passive => SdpSetup.Active,
             SdpSetup.Active => SdpSetup.Passive, _ => throw Incompatible() };
@@ -123,6 +160,8 @@ public static class SdpNegotiation
             if (ReferenceEquals(media, audio))
                 WriteAudio(builder, transport, media.Mid, Opus(media)!.PayloadType, Intersect(Invert(media.Direction), direction), setup, source,
                     media.HeaderExtensions.FirstOrDefault(e => e.Value == MidExtension && media.HeaderExtensionDirections[e.Key] == SdpDirection.SendReceive).Key);
+            else if (ReferenceEquals(media, video)) WriteVideo(builder, transport, media.Mid, [selectedVideo!], Intersect(Invert(media.Direction), videoDirection), setup, videoSource,
+                media.HeaderExtensions.FirstOrDefault(e => e.Value == MidExtension && media.HeaderExtensionDirections[e.Key] == SdpDirection.SendReceive).Key);
             else if (ReferenceEquals(media, data)) WriteData(builder, transport, media.Mid, setup);
             else builder.Append(CultureInfo.InvariantCulture, $"m={media.Kind} 0 {media.Protocol} {string.Join(' ', media.Formats)}\r\na=mid:{media.Mid}\r\n");
         }
@@ -130,11 +169,17 @@ public static class SdpNegotiation
     }
 
     public static SdpNegotiatedSession ValidateOpusAnswer(SdpSessionDescription offer, SdpSessionDescription answer, bool localOfferer)
+        => ValidateAnswerCore(offer, answer, localOfferer, false);
+
+    public static SdpNegotiatedSession ValidateAnswer(SdpSessionDescription offer, SdpSessionDescription answer, bool localOfferer)
+        => ValidateAnswerCore(offer, answer, localOfferer, true);
+
+    private static SdpNegotiatedSession ValidateAnswerCore(SdpSessionDescription offer, SdpSessionDescription answer, bool localOfferer, bool videoSupported)
     {
         ArgumentNullException.ThrowIfNull(offer); ArgumentNullException.ThrowIfNull(answer);
         if (offer.Media.Count != answer.Media.Count || offer.IceLite && answer.IceLite) throw Incompatible();
         if ((localOfferer ? offer : answer).IceLite) throw new NotSupportedException("Local ICE-lite is not implemented; remote ICE-lite is supported.");
-        SdpMediaDescription? audioOffer = null, audioAnswer = null, dataOffer = null, dataAnswer = null;
+        SdpMediaDescription? audioOffer = null, audioAnswer = null, dataOffer = null, dataAnswer = null, videoOffer = null, videoAnswer = null;
         for (var i = 0; i < offer.Media.Count; i++)
         {
             var offered = offer.Media[i]; var accepted = answer.Media[i];
@@ -153,6 +198,18 @@ public static class SdpNegotiation
                         !DirectionAllowed(offered.HeaderExtensionDirections[extension.Key], accepted.HeaderExtensionDirections[extension.Key])) throw Incompatible();
                 audioOffer = offered; audioAnswer = accepted;
             }
+            else if (videoSupported && accepted.Kind == "video")
+            {
+                if (videoAnswer != null || !IsRtp(accepted) || !offered.RtcpMux || !accepted.RtcpMux || accepted.Codecs.Count != 1 || accepted.Formats.Count != 1 ||
+                    !DirectionAllowed(offered.Direction, accepted.Direction) || !VideoParameters.TryRead(accepted.Codecs[0], out var a)) throw Incompatible();
+                var original = offered.Codecs.FirstOrDefault(c => c.PayloadType == accepted.Codecs[0].PayloadType);
+                if (original == null || !VideoParameters.TryRead(original, out var o) || !a.Compatible(o) ||
+                    a.Codec == VideoCodec.H264 && ((!o.Asymmetry && a.Asymmetry) || !(o.Asymmetry && a.Asymmetry) && a.Profile!.Value.Rank > o.Profile!.Value.Rank)) throw Incompatible();
+                foreach (var extension in accepted.HeaderExtensions)
+                    if (!offered.HeaderExtensions.TryGetValue(extension.Key, out var uri) || uri != extension.Value ||
+                        !DirectionAllowed(offered.HeaderExtensionDirections[extension.Key], accepted.HeaderExtensionDirections[extension.Key])) throw Incompatible();
+                videoOffer = offered; videoAnswer = accepted;
+            }
             else if (IsData(accepted) && IsData(offered) && dataAnswer == null) { dataOffer = offered; dataAnswer = accepted; }
             else throw Incompatible();
             if (accepted.Setup is not (SdpSetup.Active or SdpSetup.Passive) ||
@@ -160,14 +217,17 @@ public static class SdpNegotiation
                 offered.Setup == SdpSetup.Passive && accepted.Setup != SdpSetup.Active ||
                 offered.Setup is not (SdpSetup.ActPass or SdpSetup.Active or SdpSetup.Passive)) throw Incompatible();
         }
-        var offeredActive = new[] { audioOffer, dataOffer }.OfType<SdpMediaDescription>().ToArray();
-        var answerActive = new[] { audioAnswer, dataAnswer }.OfType<SdpMediaDescription>().ToArray();
+        var offeredActive = new[] { audioOffer, videoOffer, dataOffer }.OfType<SdpMediaDescription>().ToArray();
+        var answerActive = new[] { audioAnswer, videoAnswer, dataAnswer }.OfType<SdpMediaDescription>().ToArray();
         if (answerActive.Length == 0) throw Incompatible();
+        // Unique PTs make initial BUNDLE routing deterministic even when a remote sender omits MID.
+        if (videoAnswer != null && audioAnswer?.Codecs[0].PayloadType == videoAnswer.Codecs[0].PayloadType) throw Incompatible();
         ValidateTransport(offer, offeredActive); ValidateTransport(answer, answerActive);
         if (answer.BundleMids.Any(mid => !offer.BundleMids.Contains(mid) || !answerActive.Any(m => m.Mid == mid))) throw Incompatible();
         return new(localOfferer ? offer : answer, localOfferer ? answer : offer,
             localOfferer ? audioOffer : audioAnswer, localOfferer ? audioAnswer : audioOffer,
-            localOfferer ? dataOffer : dataAnswer, localOfferer ? dataAnswer : dataOffer, Opus(audioAnswer), localOfferer);
+            localOfferer ? dataOffer : dataAnswer, localOfferer ? dataAnswer : dataOffer, Opus(audioAnswer), localOfferer,
+            localOfferer ? videoOffer : videoAnswer, localOfferer ? videoAnswer : videoOffer);
     }
     private static bool DirectionAllowed(SdpDirection offer, SdpDirection answer) => offer switch
     {

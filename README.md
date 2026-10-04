@@ -33,7 +33,7 @@ handling, sequence rollover and explicit memory/age limits. See [video scope](do
 
 **Status: transport in development.** Multiple interfaces, DNS/mDNS,
 ICE restart, general SDP/JSEP,
-video SDP/peer integration and automatic RTCP feedback remain incomplete. This library does
+initial video SDP and PeerConnection routing are implemented; automatic RTCP feedback remains incomplete. This library does
 not yet replace SIPSorcery in DId or Advantage. No package is automatically published.
 
 The runtime library has no third-party NuGet or native dependencies. It uses the .NET
@@ -74,3 +74,8 @@ For a targeted local diagnosis, the network runner accepts an explicit literal
 `--case-filter "case name fragment"` alongside `--pion-uri` when needed. It prints
 the selected subset and rejects an empty match. Default local/container/CI runs
 execute every applicable case; a selected subset is not full-suite evidence.
+
+Video requires explicit external codec capabilities in `PeerConnectionOptions.VideoCodecs`.
+`ReceiveVideoAsync` yields bounded H264 AnnexB/VP8 frames; `SendVideoRtpAsync`
+accepts an externally packetized fragment with its 90kHz timestamp/marker.
+See [video negotiation](docs/video-peer.md) for source routing, lifetime bounds and limits.

@@ -9,4 +9,5 @@
 <ItemGroup>
     <Compile Include="../WebRTC.ProtocolTests/VideoTests.cs" Link="VideoTests.cs" />
   </ItemGroup>
+<ItemGroup><Compile Include="../WebRTC.ProtocolTests/SdpVideoTests.cs" Link="SdpVideoTests.cs" /></ItemGroup>
 </Project>

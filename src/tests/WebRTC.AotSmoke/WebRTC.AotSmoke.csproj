@@ -21,4 +21,8 @@
 <ItemGroup>
     <Compile Include="../WebRTC.IntegrationTests/VideoNetworkTests.cs" Link="VideoNetworkTests.cs" />
   </ItemGroup>
+<ItemGroup>
+<Compile Include="../WebRTC.ProtocolTests/SdpVideoTests.cs" Link="SdpVideoTests.cs" />
+<Compile Include="../WebRTC.IntegrationTests/VideoPeerTests.cs" Link="VideoPeerTests.cs" />
+</ItemGroup>
 </Project>

@@ -27,6 +27,16 @@ var cases = new List<(string Name, Func<Task> Run)>
 };
 foreach (var codec in Enum.GetValues<VideoCodec>())
     foreach (var profile in Enum.GetValues<SrtpProfile>())
+        foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
+            cases.Add(($"Video peer {codec} {profile} {setup} queues, expiry and bidirectional media", () => VideoPeerTests.Local(codec, profile, setup)));
+foreach (var transport in Enum.GetValues<TurnServerTransport>())
+    foreach (var profile in Enum.GetValues<SrtpProfile>())
+        foreach (var codec in Enum.GetValues<VideoCodec>())
+            cases.Add(($"Video peer {codec} via {transport} relay {profile}", () => VideoPeerTests.Local(codec, profile, SdpSetup.Active, transport)));
+cases.Add(("Video peer negotiated direction and send bounds", VideoPeerTests.Direction));
+cases.Add(("Video peer authenticated source/MID isolation and global budgets", VideoPeerTests.RoutingAndBudget));
+foreach (var codec in Enum.GetValues<VideoCodec>())
+    foreach (var profile in Enum.GetValues<SrtpProfile>())
         foreach (var loss in new[] { false, true })
             cases.Add(($"Video authenticated DTLS/SRTP {codec}, {profile}, loss={loss}", () => VideoNetworkTests.Local(codec, profile, loss)));
 foreach (var profile in Enum.GetValues<SrtpProfile>())
@@ -177,6 +187,11 @@ for (var option = 0; option < args.Length; option += 2)
 }
 if (pionUri != null)
 {
+    foreach (var codec in Enum.GetValues<VideoCodec>())
+        foreach (var offerer in new[] { false, true })
+            foreach (var passive in new[] { false, true })
+                cases.Add(($"Pion video peer {codec} local offer={offerer} passive={passive}", () => VideoPeerTests.Pion(pionUri, codec, offerer, passive)));
+
     foreach (var codec in Enum.GetValues<VideoCodec>())
         foreach (var profile in Enum.GetValues<SrtpProfile>())
             foreach (var role in Enum.GetValues<DtlsRole>())

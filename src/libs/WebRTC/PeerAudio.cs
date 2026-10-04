@@ -45,6 +45,7 @@ internal sealed class PeerAudio
         }
         payload.CopyTo(data.AsSpan(HeaderLength)); return data;
     }
+    internal bool HasSource(uint source) => _receivedSources.Contains(source);
     internal EncodedOpusPacket? Read(byte[] data)
     {
         if (!_session.CanReceiveAudio || !RtpPacket.TryParse(data, out var packet) ||

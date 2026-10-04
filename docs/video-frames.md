@@ -42,8 +42,8 @@ The initial AU is conservatively held/discarded until a preceding authenticated
 marker establishes the next AU's sequence boundary. If that preceding marker is
 lost, the receiver waits through the next marker and resynchronizes at the following
 AU. Missing packets never produce a supposedly complete AU. This policy can discard
-an initial IDR; automatic negotiated PLI/NACK, decoder refresh and SDP video/peer
-integration remain separate completion gates. Applications cannot infer general
+an initial IDR; automatic negotiated PLI/NACK and decoder refresh remain separate
+completion gates. Initial SDP/peer routing is implemented; see [video peer](video-peer.md). Applications cannot infer general
 H264 decoder readiness from this transport-only API.
 
 ## Resource and lifetime bounds
@@ -80,6 +80,6 @@ not visual/codec correctness. No new module or license import is added.
 Whole-library-rooted NativeAOT runs the bounded protocol cases and actual video
 DTLS/SRTP through owned UDP/TCP/TLS relay allocations for every SRTP profile.
 
-Full video SDP/PeerConnection routing, RTCP feedback/report scheduling, decoder
+Initial video SDP/PeerConnection routing is implemented. RTCP feedback/report scheduling, decoder
 refresh behavior, browser/provider videos and DId/Simli migration remain incomplete.
 Real provider and physical Watch acceptance stay outside default no-cost CI/smoke.

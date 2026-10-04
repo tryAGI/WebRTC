@@ -45,11 +45,11 @@ connection-state and encoded-frame types when implementing the respective milest
    independent full Pion WebRTC offer/answer and encoded Opus/control exchange in
    both DTLS roles. Initial owned peer lifecycle, accepted Opus MID/PT/source
    routing and bounded RTCP framing are now implemented; automatic RTCP feedback,
-   video SDP/peer integration, general negotiation and browser
+   automatic video RTCP feedback, general negotiation and browser
    coverage remain. See [SDP subset](sdp.md).
    Bounded authenticated-RTP H264/VP8 reassembly now has independent Pion public
-   payloader and fingerprint-bound DTLS/SRTP evidence; full video negotiation,
-   feedback and decoder/provider acceptance remain. See [encoded video](video-frames.md).
+   payloader and fingerprint-bound DTLS/SRTP evidence; initial H264/VP8 video SDP now routes bounded frames through owned PeerConnection;
+   automatic feedback and decoder/provider acceptance remain. See [video peer](video-peer.md). See [encoded video](video-frames.md).
    See [owned initial peer](peer-connection.md) for readiness and queue semantics.
 5. Ordered/unordered SCTP/DCEP channels with bounded reassembly, flow control,
    reliable/limited-retransmission/timed policies, directional reset/channel close/reuse
@@ -87,3 +87,5 @@ selection now integrates up to three owned allocations; encrypted Opus/data uses
 selected local relay in both signaling/DTLS roles. Selected relay expiry fails visibly
 and unselected relay expiry preserves a healthy host pair.
 See [TURN scope](turn-transport.md). Real NAT/consumer acceptance remain; TCP/TLS is locally interoperable.
+
+Video negotiation references [RFC6184 section8](https://www.rfc-editor.org/rfc/rfc6184.html) and [RFC7741 section6](https://www.rfc-editor.org/rfc/rfc7741.html).

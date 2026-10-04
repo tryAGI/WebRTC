@@ -220,3 +220,13 @@ are unchanged; build regenerates and compares those notices. Pion is test-only.
 No native/codec/NuGet runtime dependency is added. These tests establish encoded
 transport reconstruction, not rendering/decoder, real provider, formal clean-room
 or security-audit acceptance.
+
+## Initial video SDP and peer routing
+
+New video capability/format negotiation and peer routing are authored from RFC6184
+section8 and RFC7741 section6 prose and field requirements. Sub-profile equivalence
+and Level1b are protocol data; no RFC code component or implementation is copied.
+The initial full video peer harness adds local H264/VP8 tracks using existing pinned
+Pion public MediaEngine/TrackLocalStaticRTP/ReadRTP/WriteRTP APIs, not upstream
+examples. Synthetic payloads only establish transport reconstruction, not valid
+movie decoding. No new Go module, runtime codec, native package or notice change.

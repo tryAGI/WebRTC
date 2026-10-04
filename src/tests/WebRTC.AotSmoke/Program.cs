@@ -15,6 +15,18 @@ if (!RtpPacket.TryParse(data, out var rtp) || rtp.Payload.Length != 2)
 }
 VideoTests.H264(); VideoTests.Vp8(); VideoTests.LossAndDuplicates(); VideoTests.Malformed(); VideoTests.Routing(); VideoTests.BoundsAndExpiry(); VideoTests.LifetimeAndCorpus();
 Console.WriteLine("NativeAOT bounded video H264/VP8 reassembly and hostile input passed");
+SdpVideoTests.Selection(); SdpVideoTests.Profiles(); SdpVideoTests.ParametersAndBounds(); SdpVideoTests.HostileAnswer();
+foreach (var codec in Enum.GetValues<VideoCodec>())
+    foreach (var profile in Enum.GetValues<SrtpProfile>()) await VideoPeerTests.Local(codec, profile, SdpSetup.Active);
+foreach (var transport in Enum.GetValues<TurnServerTransport>())
+    foreach (var codec in Enum.GetValues<VideoCodec>())
+        foreach (var profile in Enum.GetValues<SrtpProfile>())
+        {
+            await VideoPeerTests.Local(codec, profile, SdpSetup.Active, transport);
+            Console.WriteLine($"NativeAOT owned video peer {codec} via {transport} {profile} passed");
+        }
+await VideoPeerTests.Direction();
+Console.WriteLine("NativeAOT owned SDP video peer negotiation, queues and silence expiry passed");
 Console.WriteLine("NativeAOT protocol smoke passed");
 await using var controlling = new IceUdpTransport(new(IPAddress.Loopback, 0));
 await using var controlled = new IceUdpTransport(new(IPAddress.Loopback, 0));
