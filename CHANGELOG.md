@@ -7,6 +7,8 @@ Version `0.x` is experimental. Release notes are also available on
 
 - Require managed protocol/network regressions and published/executed whole-root
   NativeAOT on native Linux arm64 CI, matching the Advantage establishment canary.
+- Require the pinned independent Pion interoperability suite on native Linux arm64
+  in addition to x64, with host and container architecture assertions.
 
 ## [0.2.2] - 2026-10-04
 

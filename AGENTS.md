@@ -30,7 +30,8 @@ Commit scoped logical batches directly to main. Preserve unrelated work.
 
 Execute the resulting smoke binary. CI must also run the managed protocol/network
 suite and publish/execute the whole-root `linux-arm64` smoke on a native aarch64
-runner, matching Advantage's deployment architecture. Protocol tests must cover independent reference
+runner, matching Advantage's deployment architecture. Run the pinned independent
+Pion peer suite on both native Linux x64 and arm64 hosts. Protocol tests must cover independent reference
 vectors, malformed/truncated data and resource bounds. Interoperability uses local
 peers and containers only in the default suite and all CI smoke lanes. The user
 explicitly requires separate real provider and Watch E2E acceptance; use a separately

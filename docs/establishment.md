@@ -122,8 +122,10 @@ whole-root NativeAOT smoke include
 isolated DTLS/SCTP silence, missing DCEP ACK, total-deadline classification,
 repeated independent peers in both DTLS roles and history wrap/disposal checks.
 The arm64 lane builds/runs the same managed protocol/network suite and executes
-its linux-arm64 native binary on an aarch64 host; it does not emulate the deployed
-ECS network or replace a provider canary. The native runner label follows
+its linux-arm64 native binary on an aarch64 host. A separate native arm64 lane runs
+the complete pinned independent Pion suite, asserting host and container
+architecture. These lanes do not emulate the deployed ECS network or replace a
+provider canary. The native runner label follows
 [GitHub runner documentation](https://docs.github.com/en/actions/reference/runners/github-hosted-runners);
 linker prerequisites follow [Microsoft NativeAOT guidance](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/).
 

@@ -21,7 +21,7 @@ self-to-self exchange or green parser tests cannot satisfy that objective.
 | Apple Watch delivery | Same trace through remote audio, backend/decode/delivery, device arrival/playback; before/after distributions and audible acceptance | No new physical evidence |
 | Simli | Owned offer/answer adapter; real face/session, nonempty media, cleanup; preserve WebSocket input/signaling | Existing adapter inspected; migration and provider E2E remain |
 | MIT and source ownership | Pinned file-level origin/license checks and notices for every future port/import; audited graph | Newly authored runtime, no imported runtime code |
-| .NET 10+, trimming/AOT | Whole-library rooting, executed native transport, supported-platform CI, no weakened diagnostics | Whole-library native ICE/DTLS/SRTP/SCTP/DCEP smoke executes locally; Linux/Windows/macOS CI gates apply to every source commit; CI additionally requires protocol/network regressions and executed whole-root NativeAOT on native Linux arm64, matching the architecture of the Advantage #3 canary; real provider/device acceptance remains |
+| .NET 10+, trimming/AOT | Whole-library rooting, executed native transport, supported-platform CI, no weakened diagnostics | Whole-library native ICE/DTLS/SRTP/SCTP/DCEP smoke executes locally; Linux/Windows/macOS CI gates apply to every source commit; CI additionally requires protocol/network regressions, pinned independent Pion interoperability and executed whole-root NativeAOT on native Linux arm64, matching the architecture of the Advantage #3 canary; real provider/device acceptance remains |
 
 An inconclusive, skipped, credential-missing or configuration-only test is missing
 evidence, never a pass. Record explicit artifacts and independent-peer versions.
