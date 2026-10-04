@@ -73,7 +73,8 @@ docker run --rm tryagi-webrtc-interop
 This is real local UDP/TCP/TLS relay interoperability, not proof of complete media or provider E2E.
 
 An independently authored Chromium test now checks initial browser offer/answer and
-both DTLS roles, reliable messages, fragmented VP8 and H264 rendering, actual protected
+both DTLS roles, data-channel policies/reset, two-way Opus decoding with measured
+authored tones and silence, fragmented VP8 and H264 rendering, actual protected
 packet loss, admitted PLI, a newly encoded recovery key frame and subsequent delta
 rendering. It runs in an internal Docker network with disposable profiles:
 

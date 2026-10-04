@@ -336,3 +336,29 @@ SCTP controls and rooted native execution preserve the rejection boundaries.
 No browser, codec, external runtime package or source enters the MIT runtime.
 Browser PR policy negotiation/delivery has no forced data loss in this probe;
 PR abandonment/loss remains independently covered by the existing Pion lane.
+
+
+## Browser Opus decode evidence
+
+`tests/interop/Chromium/audio-probe.mjs` is independently authored test code using
+public Web Audio, WebCodecs and WebRTC APIs. Our two-tone/silence PCM signals are
+created at runtime; no external audio fixture, codec algorithm or source is copied.
+The pinned browser supplies its original Opus encoder/decoder under its original
+notices. No codec or test tool becomes a runtime/package dependency.
+
+Both directions require actual decoded waveform evidence, bounded capture and
+sequence/timestamp checks. WebCodecs integer-microsecond timestamps are converted
+to the nearest 48 kHz sample, then required to advance exactly 960 samples per
+20 ms packet. Silent and wrong-frequency controls must be rejected. A zero-volume
+HTML audio element starts the browser receiver's playout; the AudioWorklet measures
+PCM through a silent context sink. The original observation-only setup received
+all 91 RTP packets but emitted zero decoded samples, and therefore failed. Browser
+packet counters alone are explicitly insufficient. `addTrack` associates the
+source with incoming offer media in the browser-answer case; pre-created explicit
+transceivers left that send direction unassociated in the initial scratch test.
+
+This is six local initial-negotiation decode cases, not physical audibility,
+forced audio loss/jitter, production consumer/provider sessions or Watch latency.
+API references: [WebCodecs Opus registration](https://www.w3.org/TR/webcodecs-opus-codec-registration/),
+[Web Audio](https://www.w3.org/TR/webaudio/) and
+[WebRTC](https://www.w3.org/TR/webrtc/). No examples from those documents are copied.

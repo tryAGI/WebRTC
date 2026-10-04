@@ -26,6 +26,14 @@ Every scenario runs for both VP8 and H264 and must pass, without skips:
   channel from the owned peer, inspect its browser policy and exchange messages,
   then close it from the owned side. Before video, require exactly nine admitted
   generations, eight confirmed clean closures and 34 received application messages.
+- Bidirectional Opus at 48 kHz using authored two-tone/silence signals. Browser-sent
+  packets traverse the owned SRTP receiver and are decoded through WebCodecs;
+  owned-sent packets traverse the browser's actual WebRTC receiver and are measured
+  as PCM by an AudioWorklet. Require the distinct tones in order, final silence,
+  bounded packet/clock evidence and browser decoded-sample statistics. Silent and
+  wrong-frequency negative controls must fail. The container uses a zero-volume
+  audio element to start browser playout and a silent Web Audio sink for observation;
+  this is decoder evidence, not audible speaker or physical-device acceptance.
 - An independently authored 320×240 gray scene with a moving black marker, encoded
   as VP8 or H264 constrained baseline by the test browser and sent through the owned RTP/SRTP peer. Small fragments
   deliberately require browser RTP reassembly. The video element must render the first
@@ -41,7 +49,7 @@ infrastructure, not dependencies or assets included in `tryAGI.WebRTC`.
 `--no-sandbox` applies only to the disposable isolated container browser.
 
 This covers VP8 and constrained-baseline H264 mode 1 initial negotiation, not general renegotiation/restart,
-real NAT traversal, audio playback, provider sessions or physical Watch delivery.
+real NAT traversal, audible device playback, provider sessions or physical Watch delivery.
 The pinned x64 browser supplies both codec encoders and is the default on all
 hosts, using Docker emulation when required. The owned .NET peer uses the host
 architecture. An explicit `TRYAGI_CHROMIUM_PLATFORM=linux/arm64` override is available

@@ -9,7 +9,7 @@ var codec=args[2];
 if(codec is not ("vp8" or "h264"))throw new ArgumentException("Unknown fixture codec");
 using var http = new HttpListener(); http.Prefixes.Add("http://127.0.0.1:9430/"); http.Start();
 await using var peer = new PeerConnection(new() {
-    LocalEndPoint = new(address, 0), AudioDirection = SdpDirection.SendOnly,
+    LocalEndPoint = new(address, 0), AudioDirection = SdpDirection.SendReceive,
     VideoDirection = SdpDirection.SendOnly,
     VideoCodecs = [codec=="vp8" ? new() { Codec=VideoCodec.Vp8, PayloadType=96, Vp8MaximumMacroblocks=1200, Vp8MaximumFrameRate=30 } :
         new() { Codec=VideoCodec.H264, PayloadType=102, H264ProfileLevelId="42e01f", H264PacketizationMode=1, H264LevelAsymmetryAllowed=true }],
@@ -62,6 +62,8 @@ void ValidateIncomingChannel(DataChannel channel) {
     };
     if(p.Ordered!=ordered || p.Reliability!=reliability || p.ReliabilityParameter!=parameter)throw new IOException("DCEP policy was not preserved");
 }
+var audioGate=new object();var audioPackets=new List<EncodedOpusPacket>();bool captureAudio=false;
+Task? audio=null;
 Task? connect = null; Task? channels = null; Task? feedback = null; int requests=0, baseline=0;
 Console.WriteLine("Owned browser video probe listening");
 while (!ct.IsCancellationRequested) {
@@ -79,6 +81,12 @@ while (!ct.IsCancellationRequested) {
             else result = Advertise(peer.CreateAnswer(remote, mode == "answer-passive" ? SdpSetup.Passive : SdpSetup.Active));
             proxy.PayloadType = peer.VideoFormat!.PayloadType;
             connect = peer.ConnectAsync(ct);
+            audio=Task.Run(async()=>{await foreach(var packet in peer.ReceiveAudioAsync(ct)) {
+                lock(audioGate)if(captureAudio) {
+                    if(audioPackets.Count>=128)throw new IOException("Audio capture bound exceeded");
+                    audioPackets.Add(packet);
+                }
+            }},ct);
             channels = Task.Run(async () => { await foreach (var channel in peer.AcceptDataChannelsAsync(ct)) {
                 ValidateIncomingChannel(channel);TrackChannel(channel);
             } }, ct);
@@ -93,7 +101,21 @@ while (!ct.IsCancellationRequested) {
         } else if(path=="/channels") {
             CheckChannelWorkers();if(channels is { IsFaulted:true })await channels;
             result=$"{Volatile.Read(ref acceptedChannels)},{Volatile.Read(ref closedChannels)},{Volatile.Read(ref channelMessages)}";
+        } else if(path=="/audio") {
+            if(context.Request.ContentLength64 is < 1 or > 1275)throw new IOException("Opus fixture bound");
+            using var buffer=new MemoryStream();await context.Request.InputStream.CopyToAsync(buffer,ct);
+            await peer.SendOpusAsync(buffer.ToArray(),uint.Parse(context.Request.QueryString["timestamp"]!),context.Request.QueryString["marker"]=="true",ct);
+            result="sent";
+        } else if(path=="/audio-capture-start") {
+            lock(audioGate){audioPackets.Clear();captureAudio=true;}result="armed";
+        } else if(path=="/audio-incoming") {
+            if(audio is { IsFaulted:true })await audio;
+            lock(audioGate) {
+                captureAudio=false;
+                result=string.Join("\n",audioPackets.Select(p=>$"{p.SynchronizationSource},{p.SequenceNumber},{p.Timestamp},{(p.Marker?1:0)},{Convert.ToBase64String(p.Payload)}"));audioPackets.Clear();
+            }
         } else if (path == "/state") {
+            if(audio is { IsFaulted:true })await audio;
             CheckChannelWorkers();
             if (connect is { IsFaulted:true }) await connect;
             if (channels is { IsFaulted:true }) await channels;

@@ -1,3 +1,4 @@
+import { createAudioProbe } from './audio-probe.mjs';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { access, mkdtemp, rm } from 'node:fs/promises';
@@ -15,7 +16,7 @@ for(const path of ['/ms-playwright/chromium-1234/chrome-linux/chrome','/ms-playw
 }
 if(!executable)throw new Error('Pinned Chromium binary missing');
 const chrome = spawn(executable, [
-  '--headless', '--no-sandbox', '--disable-gpu', '--disable-background-networking',
+  '--headless', '--autoplay-policy=no-user-gesture-required', '--no-sandbox', '--disable-gpu', '--disable-background-networking',
   '--disable-component-update', '--disable-sync', '--no-first-run', '--no-default-browser-check',
   '--allow-loopback-in-peer-connection', '--disable-features=WebRtcHideLocalIpsWithMdns',
   '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=9222', '--user-data-dir='+profile, 'about:blank'
@@ -48,6 +49,7 @@ try {
     const mode=${JSON.stringify(mode)};
     const codec=${JSON.stringify(codec)};
     const peer = new RTCPeerConnection({ iceServers: [] });
+    const audioProbe=await (${createAudioProbe.toString()})(peer);
     const video=document.createElement('video');video.autoplay=true;video.muted=true;video.playsInline=true;document.body.appendChild(video);
     const output=new OffscreenCanvas(320,240); const pixels=output.getContext('2d'); const frames=[];
     const observe=(now,meta)=>{ pixels.drawImage(video,0,0); const sample=x=>Array.from(pixels.getImageData(x,40,1,1).data).slice(0,3);frames.push({presented:meta.presentedFrames,width:meta.width,height:meta.height,old:sample(24),fresh:sample(72),last:sample(112),background:sample(0)});video.requestVideoFrameCallback(observe); };
@@ -61,7 +63,7 @@ try {
       await peer.setRemoteDescription({type:'offer',sdp:await remote.text()});
       await peer.setLocalDescription(await peer.createAnswer());
     } else {
-      peer.addTransceiver('audio',{direction:'recvonly'});peer.addTransceiver('video',{direction:'recvonly'});
+      peer.addTransceiver('video',{direction:'recvonly'});
       await peer.setLocalDescription(await peer.createOffer());
     }
     if(peer.iceGatheringState!=='complete')await new Promise(resolve=>{peer.onicegatheringstatechange=()=>{if(peer.iceGatheringState==='complete')resolve();};setTimeout(resolve,2500);});
@@ -117,6 +119,7 @@ try {
       await new Promise(r=>setTimeout(r,25));
     }
     if(channelAccounting[0]!==9 || channelAccounting[1]!==8 || channelAccounting[2]!==34)throw new Error('Channel admission/closure accounting mismatch: '+channelAccounting);
+    const audioProof=await audioProbe.run();
     const paintCanvas=new OffscreenCanvas(320,240);const paint=paintCanvas.getContext('2d'); const chunks=[];let encodeError;
     const encoder=new VideoEncoder({ error:e=>encodeError=String(e),output:c=>{const data=new Uint8Array(c.byteLength);c.copyTo(data);chunks.push({type:c.type,data});} });
     encoder.configure({...(codec==='h264'?{avc:{format:'annexb'}}:{}),codec:codec==='h264'?'avc1.42E01F':'vp8',width:320,height:240,bitrate:200000,framerate:10,latencyMode:'realtime'});
@@ -134,10 +137,10 @@ try {
     await wait(()=>frames.some(f=>f.last.every(x=>x<10) && f.fresh.every(x=>x>110 && x<150)), 'Post-recovery delta progress absent');
     encoder.close();
     const stats=[];(await peer.getStats()).forEach(s=>{if(s.type==='transport' || s.type==='inbound-rtp' && s.kind==='video')stats.push({type:s.type,dtlsState:s.dtlsState,framesDecoded:s.framesDecoded,keyFramesDecoded:s.keyFramesDecoded,pliCount:s.pliCount,packetsLost:s.packetsLost,framesReceived:s.framesReceived,framesDropped:s.framesDropped,nackCount:s.nackCount});});
-    await fetch('http://127.0.0.1:9430/close');peer.close();
+    await audioProbe.close();await fetch('http://127.0.0.1:9430/close');peer.close();
     if(!isSecureContext)throw new Error('Browser origin is not secure');
     const media=stats.find(s=>s.type==='inbound-rtp');if(!media || media.framesDecoded<3 || media.keyFramesDecoded<2 || media.pliCount<=priorPli || media.packetsLost!==1)throw new Error('Browser decode/recovery stats incomplete: '+JSON.stringify(stats));
-    return {mode,codec,priorPli,secure:isSecureContext,candidates,reply,channelEvidence,channelAccounting,feedback,frames,stats};
+    return {mode,codec,priorPli,secure:isSecureContext,candidates,reply,channelEvidence,channelAccounting,audioProof,feedback,frames,stats};
   })()` });
   if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
   console.log(JSON.stringify(result.result.value, null, 2));
