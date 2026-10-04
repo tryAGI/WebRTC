@@ -56,7 +56,7 @@ internal static class RtcpPeerTests
         Check(left.GetRtcpDiagnostics()!.RoundTripTime >= TimeSpan.Zero && left.GetRtcpDiagnostics()!.RoundTripTime < TimeSpan.FromSeconds(2));
         Check(left.GetDiagnostics().RejectedControlPackets == 0 && right.GetDiagnostics().RejectedControlPackets == 0);
     }
-    internal static async Task Feedback(bool reduced)
+    internal static async Task Feedback(bool reduced, bool delayedObservation = false)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8)); var ct = timeout.Token;
         await using var left = new PeerConnection(Options()); await using var right = new PeerConnection(Options());
@@ -70,14 +70,26 @@ internal static class RtcpPeerTests
         await left.SendVideoRtpAsync(new byte[] { 0x65, 0x22, 0x33 }, 3000, true, ct);
         await Until(() => right.GetVideoDiagnostics().CompletedFrames == 1, ct);
         var prior = right.GetRtcpDiagnostics()!.SentPictureLoss;
+        // Submission precedes the first send, so this gives a conservative lower
+        // bound for the next permitted send. Observation of the counter can be late.
+        var requestedAt = Stopwatch.GetTimestamp();
         right.RequestVideoKeyFrame(left.VideoSource);
         await Until(() => right.GetRtcpDiagnostics()!.SentPictureLoss > prior, ct);
-        var sentAt = Stopwatch.GetTimestamp(); prior = right.GetRtcpDiagnostics()!.SentPictureLoss;
+        prior = right.GetRtcpDiagnostics()!.SentPictureLoss;
         await left.SendVideoRtpAsync(new byte[] { 0x65, 0x44, 0x55 }, 6000, true, ct);
         await Until(() => right.GetVideoDiagnostics().CompletedFrames == 2, ct);
         for (var n = 0; n < 20; n++) right.RequestVideoKeyFrame(left.VideoSource);
-        await Task.Delay(90, ct);
-        Check(Stopwatch.GetElapsedTime(sentAt) < TimeSpan.FromMilliseconds(200) && right.GetRtcpDiagnostics()!.SentPictureLoss == prior, "Key completion/reset bypassed PLI throttle");
+        // A delayed test continuation must not classify an allowed retry as an
+        // early send. Validate the count only inside the conservative window.
+        if (delayedObservation) await Task.Delay(250, ct);
+        while (Stopwatch.GetElapsedTime(requestedAt) < TimeSpan.FromMilliseconds(200))
+        {
+            var count = right.GetRtcpDiagnostics()!.SentPictureLoss;
+            var elapsed = Stopwatch.GetElapsedTime(requestedAt);
+            if (elapsed < TimeSpan.FromMilliseconds(200))
+                Check(count == prior, $"Key completion/reset bypassed PLI throttle after {elapsed.TotalMilliseconds:F1} ms");
+            await Task.Delay(5, ct);
+        }
         await Until(() => right.GetRtcpDiagnostics()!.SentPictureLoss > prior, ct);
         await left.SendVideoRtpAsync(new byte[] { 0x65, 0x11 }, 9000, true, ct);
         await Until(() => right.GetVideoDiagnostics().CompletedFrames == 3, ct);

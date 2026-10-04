@@ -53,6 +53,7 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
 foreach (var reduced in new[] { false, true })
 {
     cases.Add(($"Automatic RTCP PLI bootstrap, retries, key cancellation and silent expiry reduced={reduced}", () => RtcpPeerTests.Feedback(reduced)));
+    cases.Add(($"Automatic RTCP PLI bootstrap tolerates delayed observation reduced={reduced}", () => RtcpPeerTests.Feedback(reduced, delayedObservation: true)));
     foreach (var pli in new[] { false, true })
         cases.Add(($"Automatic RTCP whole-compound admission reduced={reduced} pli={pli}", () => RtcpPeerTests.Admission(reduced, pli)));
 }

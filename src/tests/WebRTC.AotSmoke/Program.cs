@@ -31,6 +31,7 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
 foreach (var reduced in new[] { false, true })
 {
     await RtcpPeerTests.Feedback(reduced);
+    await RtcpPeerTests.Feedback(reduced, delayedObservation: true);
     foreach (var pli in new[] { false, true }) await RtcpPeerTests.Admission(reduced, pli);
 }
 await RtcpPeerTests.RegularDeadline();
