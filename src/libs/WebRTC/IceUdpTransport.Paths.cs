@@ -26,8 +26,9 @@ public sealed partial class IceUdpTransport
         var local = LocalEndPoint;
         if (destination.AddressFamily != local.AddressFamily) throw new ArgumentException("TURN server and interface families must match.", nameof(server));
         options ??= new();
-        if (options.MaximumDatagramSize < Math.Max(2048, _options.MaximumDataDatagramSize))
-            options = options with { MaximumDatagramSize = Math.Max(2048, _options.MaximumDataDatagramSize) };
+        var datagramBound = Math.Max(2048, Math.Max(_options.MaximumDataDatagramSize, _options.MaximumReceiveDataDatagramSize));
+        if (options.MaximumDatagramSize < datagramBound)
+            options = options with { MaximumDatagramSize = datagramBound };
         lock (_gate)
         {
             ThrowIfStopped();
@@ -141,7 +142,7 @@ public sealed partial class IceUdpTransport
             lock (_gate)
             {
                 if (!_stopped && PathAllowed(path) && _selected is not null && path == _selected.Path &&
-                    source.Equals(_selected.Candidate.TransportEndPoint) && packet.Length <= _options.MaximumDataDatagramSize &&
+                    source.Equals(_selected.Candidate.TransportEndPoint) && packet.Length <= _options.MaximumReceiveDataDatagramSize &&
                     Elapsed(_lastConsentAt) < _options.ConsentTimeout)
                     _datagrams.Writer.TryWrite(packet.ToArray());
                 else Interlocked.Increment(ref _droppedDatagrams);

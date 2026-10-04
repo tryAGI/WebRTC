@@ -230,13 +230,22 @@ public sealed class DataChannelAssociation : IAsyncDisposable
     }
     private async Task ProcessDcepAsync(SctpMessage message)
     {
-        if (message.Unordered) throw new IOException("DCEP requires ordered reliable delivery.");
         if (DataChannelProtocol.IsAcknowledgment(message.Data))
         {
             lock (_gate)
-            { if (!_channels.TryGetValue(message.StreamId, out var existing)) throw new IOException("DCEP ACK without OPEN."); existing.Acknowledge(); }
+            {
+                var parity = _sctp.DtlsRole == DtlsRole.Client ? 0 : 1;
+                if ((message.StreamId & 1) != parity || !_channels.TryGetValue(message.StreamId, out var existing))
+                    throw new IOException("DCEP ACK without local OPEN.");
+                // Pinned Chromium sends an unordered canonical ACK for unordered channels.
+                // Bound this interoperability exception to that local channel and exact message.
+                if (message.Unordered && (existing.Parameters.Ordered || message.Data.Length != 1))
+                    throw new IOException("Unexpected unordered DCEP acknowledgment.");
+                existing.Acknowledge();
+            }
             return;
         }
+        if (message.Unordered) throw new IOException("DCEP OPEN requires ordered reliable delivery.");
         if (!DataChannelProtocol.TryParseOpen(message.Data, out var parameters)) throw new IOException("Malformed DCEP OPEN.");
         if (parameters!.Reliability != DataChannelReliability.Reliable && !_sctp.SupportsPartialReliability)
             throw new IOException("Partial reliability was not negotiated.");

@@ -19,6 +19,13 @@ Every scenario runs for both VP8 and H264 and must pass, without skips:
 
 - Browser offer with owned DTLS client and server, then owned offer with browser answer.
 - Fingerprint-bound ICE/DTLS/SCTP, reliable channel messages in both directions.
+- Six concurrent browser-opened DCEP policy combinations, preserving ordering and
+  retransmission/lifetime metadata. Echo Unicode text, empty text/binary and binary
+  messages; reliable payloads of 32 KiB require actual SCTP fragmentation.
+- Close/reset a browser channel and explicitly reuse its ID. Open a timed unordered
+  channel from the owned peer, inspect its browser policy and exchange messages,
+  then close it from the owned side. Before video, require exactly nine admitted
+  generations, eight confirmed clean closures and 34 received application messages.
 - An independently authored 320×240 gray scene with a moving black marker, encoded
   as VP8 or H264 constrained baseline by the test browser and sent through the owned RTP/SRTP peer. Small fragments
   deliberately require browser RTP reassembly. The video element must render the first
@@ -47,3 +54,11 @@ level asymmetry support. Browser answers requesting that capability must still p
 strict negotiation; no answer check is suppressed. The encoder may emit a compatible
 lower level. Parameter sets and IDR are carried over real protected RTP, not inserted
 by the receiver. Mode 0, other profiles/levels and general H264 codec coverage remain.
+
+Large browser SCTP packets exposed 1225-byte protected datagrams. ICE and DTLS now
+have separate bounded receive budgets (default 2048) while local sends remain 1200.
+Chromium's unordered one-byte DCEP ACK is accepted only for a local unordered OPEN;
+strict raw-peer negatives cover ordered channels, padding, unknown/incoming streams
+and unordered OPEN. This is a documented wire exception, not full RFC compliance
+by the browser. Browser PR loss/abandonment remains covered only by the separate
+Pion fault lane at this milestone; the browser's PR exchanges here have no forced loss.

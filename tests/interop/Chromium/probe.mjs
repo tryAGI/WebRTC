@@ -71,6 +71,52 @@ try {
     if(mode!=='offer')await peer.setRemoteDescription({type:'answer',sdp:await response.text()});
     for (let n=0;n<400 && reply !== 'owned-ready';n++) { const state = await fetch('http://127.0.0.1:9430/state'); if (!state.ok) throw new Error('Owned connection failed: '+await state.text()); await new Promise(r => setTimeout(r,50)); }
     if (reply !== 'owned-ready' || peer.connectionState !== 'connected') throw new Error('Connection did not exchange data: '+peer.connectionState+'/'+peer.iceConnectionState);
+    const channelEvidence=[];
+    const exercise=async(ch,expected,large=false)=>{
+      ch.binaryType='arraybuffer';const received=[];ch.onmessage=e=>received.push(e.data);
+      for(let n=0;n<200 && ch.readyState!=='open';n++)await new Promise(r=>setTimeout(r,25));
+      if(ch.readyState!=='open' || ch.ordered!==expected.ordered || ch.maxRetransmits!==(expected.maxRetransmits??null) || ch.maxPacketLifeTime!==(expected.maxPacketLifeTime??null) || ch.protocol!=='tryagi-local')throw new Error('Channel policy mismatch: '+ch.label);
+      const binary=Uint8Array.from({length:large?32768:512},(_,i)=>(i*17+3)&255);
+      for(const payload of ['policy:'+ch.label+' Привет','',new Uint8Array(0),binary]) {
+        ch.send(payload);
+        for(let n=0;n<200 && received.length===0;n++)await new Promise(r=>setTimeout(r,25));
+        if(received.length!==1)throw new Error('Missing/duplicate channel reply: '+ch.label+' payload='+typeof payload+'/'+(payload.length??payload.byteLength)+' received='+received.length+' state='+ch.readyState+' owned='+await (await fetch('http://127.0.0.1:9430/channels')).text());
+        const got=received.shift();
+        if(typeof payload==='string'?got!==payload:!(got instanceof ArrayBuffer) || new Uint8Array(got).length!==payload.length || !payload.every((v,i)=>v===new Uint8Array(got)[i]))throw new Error('Channel payload changed: '+ch.label);
+      }
+      channelEvidence.push({label:ch.label,id:ch.id,ordered:ch.ordered,maxRetransmits:ch.maxRetransmits,maxPacketLifeTime:ch.maxPacketLifeTime,bytes:binary.length});
+      return received;
+    };
+    const policies=[
+      ['reliable-ordered',{ordered:true}],['reliable-unordered',{ordered:false}],
+      ['retransmit-ordered',{ordered:true,maxRetransmits:2}],['retransmit-unordered',{ordered:false,maxRetransmits:2}],
+      ['timed-ordered',{ordered:true,maxPacketLifeTime:1000}],['timed-unordered',{ordered:false,maxPacketLifeTime:1000}]
+    ];
+    // Keep every channel alive together: a single blocking accept loop cannot pass.
+    const policyChannels=policies.map(([name,policy])=>peer.createDataChannel('browser-'+name,{...policy,protocol:'tryagi-local'}));
+    for(let i=0;i<policyChannels.length;i++)await exercise(policyChannels[i],policies[i][1],i<2);
+    const close=async(ch,remote=false)=>{
+      const closed=new Promise(resolve=>ch.addEventListener('close',resolve,{once:true}));
+      if(remote)ch.send('close-owned');else ch.close();
+      await closed;if(ch.readyState!=='closed')throw new Error('Channel did not close');
+    };
+    const reusedId=policyChannels[0].id;await close(policyChannels[0]);
+    const reopened=peer.createDataChannel('reopened',{id:reusedId,protocol:'tryagi-local'});
+    await exercise(reopened,{ordered:true},true);
+    if(reopened.id!==reusedId)throw new Error('Closed stream ID was not reused');
+    let incomingInfo;const incoming=new Promise(resolve=>peer.addEventListener('datachannel',e=>{incomingInfo={label:e.channel.label,id:e.channel.id,state:e.channel.readyState};e.channel.addEventListener('open',()=>incomingInfo.state=e.channel.readyState);resolve(e.channel);},{once:true}));
+    const opened=await fetch('http://127.0.0.1:9430/open-channel');if(!opened.ok)throw new Error('Owned channel OPEN failed: '+await opened.text()+' incoming='+JSON.stringify(incomingInfo));
+    const ownedChannel=await incoming;await exercise(ownedChannel,{ordered:false,maxPacketLifeTime:1000});
+    await close(ownedChannel,true);await close(reopened);
+    for(const ch of policyChannels.slice(1))await close(ch);
+    let channelAccounting;
+    for(let n=0;n<200;n++){
+      const r=await fetch('http://127.0.0.1:9430/channels');if(!r.ok)throw new Error('Owned channel worker failed');
+      channelAccounting=(await r.text()).split(',').map(Number);
+      if(channelAccounting[0]===9 && channelAccounting[1]===8 && channelAccounting[2]===34)break;
+      await new Promise(r=>setTimeout(r,25));
+    }
+    if(channelAccounting[0]!==9 || channelAccounting[1]!==8 || channelAccounting[2]!==34)throw new Error('Channel admission/closure accounting mismatch: '+channelAccounting);
     const paintCanvas=new OffscreenCanvas(320,240);const paint=paintCanvas.getContext('2d'); const chunks=[];let encodeError;
     const encoder=new VideoEncoder({ error:e=>encodeError=String(e),output:c=>{const data=new Uint8Array(c.byteLength);c.copyTo(data);chunks.push({type:c.type,data});} });
     encoder.configure({...(codec==='h264'?{avc:{format:'annexb'}}:{}),codec:codec==='h264'?'avc1.42E01F':'vp8',width:320,height:240,bitrate:200000,framerate:10,latencyMode:'realtime'});
@@ -91,7 +137,7 @@ try {
     await fetch('http://127.0.0.1:9430/close');peer.close();
     if(!isSecureContext)throw new Error('Browser origin is not secure');
     const media=stats.find(s=>s.type==='inbound-rtp');if(!media || media.framesDecoded<3 || media.keyFramesDecoded<2 || media.pliCount<=priorPli || media.packetsLost!==1)throw new Error('Browser decode/recovery stats incomplete: '+JSON.stringify(stats));
-    return {mode,codec,priorPli,secure:isSecureContext,candidates,reply,feedback,frames,stats};
+    return {mode,codec,priorPli,secure:isSecureContext,candidates,reply,channelEvidence,channelAccounting,feedback,frames,stats};
   })()` });
   if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
   console.log(JSON.stringify(result.result.value, null, 2));

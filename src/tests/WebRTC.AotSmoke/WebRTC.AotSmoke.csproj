@@ -35,4 +35,6 @@
 </ItemGroup>
 <ItemGroup><Compile Include="../WebRTC.ProtocolTests/SdpRtcpTests.cs" Link="SdpRtcpTests.cs" /></ItemGroup>
 <ItemGroup><Compile Include="../WebRTC.IntegrationTests/RtcpPeerTests.cs" Link="RtcpPeerTests.cs" /></ItemGroup>
+<ItemGroup><Compile Include="../WebRTC.IntegrationTests/DtlsReceiveBoundsTests.cs" Link="DtlsReceiveBoundsTests.cs" /></ItemGroup>
+<ItemGroup><Compile Include="../WebRTC.IntegrationTests/DataChannelAckTests.cs" Link="DataChannelAckTests.cs" /></ItemGroup>
 </Project>

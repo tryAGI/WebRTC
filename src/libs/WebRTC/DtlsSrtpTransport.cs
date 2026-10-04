@@ -14,7 +14,10 @@ public sealed record SecureMediaDatagram(SecureMediaKind Kind, byte[] Data);
 public sealed record DtlsSrtpOptions
 {
     public bool RequireCookie { get; init; }
+    /// <summary>Outgoing datagram budget including record protection; used for local fragmentation.</summary>
     public int MaximumDatagramSize { get; init; } = 1200;
+    /// <summary>Independent bound on incoming DTLS/SRTP datagrams. The remote peer owns its transmit budget.</summary>
+    public int MaximumReceiveDatagramSize { get; init; } = 2048;
     public TimeSpan HandshakeTimeout { get; init; } = TimeSpan.FromSeconds(15);
     public TimeSpan InitialRetransmissionTimeout { get; init; } = TimeSpan.FromSeconds(1);
     public IReadOnlyList<SrtpProfile> Profiles { get; init; } =
@@ -79,7 +82,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         if (!Enum.IsDefined(role)) throw new ArgumentOutOfRangeException(nameof(role));
         if (remoteFingerprintSha256.Length != 32) throw new ArgumentException("A SHA-256 peer fingerprint is required.", nameof(remoteFingerprintSha256));
         _options = options ?? new();
-        if (_options.MaximumDatagramSize is < 256 or > 1200 ||
+        if (_options.MaximumDatagramSize is < 256 or > 1200 || _options.MaximumReceiveDatagramSize is < 256 or > 16384 ||
             _options.HandshakeTimeout < TimeSpan.FromMilliseconds(100) || _options.HandshakeTimeout > TimeSpan.FromMinutes(1) ||
             _options.InitialRetransmissionTimeout < TimeSpan.FromMilliseconds(100) || _options.InitialRetransmissionTimeout > TimeSpan.FromSeconds(2) ||
             _options.Profiles is null || _options.Profiles.Count is < 1 or > 3)
@@ -233,7 +236,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
 
     private void ProcessDatagram(byte[] datagram)
     {
-        if (datagram.Length == 0 || datagram.Length > 1200) { Reject(); return; }
+        if (datagram.Length == 0 || datagram.Length > _options.MaximumReceiveDatagramSize) { Reject(); return; }
         if (datagram[0] is >= 128 and <= 191)
         {
             if (!_ready || datagram.Length < 2) { Reject(); return; }

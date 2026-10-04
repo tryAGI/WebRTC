@@ -57,6 +57,11 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
 
 foreach (var profile in Enum.GetValues<SrtpProfile>())
     cases.Add(($"DTLS exporter and bidirectional protected media: {profile}", () => DtlsTests.Exchange(profile)));
+cases.Add(("ICE receive boundary preserves independent transmit budget", DtlsReceiveBoundsTests.IceBoundary));
+foreach (var bound in new[] { 1200, 2048 })
+    cases.Add(($"DTLS receive boundary {bound} is independent of transmit MTU", () => DtlsReceiveBoundsTests.Exchange(bound)));
+foreach (var scenario in new[] { "canonical-unordered", "canonical-ordered", "padded-ordered", "ordered-reject", "padded-reject", "unknown-reject", "remote-reject", "open-reject" })
+    cases.Add(($"DCEP canonical ACK compatibility {scenario}", () => DataChannelAckTests.Exchange(scenario)));
 cases.Add(("DTLS cancellation cleans up a pending reader", DtlsTests.Cancel));
 cases.Add(("DTLS malformed fragment flood preserves handshake state", DtlsTests.MalformedFlood));
 cases.Add(("DTLS reordered server handshake messages", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, fault: "reorder")));
@@ -103,7 +108,8 @@ foreach (var reliability in new[] { DataChannelReliability.RetransmissionLimited
 cases.Add(("SCTP stream reset and SSN/request rollover", () => SctpResetTests.Raw(false, false)));
 cases.Add(("SCTP simultaneous directional reset", () => SctpResetTests.Raw(false, true)));
 cases.Add(("SCTP reset all streams", () => SctpResetTests.Raw(true, false)));
-cases.Add(("SCTP confirmed reset survives immediate peer shutdown", SctpResetTests.ResetThenShutdown));
+for (var repeat = 1; repeat <= 2; repeat++)
+    cases.Add(($"SCTP confirmed reset survives immediate peer shutdown, batch {repeat}", SctpResetTests.ResetThenShutdown));
 cases.Add(("SCTP reset preserves old messages under backpressure", SctpResetTests.Backpressure));
 cases.Add(("SCTP reset waits for partial message abandonment", SctpResetTests.DeferredAbandonment));
 cases.Add(("SCTP reset request loss", () => SctpResetTests.Loss(false)));

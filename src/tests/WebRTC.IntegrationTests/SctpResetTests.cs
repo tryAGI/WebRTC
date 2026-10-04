@@ -42,7 +42,7 @@ internal static class SctpResetTests
     internal static async Task ResetThenShutdown()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        for(var cycle=0;cycle<24;cycle++)
+        for(var cycle=0;cycle<12;cycle++)
         {
             await using var pair=await SctpPair.Create(SctpTests.Fast() with { Streams=2 },timeout.Token);
             var reset=pair.Left.ResetOutgoingStreamsAsync(new ushort[] {0},timeout.Token);

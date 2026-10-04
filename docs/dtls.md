@@ -28,7 +28,12 @@ successful establishment; disposal releases record and SRTP keys.
 
 ## Reliability and resource bounds
 
-- Maximum UDP datagram: configurable 256–1200 bytes; default 1200.
+- Outgoing datagram budget: `MaximumDatagramSize`, 256–1200 bytes; default 1200.
+  This controls local fragmentation, not the remote peer's packet size.
+- Incoming DTLS/SRTP datagram bound: `MaximumReceiveDatagramSize`, 256–16384 bytes;
+  default 2048. The outer ICE receive bound must also admit the packet. Oversized
+  input is rejected before processing any record or changing replay state. The
+  authenticated record, source, queue and handshake-reassembly bounds still apply.
 - Handshake body: 16 KiB; at most eight messages ahead of the expected sequence and
   32 KiB aggregate reassembly bodies, plus equally bounded byte-presence maps.
 - Conflicting fragment overlap and malformed trailing fragments are rejected.
@@ -68,6 +73,11 @@ WebRTC data channels. DCEP, stream ordering, reliability and flow control remain
 Local UDP tests exchange application, RTP and RTCP packets in both directions for
 all profiles. Negative cases include wrong fingerprints, modified signatures,
 record tampering/replay, cancellation, timeouts and malformed fragment flooding.
+Exact 1200/2048-byte receive boundaries and one-byte oversize rejection use two
+independently authenticated records concatenated in one datagram, as allowed by
+[RFC 6347 section 4.1.1](https://www.rfc-editor.org/rfc/rfc6347#section-4.1.1).
+Replaying the rejected records separately proves that the oversize packet did not
+advance record replay state. These cases execute in the rooted NativeAOT fixture.
 Loss, handshake-message reordering, encrypted Finished arriving before CCS, cookie
 exchange and certificate fragmentation are exercised through a UDP proxy.
 

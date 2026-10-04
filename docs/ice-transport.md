@@ -39,7 +39,14 @@ responses to outbound checks renew consent; incoming checks and application pack
 do not. Expiry closes the socket and data queue. Shorter explicit intervals/deadlines
 are available for local loss tests; no expiry may exceed 30 seconds.
 
-The receive queue and datagram size are bounded; overflow drops oldest data. The
+The receive queue and datagram size are bounded; overflow drops oldest data.
+`MaximumDataDatagramSize` is the outgoing application budget (default 1200);
+`MaximumReceiveDataDatagramSize` independently limits incoming application data
+(default 2048, configurable 64–65507). The selected authenticated ICE path is still
+required, and its data remains untrusted until DTLS/SRTP validation. Host and relay
+paths apply the same receive bound; TURN allocation storage admits both budgets.
+Local UDP and rooted native cases verify the exact default receive boundary,
+one-byte oversize rejection, a subsequent valid packet and unchanged outbound limit. The
 upper media layer must not queue stale audio. Diagnostics expose nomination timing,
 check RTT, retransmissions and drops without passwords. These are transport boundaries,
 not end-to-end voice or playback metrics.

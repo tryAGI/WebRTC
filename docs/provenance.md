@@ -319,3 +319,20 @@ successful reset notifications and clean terminal association state. The prior
 independent DCEP failure was not reproduced in 400 local repeat connections,
 including 320 under bounded CPU contention; these repeats do not establish its
 precise historical wire order or a formal concurrency/security audit.
+
+## Browser channel receive budgets and ACK compatibility
+
+The independently authored Chromium probe now uses only public browser/SCTP wire
+behavior to validate all six DCEP policies, messages, closure and ID reuse. A real
+1225-byte protected browser datagram exposed a local 1200-byte receive assumption.
+ICE and DTLS now separate bounded remote receive budgets from local transmission.
+The new authored tests concatenate authentic local records and replay rejected
+records separately; no RFC code component or upstream fixture is imported.
+
+Pinned Chromium 151 sends an unordered canonical ACK for an unordered channel,
+despite RFC 8832's ordered DCEP requirement. The exception is exact-message,
+existing-local-channel and unordered-policy scoped. Negative authenticated raw
+SCTP controls and rooted native execution preserve the rejection boundaries.
+No browser, codec, external runtime package or source enters the MIT runtime.
+Browser PR policy negotiation/delivery has no forced data loss in this probe;
+PR abandonment/loss remains independently covered by the existing Pion lane.

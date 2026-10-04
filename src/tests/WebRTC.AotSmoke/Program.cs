@@ -2,6 +2,13 @@ using tryAGI.WebRTC;
 using System.Net;
 using System.Net.Sockets;
 
+foreach (var scenario in new[] { "canonical-unordered", "canonical-ordered", "padded-ordered", "ordered-reject", "padded-reject", "unknown-reject", "remote-reject", "open-reject" })
+    await DataChannelAckTests.Exchange(scenario);
+Console.WriteLine("NativeAOT bounded DCEP ACK compatibility and negative controls passed");
+await DtlsReceiveBoundsTests.IceBoundary();
+await DtlsReceiveBoundsTests.Exchange(1200);
+await DtlsReceiveBoundsTests.Exchange(2048);
+Console.WriteLine("NativeAOT independent receive limits and atomic oversized-record rejection passed");
 Span<byte> binding = stackalloc byte[20];
 if (!StunMessage.TryWriteBindingRequest(binding, "012345678901"u8) ||
     !StunMessage.TryParse(binding, out var stun) || stun.Type != StunMessage.BindingRequest)

@@ -13,7 +13,10 @@ public sealed record IceUdpTransportOptions
     public int MaximumCandidatePairs { get; init; } = 64;
     /// <summary>Excludes the host base from connectivity, early checks and selected traffic. Explicit TURN gathering is required.</summary>
     public bool RelayOnly { get; init; }
+    /// <summary>Outgoing application datagram budget, excluding UDP/IP headers.</summary>
     public int MaximumDataDatagramSize { get; init; } = 1200;
+    /// <summary>Independent incoming application datagram storage bound; applies on host and relay paths.</summary>
+    public int MaximumReceiveDataDatagramSize { get; init; } = 2048;
     public int ReceiveQueueCapacity { get; init; } = 128;
     public TimeSpan CheckInterval { get; init; } = TimeSpan.FromMilliseconds(50);
     public TimeSpan InitialRetransmissionTimeout { get; init; } = TimeSpan.FromMilliseconds(500);
@@ -25,7 +28,7 @@ public sealed record IceUdpTransportOptions
 
     internal void Validate()
     {
-        if (MaximumCandidatePairs is < 1 or > 64 || MaximumDataDatagramSize is < 64 or > 65507 ||
+        if (MaximumCandidatePairs is < 1 or > 64 || MaximumDataDatagramSize is < 64 or > 65507 || MaximumReceiveDataDatagramSize is < 64 or > 65507 ||
             ReceiveQueueCapacity is < 1 or > 1024 ||
             CheckInterval < TimeSpan.FromMilliseconds(5) || CheckInterval > TimeSpan.FromMilliseconds(100) ||
             InitialRetransmissionTimeout < TimeSpan.FromMilliseconds(100) || InitialRetransmissionTimeout > TimeSpan.FromSeconds(2) ||

@@ -4,7 +4,7 @@ The current runtime implements one bounded SCTP association over an authenticate
 nominated DTLS connection, plus ordered and unordered DCEP channels with reliable,
 limited-retransmission and timed reliability.
 This is progress toward the consumer transport, not complete WebRTC support.
-Interleaving, path-MTU probing, general SDP and actual provider/browser acceptance
+Interleaving, path-MTU probing, general SDP and actual provider acceptance
 remain required before migration. The [initial peer owner](peer-connection.md)
 already negotiates the bounded Opus/data-channel SDP subset and owns these layers.
 
@@ -75,6 +75,12 @@ after OPEN admission, it initiates reset or retires the ID if reset was not nego
 - Canonical one-byte DCEP ACK is sent. Exactly `02 00 00 00` is also accepted because
   pinned Pion datachannel v1.6.3 emits it. Other trailing forms are rejected. This
   compatibility exception does not relax DTLS authentication, PPID or stream checks.
+- Chromium 151 sends its canonical one-byte ACK with the SCTP unordered flag on
+  unordered channels. Accept this bounded exception only for an existing **local**
+  OPEN on an unordered channel. Unordered OPEN, unordered padded ACK, ACK on an
+  ordered channel, an incoming peer-owned channel or an unused stream remain errors.
+  Outgoing DCEP remains ordered and reliable as required by RFC 8832; neither
+  authenticated transport nor application ordering is relaxed.
 
 PR-SCTP is advertised through both RFC 3758 Forward-TSN-Supported and RFC 5061
 Supported Extensions (chunk type 192). A peer without the capability can use reliable
@@ -233,3 +239,15 @@ Standards: [SCTP](https://www.rfc-editor.org/rfc/rfc9260),
 [DCEP](https://www.rfc-editor.org/rfc/rfc8832),
 [PR-SCTP](https://www.rfc-editor.org/rfc/rfc3758) and
 [stream reconfiguration](https://www.rfc-editor.org/rfc/rfc6525).
+
+The isolated Chromium matrix now additionally covers all six browser-opened DCEP
+policies held open concurrently, bidirectional text/Unicode/empty/binary payloads,
+32 KiB reliable fragmentation, one owned-opened timed unordered channel, closing
+from both sides and explicit browser stream-ID reuse. Every scenario requires nine
+admitted channel generations, eight successful closures and exactly 34 application
+messages before video proceeds. All six VP8/H264 and SDP/DTLS-role combinations
+run without skips. Browser PR loss/abandonment, fairness and interleaving remain;
+these no-loss policy exchanges do not replace the separate Pion PR-SCTP fault cases.
+Eight raw authenticated SCTP cases constrain ACK compatibility and execute in AOT.
+The terminal reset regression retains 24 real associations as two 12-cycle cases,
+so fixture construction does not exhaust one 15-second runner budget on a busy host.
