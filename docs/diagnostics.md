@@ -197,7 +197,7 @@ Activity is created by the media thread or for normal packets.
 
 ## Validation and measurements
 
-Version 0.2.0 includes [measured CI results and their raw evidence](diagnostics-measurements.md).
+Version 0.2.1 includes [measured CI results and their raw evidence](diagnostics-measurements.md).
 
 Run the deterministic local cases with:
 

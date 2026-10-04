@@ -9,13 +9,10 @@ No changes yet.
 
 ## [0.2.1] - 2026-10-04
 
-- Include the diagnostics additions and measured evidence described below.
 - Fix RTCP PLI throttle validation to compare only within the valid observation
   window, and cover deliberately delayed observers in the normal and NativeAOT suites.
 - Version 0.2.0 was not published: its release validation hit this scheduling-sensitive
   test assertion. The original tag is preserved; transport code is unchanged in 0.2.1.
-
-## [0.2.0] - 2026-10-04
 
 - Add opt-in, bounded versioned packet-stage diagnostics with live attachment,
   sampling, expiry, cancellation, queue/drop attribution and consumer-owned .NET

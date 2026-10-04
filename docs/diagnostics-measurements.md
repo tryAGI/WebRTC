@@ -1,4 +1,4 @@
-# Diagnostics measurements for 0.2.0
+# Diagnostics measurements for 0.2.1
 
 Measured on 2026-10-04 at source commit
 `b4798b5a63115f6baa0f4a92c39096edf6a426ef`.
