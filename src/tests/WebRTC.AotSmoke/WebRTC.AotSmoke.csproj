@@ -37,4 +37,8 @@
 <ItemGroup><Compile Include="../WebRTC.IntegrationTests/RtcpPeerTests.cs" Link="RtcpPeerTests.cs" /></ItemGroup>
 <ItemGroup><Compile Include="../WebRTC.IntegrationTests/DtlsReceiveBoundsTests.cs" Link="DtlsReceiveBoundsTests.cs" /></ItemGroup>
 <ItemGroup><Compile Include="../WebRTC.IntegrationTests/DataChannelAckTests.cs" Link="DataChannelAckTests.cs" /></ItemGroup>
+<ItemGroup>
+    <Compile Include="../WebRTC.ProtocolTests/IceServerUriTests.cs" Link="IceServerUriTests.cs" />
+    <Compile Include="../WebRTC.IntegrationTests/IceServerTests.cs" Link="IceServerTests.cs" />
+</ItemGroup>
 </Project>

@@ -34,6 +34,12 @@ the existing Pion HTTP service; no upstream implementation, example, fixture or 
 module was imported. This remains authored interoperability evidence, not a formal
 clean-room or security audit.
 
+The server URI parser/resolver and peer gathering overloads are newly authored
+from RFC7064/7065 and the documented .NET 10 system resolver API. URI examples
+are protocol inputs, not imported implementation code. The local synthetic
+STUN/TURN fixtures and localhost TLS certificates exercise the public API;
+no resolver/parser source, upstream fixture or new runtime dependency is imported.
+
 ## Independent test peer
 
 STUN gathering and candidate metadata are newly authored from RFC 8489/8445/8838;

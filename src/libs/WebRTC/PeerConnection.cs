@@ -35,7 +35,7 @@ public sealed record PeerConnectionDiagnostics(PeerConnectionState State, TimeSp
     IceUdpTransportDiagnostics Ice, DtlsSrtpDiagnostics? Dtls);
 
 /// <summary>Owns initial Opus/video/data BUNDLE and bounded resolved STUN/TURN paths. Video codecs are externally supplied; no decoding or jitter buffer.</summary>
-public sealed class PeerConnection : IAsyncDisposable
+public sealed partial class PeerConnection : IAsyncDisposable
 {
     private readonly object _gate = new();
     private readonly PeerConnectionOptions _options;

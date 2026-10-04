@@ -56,7 +56,8 @@ not end-to-end voice or playback metrics.
 `GatherServerReflexiveCandidateAsync(resolvedServer, options, cancellationToken)`
 sends an unauthenticated STUN Binding request on the same socket used for ICE/media.
 It returns immutable mapping/base metadata with srflx priority and a typed candidate
-attribute writer. No server is contacted implicitly and no DNS is performed.
+attribute writer. No server is contacted implicitly. The endpoint-only ICE transport performs no DNS;
+owned peer [URI overloads](ice-server-uris.md) add bounded server resolution and required admission.
 Callers select permitted server endpoints. A mapping is not peer authentication;
 ICE credentials, DTLS fingerprint binding and SRTP still gate media.
 

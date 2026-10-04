@@ -33,7 +33,9 @@ handling, sequence rollover and explicit memory/age limits. See [video scope](do
 
 **Status: transport in development.** Initial video SDP and peer routing,
 automatic compound SR/RR/CNAME and bounded negotiated PLI are implemented.
-Multiple interfaces, DNS/mDNS, ICE restart, general SDP/JSEP, broader feedback
+Explicit STUN/TURN URI gathering now has bounded A/AAAA resolution, required
+resolved-address admission and original-host TLS identity; see [server URIs](docs/ice-server-uris.md).
+Multiple interfaces, mDNS/SRV discovery, ICE restart, general SDP/JSEP, broader feedback
 and real consumer playback remain. See [RTCP control](docs/rtcp.md).
 This library does not yet replace SIPSorcery in DId or Advantage.
 No package is automatically published.

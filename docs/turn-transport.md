@@ -1,7 +1,7 @@
 # Owned UDP relay allocation over UDP/TCP/TLS
 
 `TurnUdpAllocation` owns one server socket/stream and one UDP relay allocation on an explicitly selected,
-resolved unicast TURN endpoint. `ServerTransport` explicitly selects UDP (default), TCP or TLS. It does not resolve a URI, pick a server or contact
+resolved unicast TURN endpoint. `ServerTransport` explicitly selects UDP (default), TCP or TLS. The standalone allocation does not resolve a URI or pick a server. Owned peer URI overloads add [bounded resolution and admission](ice-server-uris.md). It does not contact
 provider endpoints by itself. It is a datagram owner and can now join `IceUdpTransport`/`PeerConnection` as a
 local relay candidate. The ICE owner creates permissions, binds checks and selected
 media to this allocation and joins its lifecycle. Standalone use remains explicit.
@@ -88,7 +88,7 @@ credentials random and ephemeral, and its UDP echo peer is local. This is local 
 interoperability, not real NAT traversal or provider/device acceptance.
 
 The ICE integration is covered separately in [ICE scope](ice-transport.md), including
-independent encrypted Opus/data over an owned local relay. DNS/mDNS/multiple interfaces,
+independent encrypted Opus/data over an owned local relay. Remote candidate DNS/mDNS, SRV/NAPTR and multiple interfaces,
 ICE restart, browser and real NAT/provider/Watch acceptance remain required. No consumer
 has migrated as a result of this prerequisite.
 

@@ -25,6 +25,16 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Early requests require authentication and bound buffered state", EarlyCheckBounds),
     ("Early request remote identity is checked after signaling", EarlyIdentity),
 };
+foreach (var ipv6 in new[] { false, true })
+    foreach (var dns in new[] { false, true })
+        cases.Add(($"ICE URI STUN IPv6={ipv6} DNS={dns} pinned destination and SDP", () => IceServerTests.Stun(ipv6, dns)));
+cases.Add(("ICE URI bounded admission precedes resolution and recovers after cancellation", IceServerTests.Admission));
+cases.Add(("ICE URI resolved destination policy, unsafe families and unsupported transport", IceServerTests.Policy));
+foreach (var scenario in new[] { "cancel", "timeout", "dispose" })
+    cases.Add(($"ICE URI gathering lifetime {scenario}", () => IceServerTests.Lifetime(scenario)));
+foreach (var transport in Enum.GetValues<TurnServerTransport>())
+    cases.Add(($"ICE URI TURN {transport} DNS and allocation teardown", () => IceServerTests.Relay(transport)));
+cases.Add(("ICE URI TURN TLS original name cannot be overridden", () => IceServerTests.Relay(TurnServerTransport.Tls, true)));
 foreach (var profile in Enum.GetValues<SrtpProfile>())
     foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
         cases.Add(($"Automatic RTCP reports, CNAME, counters and RTT {profile} {setup}", () => RtcpPeerTests.Reports(profile, setup)));

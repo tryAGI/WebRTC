@@ -5,6 +5,9 @@ using tryAGI.WebRTC;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("ICE server URI RFC7064/7065 vectors and canonical transport", IceServerUriTests.Vectors),
+    ("ICE server URI malformed, ambiguous and restricted addresses", IceServerUriTests.Malformed),
+    ("ICE server URI bounds and hostile corpus", IceServerUriTests.Corpus),
     ("RTCP SDP PLI, reduced-size and semantic feedback subset", SdpRtcpTests.Negotiation),
     ("RTCP SDP hostile attributes, immutable models and bounds", SdpRtcpTests.Bounds),
     ("RTCP independent signed report, Unicode CNAME and PLI vectors", RtcpTests.Vectors),

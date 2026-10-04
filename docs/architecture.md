@@ -30,8 +30,9 @@ connection-state and encoded-frame types when implementing the respective milest
    bounded peer-reflexive/trickle handling; independent Pion validation is present.
    Same-socket bounded STUN srflx gathering and remote relay admission now have
    independent local Pion Opus/data evidence. Destination policy covers discovered
-   sources. Complete multiple-interface gathering and minimal mDNS/DNS with
-   deadlines and bounded name resolution. Owned UDP/TCP/TLS TURN now joins ICE with path-bound transactions, consent and selected media.
+   sources. Explicit provider STUN/TURN URIs now use bounded server A/AAAA lookup,
+   required endpoint admission and original-host TLS identity; see [server URIs](ice-server-uris.md).
+   Complete multiple-interface gathering and remote candidate mDNS/DNS discovery. Owned UDP/TCP/TLS TURN now joins ICE with path-bound transactions, consent and selected media.
    Complete real NAT lifecycle coverage.
 3. DTLS handshake and SRTP/SRTCP: fingerprint binding, certificate policy, key
    derivation, authentication before delivery, replay and rollover tests. SRTP/SRTCP
@@ -69,6 +70,7 @@ or MIT relicensing of restricted source is part of this initial foundation.
 - RFC 8489: STUN, https://www.rfc-editor.org/rfc/rfc8489
 - RFC 3550: RTP/RTCP, https://www.rfc-editor.org/rfc/rfc3550
 - RFC 8445 / RFC 7675: ICE / consent freshness
+- RFC 7064 / RFC 7065: STUN / TURN URI schemes
 - RFC 8656: TURN
 - RFC 8825 / RFC 8826 / RFC 8827: WebRTC protocol and security architecture
 - RFC 5764 / RFC 3711 / RFC 7714 / RFC 6188: DTLS-SRTP / SRTP / AES-GCM / AES-256 KDF

@@ -17,6 +17,7 @@ internal sealed class TurnStreamFixture : IAsyncDisposable
     private readonly Socket _upstream = TurnFixture.Socket(IPAddress.Loopback);
     private readonly X509Certificate2? _certificate;
     private readonly byte[]? _root;
+    private readonly string _serverName;
     private readonly Task _run;
     private TcpClient? _client;
     private Stream? _stream;
@@ -25,18 +26,19 @@ internal sealed class TurnStreamFixture : IAsyncDisposable
     internal volatile bool HoldReads;
     internal readonly TaskCompletionSource ReadPaused = new(TaskCreationOptions.RunContinuationsAsynchronously);
     internal int FramesRead;
-    internal TurnStreamFixture(bool tls = false, bool expired = false, bool wrongPurpose = false)
+    internal TurnStreamFixture(bool tls = false, bool expired = false, bool wrongPurpose = false, string serverName = "turn.fixture.local")
     {
-        if (tls) (_certificate, _root) = Certificate(expired, wrongPurpose);
+        _serverName = serverName;
+        if (tls) (_certificate, _root) = Certificate(expired, wrongPurpose, serverName);
         _listener.Server.ReceiveBufferSize = 4096; _listener.Start(); _run = Run();
     }
     internal IPEndPoint Server => (IPEndPoint)_listener.LocalEndpoint;
     internal TurnUdpOptions Options => TurnFixture.Fast() with
     {
         ServerTransport = _certificate == null ? TurnServerTransport.Tcp : TurnServerTransport.Tls,
-        Tls = _certificate == null ? null : new() { ServerName = "turn.fixture.local", RevocationMode = X509RevocationMode.NoCheck, TrustedRootCertificates = [_root!] },
+        Tls = _certificate == null ? null : new() { ServerName = _serverName, RevocationMode = X509RevocationMode.NoCheck, TrustedRootCertificates = [_root!] },
     };
-    private static (X509Certificate2, byte[]) Certificate(bool expired, bool wrongPurpose)
+    private static (X509Certificate2, byte[]) Certificate(bool expired, bool wrongPurpose, string serverName)
     {
         using var issuerKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var issuer = new CertificateRequest("CN=Isolated TURN root", issuerKey, HashAlgorithmName.SHA256);
@@ -46,12 +48,12 @@ internal sealed class TurnStreamFixture : IAsyncDisposable
         var now = DateTimeOffset.UtcNow;
         using var root = issuer.CreateSelfSigned(now.AddHours(-2), now.AddHours(2));
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var leaf = new CertificateRequest("CN=turn.fixture.local", key, HashAlgorithmName.SHA256);
+        var leaf = new CertificateRequest($"CN={serverName}", key, HashAlgorithmName.SHA256);
         leaf.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, true));
         leaf.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
         var purposes = new OidCollection { new(wrongPurpose ? "1.3.6.1.5.5.7.3.2" : "1.3.6.1.5.5.7.3.1") };
         leaf.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(purposes, true));
-        var san = new SubjectAlternativeNameBuilder(); san.AddDnsName("turn.fixture.local"); leaf.CertificateExtensions.Add(san.Build());
+        var san = new SubjectAlternativeNameBuilder(); san.AddDnsName(serverName); leaf.CertificateExtensions.Add(san.Build());
         using var publicLeaf = leaf.Create(root, now.AddHours(-1), expired ? now.AddMinutes(-1) : now.AddHours(1), RandomNumberGenerator.GetBytes(16));
         var certificate = publicLeaf.CopyWithPrivateKey(key);
         if (!OperatingSystem.IsWindows()) return (certificate, root.RawData);

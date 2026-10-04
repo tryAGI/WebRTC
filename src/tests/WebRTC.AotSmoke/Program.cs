@@ -224,6 +224,14 @@ foreach (var tls in new[] { false, true })
     foreach (var channel in new[] { false, true }) await TurnStreamTests.RoundTrip(tls, channel);
 Console.WriteLine("NativeAOT TURN TCP/TLS framing, validated TLS identity, encrypted relay ICE and deletion passed");
 Console.WriteLine("NativeAOT owned TURN allocation, SHA256 auth, ChannelData, renewal and deletion passed");
+IceServerUriTests.Vectors(); IceServerUriTests.Malformed(); IceServerUriTests.Corpus();
+foreach (var ipv6 in new[] { false, true })
+    foreach (var dns in new[] { false, true }) await IceServerTests.Stun(ipv6, dns);
+await IceServerTests.Policy(); await IceServerTests.Admission();
+foreach (var scenario in new[] { "cancel", "timeout", "dispose" }) await IceServerTests.Lifetime(scenario);
+foreach (var transport in Enum.GetValues<TurnServerTransport>()) await IceServerTests.Relay(transport);
+await IceServerTests.Relay(TurnServerTransport.Tls, true);
+Console.WriteLine("NativeAOT ICE server URI/DNS, destination policy, original TLS identity and bounded gathering lifetime passed");
 return 0;
 
 static async Task NativeStun(Socket server, CancellationToken ct)
