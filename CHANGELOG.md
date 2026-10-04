@@ -5,6 +5,10 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+No changes yet.
+
+## [0.2.0] - 2026-10-04
+
 - Add opt-in, bounded versioned packet-stage diagnostics with live attachment,
   sampling, expiry, cancellation, queue/drop attribution and consumer-owned .NET
   Meter/Activity publication outside media loops.
@@ -14,7 +18,8 @@ Version `0.x` is experimental. Release notes are also available on
 - Expose non-mutating per-source RFC 3550 reception snapshots, remote reception
   reports about transmitted streams, RTT age/staleness and route/consent evidence.
 - Add deterministic local fault/lifecycle/collector tests, NativeAOT execution and
-  measured paced-Opus allocation/CPU/delivery reports. See [diagnostics](docs/diagnostics.md).
+  measured paced-Opus allocation/CPU/delivery reports. See [diagnostics](docs/diagnostics.md)
+  and [release measurements](docs/diagnostics-measurements.md).
 
 ## [0.1.1] - 2026-10-04
 
