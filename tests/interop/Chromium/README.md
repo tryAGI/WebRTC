@@ -11,7 +11,9 @@ The authored C# peer uses the public library APIs. An authored Node script uses 
 built-in WebSocket/HTTP and Chromium's public DevTools protocol, WebRTC and WebCodecs
 APIs. No npm package is installed. Chromium 151.0.7922.34 is supplied by the pinned
 Playwright v1.62.1 image (its index SHA256 is in the script); Playwright APIs are not used.
-The .NET SDK image is pinned separately in the Dockerfile.
+The .NET SDK image is pinned separately in the Dockerfile. The launcher checks
+the pinned image's `chrome-linux` (arm64) and `chrome-linux64` (x64) locations
+and fails immediately with browser stderr when startup fails.
 
 Every scenario must pass, without skips:
 

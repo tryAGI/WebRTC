@@ -1,12 +1,18 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdtemp, rm } from 'node:fs/promises';
 const mode=process.argv[2];
 if(!['answer-active','answer-passive','offer'].includes(mode)) throw new Error('Unknown browser test mode');
 const server = createServer((req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><title>Owned local WebRTC probe</title>'); });
 await new Promise(resolve => server.listen(9235, '127.0.0.1', resolve));
 const profile=await mkdtemp('/tmp/owned-browser-profile-');
-const chrome = spawn('/ms-playwright/chromium-1234/chrome-linux/chrome', [
+// The immutable image uses different distribution directory names on arm64/x64.
+let executable;
+for(const path of ['/ms-playwright/chromium-1234/chrome-linux/chrome','/ms-playwright/chromium-1234/chrome-linux64/chrome']) {
+  try { await access(path);executable=path;break; } catch {}
+}
+if(!executable)throw new Error('Pinned Chromium binary missing');
+const chrome = spawn(executable, [
   '--headless', '--no-sandbox', '--disable-gpu', '--disable-background-networking',
   '--disable-component-update', '--disable-sync', '--no-first-run', '--no-default-browser-check',
   '--allow-loopback-in-peer-connection', '--disable-features=WebRtcHideLocalIpsWithMdns',
