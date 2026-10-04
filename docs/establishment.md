@@ -13,6 +13,33 @@ combined `MediaReady`, `ConnectAsync` and channel opening. There is no fresh
 provider trace proving that a particular protocol defect is fixed by a newer
 release. Keep the existing production transport default until repeat acceptance.
 
+## Fresh provider evidence, 2026-10-04
+
+Two subsequent independent Advantage probes with the adapter declared pinned to
+0.2.2 reproduced the timeout with retained phase evidence. ICE succeeded in
+288.2 and 274.5 ms, followed by a DTLS-client timeout waiting for
+`DtlsServerHello` in 15013.2 and 15014.5 ms. Each recorded three DTLS retries,
+zero rejected DTLS records, and SCTP/DCEP `NotStarted`. Caller cancellation was
+false in both cases. The first recorded clean disposal in 2.1 ms. An intervening
+successful probe completed all phases, but the sequential sample is incomplete
+and is not a reliability comparison.
+
+The SCTP initiation fix below does **not** explain these particular failures:
+SCTP never started. Zero rejected records cannot distinguish no response at the
+socket, a drop before DTLS, or an incomplete/reordered handshake assembly.
+Capture packet boundaries on the deployed adapter before choosing a protocol fix.
+The ABI `AssemblyVersion` is 0.0.0.0 throughout these experimental 0.x packages;
+it cannot attest an exact NuGet version. The deployment/package identity must be
+verified separately; a service task definition is not proof of the running task.
+
+Opt-in packet capture now includes each outgoing DTLS handshake record and retry
+at socket send boundaries. Incoming DTLS classification starts at demultiplexing
+using the RFC 7983 content-type range. This classification is not authentication.
+Managed socket-send completion does not prove remote receipt; a zero captured
+count is usable only after checking capture expiry, truncation and dropped events.
+Payloads, endpoints and handshake secrets remain excluded. These diagnostics do
+not alter handshake deadlines, record limits, fingerprint binding or replay checks.
+
 ## Confirmed SCTP setup defect
 
 RFC 8841 [section 9.3](https://www.rfc-editor.org/rfc/rfc8841.html#section-9.3)
@@ -36,8 +63,8 @@ the association before the other initiator needs to retransmit. These cases exec
 NativeAOT as well. The low-level
 `SctpAssociation` still exposes the passive role for explicit transport use/tests.
 
-This confirmed standards defect is a candidate explanation for issue #3, not a
-proven diagnosis of its original provider attempts. The original trace did not
+This confirmed standards defect is not the cause of the fresh DTLS-client
+timeouts above. Its relationship to the original provider attempts is unproven. The original trace did not
 separate DTLS and SCTP. Fresh Advantage acceptance must identify the failing phase
 and verify the fixed package before issue #3 can close.
 

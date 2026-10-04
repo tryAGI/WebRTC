@@ -2,6 +2,8 @@ using tryAGI.WebRTC;
 using System.Net;
 using System.Net.Sockets;
 
+foreach (var silent in new[] { false, true }) await HandshakeDiagnosticTests.Exchange(silent);
+Console.WriteLine("NativeAOT DTLS handshake socket boundaries passed");
 foreach (var scenario in new[] { "canonical-unordered", "canonical-ordered", "padded-ordered", "ordered-reject", "padded-reject", "unknown-reject", "remote-reject", "open-reject" })
     await DataChannelAckTests.Exchange(scenario);
 Console.WriteLine("NativeAOT bounded DCEP ACK compatibility and negative controls passed");

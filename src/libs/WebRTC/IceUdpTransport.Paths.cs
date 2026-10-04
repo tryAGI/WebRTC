@@ -128,6 +128,8 @@ public sealed partial class IceUdpTransport
 
     private async ValueTask HandleDatagramAsync(LocalPath path, ReadOnlyMemory<byte> packet, IPEndPoint source, PacketDiagnostic trace = default)
     {
+        // RFC 7983 content-type classification is evidence of framing, not authentication.
+        if (packet.Length != 0 && packet.Span[0] is >= 20 and <= 63) trace.Protocol(DiagnosticProtocol.Dtls);
         trace.Mark(PacketStage.Demultiplexed);
         if (packet.Length == 0) return;
         if (packet.Span[0] <= 3)

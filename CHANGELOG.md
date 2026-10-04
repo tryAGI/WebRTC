@@ -5,6 +5,15 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+## [0.2.4] - 2026-10-04
+
+- Include outgoing DTLS handshake records and retries in opt-in packet socket
+  boundaries; classify incoming DTLS at ICE demultiplexing without treating the
+  label as authentication. Exercise silent/retrying and successful local peers,
+  with no packet identifiers, under managed and executed NativeAOT tests.
+- Record fresh Advantage phase evidence isolating DTLS-client ServerHello timeouts
+  before SCTP. The provider root cause and repeat acceptance remain open.
+
 - Exercise simultaneous SCTP initiators when one or both initial encrypted INIT
   records are dropped. Verify bidirectional DCEP data, preserved DTLS stream
   parity and handshake retransmission in managed and executed NativeAOT tests.

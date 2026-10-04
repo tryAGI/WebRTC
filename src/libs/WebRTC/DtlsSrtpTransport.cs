@@ -761,7 +761,12 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
                     byte[] packet;
                     lock (_cryptoGate)
                         packet = entry.Epoch == 0 ? DtlsProtocol.Record(entry.Type, 0, _plainRecordSequence++, fragment) : _sendCipher!.Encrypt(entry.Type, fragment);
-                    await _ice.SendDatagramAsync(packet, _lifetime.Token).ConfigureAwait(false);
+                    var trace = Volatile.Read(ref _ice.Diagnostics)?.Begin(PacketDirection.Send,
+                        _ice.SelectedDiagnosticPath, _ice.DiagnosticGeneration, packet.Length) ?? default;
+                    trace.Protocol(DiagnosticProtocol.Dtls);
+                    try { await _ice.SendDiagnosticDatagramAsync(packet, trace, _lifetime.Token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { trace.Mark(PacketStage.Dropped, PacketReason.Cancelled); throw; }
+                    catch (Exception) { trace.Mark(PacketStage.Dropped, PacketReason.SendFailure); throw; }
                 }
             }
             _sendPending = false; _lastFlightSentAt = Stopwatch.GetTimestamp();

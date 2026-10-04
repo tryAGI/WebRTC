@@ -41,6 +41,8 @@ cases.Add(("Establishment fingerprint authentication failure remains enforced", 
 cases.Add(("Establishment bounded phase history and exact channel totals", EstablishmentTests.Bounds));
 foreach (TurnServerTransport? relay in new TurnServerTransport?[] { null, TurnServerTransport.Udp, TurnServerTransport.Tcp, TurnServerTransport.Tls })
     cases.Add(($"Diagnostics correlated receive/send path {relay?.ToString() ?? "host"}", () => DiagnosticTests.Stages(relay)));
+foreach (var silent in new[] { false, true })
+    cases.Add(($"Diagnostics DTLS handshake socket boundaries silent={silent}", () => HandshakeDiagnosticTests.Exchange(silent)));
 cases.Add(("Diagnostics live lifecycle, queues, bounded drops and expiry", DiagnosticTests.QueueAndLifecycle));
 cases.Add(("Diagnostics throwing collector isolation", () => DiagnosticTests.CollectorIsolation(false)));
 cases.Add(("Diagnostics slow collector isolation and dispose", () => DiagnosticTests.CollectorIsolation(true)));
