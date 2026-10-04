@@ -28,6 +28,7 @@ public sealed record PeerEstablishmentEvidence(int Version, Guid PeerEpoch, long
     IReadOnlyList<EstablishmentEvent> Events, long EventsOverwritten)
 {
     public long IceChecks { get; init; }
+    public IReadOnlyList<IceDatagramRejectionCount> IceRejectedDatagrams { get; init; } = [];
     public long DtlsRejectedRecords { get; init; }
     public long SctpRejectedPackets { get; init; }
 }
@@ -165,6 +166,7 @@ public sealed partial class PeerConnection
         _dtls?.Role, _sctp?.Role) with
     {
         IceChecks = _ice.GetDiagnostics().SentChecks,
+        IceRejectedDatagrams = _ice.GetDatagramRejectionCounts(),
         DtlsRejectedRecords = _dtls?.GetDiagnostics().RejectedRecords ?? 0,
         SctpRejectedPackets = _sctp?.GetDiagnostics().RejectedPackets ?? 0
     };

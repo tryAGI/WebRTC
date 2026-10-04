@@ -1,7 +1,28 @@
 namespace tryAGI.WebRTC;
 
+/// <summary>First failed ICE data-admission predicate, in this order; not DTLS authentication evidence.</summary>
+public enum IceDatagramRejectionReason
+{
+    TransportStopped, LocalPathUnavailable, NoNominatedPair, PathMismatch, SourceMismatch, Oversized, ConsentExpired
+}
+public readonly record struct IceDatagramRejectionCount(IceDatagramRejectionReason Reason, long Count);
+
+
 public sealed partial class IceUdpTransport
 {
+    private const int DataRejectionReasonCount = (int)IceDatagramRejectionReason.ConsentExpired + 1;
+    private readonly long[] _dataRejections = new long[DataRejectionReasonCount];
+    /// <summary>Fixed seven-category, immutable copy retained after shutdown/disposal. Contains no endpoints or packet content.
+    /// Counts rejected non-STUN datagrams before DTLS; excludes relay framing rejection and queue overflow.</summary>
+    public IReadOnlyList<IceDatagramRejectionCount> GetDatagramRejectionCounts()
+    {
+        lock (_gate)
+        {
+            var counts = new IceDatagramRejectionCount[DataRejectionReasonCount];
+            for (var n = 0; n < counts.Length; n++) counts[n] = new((IceDatagramRejectionReason)n, _dataRejections[n]);
+            return Array.AsReadOnly(counts);
+        }
+    }
     private bool _ownsDiagnostics;
     private readonly Guid _diagnosticEpoch = Guid.NewGuid();
     /// <summary>Lower-level ICE capture for applications owning their DTLS/SRTP layer. Does not authenticate media.</summary>

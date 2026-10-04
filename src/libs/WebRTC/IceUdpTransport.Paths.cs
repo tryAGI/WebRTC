@@ -144,16 +144,33 @@ public sealed partial class IceUdpTransport
         {
             lock (_gate)
             {
-                if (!_stopped && PathAllowed(path) && _selected is not null && path == _selected.Path &&
-                    source.Equals(_selected.Candidate.TransportEndPoint) && packet.Length <= _options.MaximumReceiveDataDatagramSize &&
-                    Elapsed(_lastConsentAt) < _options.ConsentTimeout)
+                var rejection = DataAdmissionRejection(path, source, packet.Length);
+                if (rejection is null)
                 {
                     trace.Mark(PacketStage.IceEnqueued, queueDepth: Math.Min(_options.ReceiveQueueCapacity, _datagrams.Reader.Count + 1));
                     _datagrams.Writer.TryWrite(new(packet.ToArray(), trace));
                 }
-                else { Interlocked.Increment(ref _droppedDatagrams); trace.Mark(PacketStage.Dropped, PacketReason.InvalidRouteOrConsent); }
+                else
+                {
+                    _dataRejections[(int)rejection.Value]++;
+                    Interlocked.Increment(ref _droppedDatagrams);
+                    // Keep the existing trace category; precise counters have an independent retained API.
+                    trace.Mark(PacketStage.Dropped, PacketReason.InvalidRouteOrConsent);
+                }
             }
         }
+    }
+    // Caller holds _gate. Preserve admission checks and their original short-circuit order.
+    private IceDatagramRejectionReason? DataAdmissionRejection(LocalPath path, IPEndPoint source, int bytes)
+    {
+        if (_stopped) return IceDatagramRejectionReason.TransportStopped;
+        if (!PathAllowed(path)) return IceDatagramRejectionReason.LocalPathUnavailable;
+        if (_selected is null) return IceDatagramRejectionReason.NoNominatedPair;
+        if (path != _selected.Path) return IceDatagramRejectionReason.PathMismatch;
+        if (!source.Equals(_selected.Candidate.TransportEndPoint)) return IceDatagramRejectionReason.SourceMismatch;
+        if (bytes > _options.MaximumReceiveDataDatagramSize) return IceDatagramRejectionReason.Oversized;
+        if (Elapsed(_lastConsentAt) >= _options.ConsentTimeout) return IceDatagramRejectionReason.ConsentExpired;
+        return null;
     }
     private async ValueTask SendPathAsync(LocalPath path, ReadOnlyMemory<byte> packet, IPEndPoint peer, CancellationToken ct, PacketDiagnostic trace = default)
     {

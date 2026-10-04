@@ -108,6 +108,36 @@ channel labels/protocol strings, exception messages or media are included.
 requires explicit attachment and final draining **before** detach/disposal;
 that larger buffer's lifecycle is unchanged.
 
+## Retained ICE data-admission rejection counters
+
+The next diagnostic build adds `ice.GetDatagramRejectionCounts()` and
+`peer.GetEstablishmentEvidence().IceRejectedDatagrams`. Each returns an immutable
+seven-category snapshot, independent of capture attachment, expiry, sampling or
+trace truncation, retained after timeout and disposal. Categories report the first
+failed predicate in the original admission order: `TransportStopped`,
+`LocalPathUnavailable`, `NoNominatedPair`, `PathMismatch`, `SourceMismatch`,
+`Oversized`, `ConsentExpired`. A packet with a wrong source and an excessive size
+is counted only as `SourceMismatch`. These are cumulative totals, not correlated
+packet or flight identifiers. The existing `InvalidRouteOrConsent` trace category
+is unchanged so existing bounded exporters remain compatible.
+
+The scope is non-STUN datagrams that reach the ICE data filter. It excludes
+TURN framing/permission rejection, STUN parsing, queue overflow, DTLS framing and
+authentication. A zero counter alone never proves no remote transmission or no
+managed receive. Snapshots contain only finite reasons and counts, never addresses
+or payloads. Consumers must explicitly add this field to their safe DTO projection;
+upgrading the package alone does not update a consumer's serialization contract.
+
+Actual local UDP tests cover no nomination, unavailable host path under relay-only
+policy, source mismatch (also oversized), oversize on the valid nominated source,
+and arrival on an attached relay when the host path was selected. They prove exact
+counts despite overflowing an eight-event capture, immutable prior snapshots,
+valid selected traffic still passing, and retention after disposal. A peer-level
+silent-DTLS timeout retains an unknown-source ICE rejection and zero DTLS rejected
+records after cleanup. Shutdown/expired-consent counters preserve existing guards;
+these additional tests do not claim a separately forced arrival in those race windows.
+No provider root cause is inferred from these local negative controls.
+
 ## Required Advantage adapter change
 
 1. Upgrade the explicitly selected experimental adapter from 0.1.0-dev.37 to the

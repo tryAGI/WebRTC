@@ -41,6 +41,15 @@ internal static class EstablishmentTests
             new DtlsSrtpTransport(remote, identity, session.DtlsRole, Convert.FromHexString(session.RemoteFingerprintSha256)) : null;
         await using var sctp = stage == "dcep" ? new SctpAssociation(dtls!, SctpRole.Responder) : null;
         if (dtls != null) { await dtls.ConnectAsync(ct); await peer.MediaReady.WaitAsync(ct); }
+        if (stage == "dtls")
+        {
+            while (Phase(peer.GetEstablishmentEvidence(), EstablishmentPhase.Ice).Status != EstablishmentStatus.Succeeded)
+                await Task.Delay(5, ct);
+            using var attacker = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            attacker.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+            await attacker.SendToAsync(new byte[] { 22, 0, 0, 0 }, SocketFlags.None, endpoint, ct);
+            while (peer.GetEstablishmentEvidence().IceRejectedDatagrams.All(c => c.Count == 0)) await Task.Delay(5, ct);
+        }
         Exception error;
         if (sctp != null)
         {
@@ -72,6 +81,13 @@ internal static class EstablishmentTests
         Check(stage == "dcep" || after.TerminalState == PeerConnectionState.Failed && after.TerminalFailure == EstablishmentFailure.Timeout, "Original failure lost behind Closed state.");
         Check(after.Events.Count <= 64 && after.ClockFrequency == Stopwatch.Frequency, "Evidence bound/clock invalid.");
         if (dtls != null) Check(peer.GetDiagnostics().Dtls?.Profile != null, "Disposal erased negotiated SRTP profile.");
+        if (stage == "dtls")
+        {
+            Check(before.IceRejectedDatagrams.Single(c => c.Reason == IceDatagramRejectionReason.SourceMismatch).Count == 1,
+                "Wrong-source ICE rejection disappeared behind DTLS timeout");
+            Check(after.IceRejectedDatagrams.SequenceEqual(before.IceRejectedDatagrams), "Peer disposal erased ICE rejection counters");
+            Check(after.DtlsRejectedRecords == 0, "Rejected ICE datagram reached the DTLS parser");
+        }
         Released(endpoint);
     }
     internal static async Task IceFailure(bool cancel)

@@ -2,6 +2,10 @@ using tryAGI.WebRTC;
 using System.Net;
 using System.Net.Sockets;
 
+foreach (var reason in new[] { IceDatagramRejectionReason.NoNominatedPair, IceDatagramRejectionReason.LocalPathUnavailable,
+    IceDatagramRejectionReason.SourceMismatch, IceDatagramRejectionReason.Oversized, IceDatagramRejectionReason.PathMismatch })
+    await IceAdmissionDiagnosticTests.Rejection(reason);
+Console.WriteLine("NativeAOT retained ICE rejection categories passed");
 foreach (var silent in new[] { false, true }) await HandshakeDiagnosticTests.Exchange(silent);
 Console.WriteLine("NativeAOT DTLS handshake socket boundaries passed");
 foreach (var scenario in new[] { "canonical-unordered", "canonical-ordered", "padded-ordered", "ordered-reject", "padded-reject", "unknown-reject", "remote-reject", "open-reject" })

@@ -5,6 +5,13 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+- Retain seven exact ICE data-admission rejection counters independently of packet
+  capture, including no nomination, unavailable/mismatched path, wrong source,
+  oversize, expired consent and shutdown. Export immutable, address-free snapshots
+  through ICE and peer establishment evidence. Preserve existing admission checks
+  and trace categories; add actual host/relay rejection, truncation and disposal
+  regressions to managed and executed NativeAOT tests.
+
 ## [0.2.4] - 2026-10-04
 
 - Include outgoing DTLS handshake records and retries in opt-in packet socket

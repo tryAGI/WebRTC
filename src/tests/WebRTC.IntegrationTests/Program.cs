@@ -41,6 +41,9 @@ cases.Add(("Establishment fingerprint authentication failure remains enforced", 
 cases.Add(("Establishment bounded phase history and exact channel totals", EstablishmentTests.Bounds));
 foreach (TurnServerTransport? relay in new TurnServerTransport?[] { null, TurnServerTransport.Udp, TurnServerTransport.Tcp, TurnServerTransport.Tls })
     cases.Add(($"Diagnostics correlated receive/send path {relay?.ToString() ?? "host"}", () => DiagnosticTests.Stages(relay)));
+foreach (var reason in new[] { IceDatagramRejectionReason.NoNominatedPair, IceDatagramRejectionReason.LocalPathUnavailable,
+    IceDatagramRejectionReason.SourceMismatch, IceDatagramRejectionReason.Oversized, IceDatagramRejectionReason.PathMismatch })
+    cases.Add(($"Diagnostics ICE retained data rejection {reason}", () => IceAdmissionDiagnosticTests.Rejection(reason)));
 foreach (var silent in new[] { false, true })
     cases.Add(($"Diagnostics DTLS handshake socket boundaries silent={silent}", () => HandshakeDiagnosticTests.Exchange(silent)));
 cases.Add(("Diagnostics live lifecycle, queues, bounded drops and expiry", DiagnosticTests.QueueAndLifecycle));
