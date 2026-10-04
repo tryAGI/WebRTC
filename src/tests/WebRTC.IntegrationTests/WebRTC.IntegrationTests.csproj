@@ -11,4 +11,5 @@
   </ItemGroup>
 <ItemGroup><Compile Include="../WebRTC.ProtocolTests/SdpVideoTests.cs" Link="SdpVideoTests.cs" /></ItemGroup>
 <ItemGroup><Compile Include="../WebRTC.ProtocolTests/RtcpTests.cs" Link="RtcpProtocolTests.cs" /></ItemGroup>
+<ItemGroup><Compile Include="../WebRTC.ProtocolTests/SdpRtcpTests.cs" Link="SdpRtcpTests.cs" /></ItemGroup>
 </Project>

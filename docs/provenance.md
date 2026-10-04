@@ -253,3 +253,18 @@ a direct test import with no version, transitive graph, hash or notice changes.
 Our existing authored fingerprint-bound DTLS/SRTCP harness carries these controls
 in both roles/all profiles. This adds no runtime dependency, imported code,
 security-audit, complete-peer feedback, provider or hardware acceptance claim.
+
+
+## Automatic peer RTCP and feedback negotiation
+
+The peer controller, SDP feedback/subset policy, stable per-peer CNAME, report
+rotation/counters/clocks, token budget and bounded encoder notifications are newly
+authored from RFC3550/4585/5506/8108/3264 prose and wire contracts. No upstream
+implementation, RFC appendix algorithm/code, example or fixture is imported or
+translated. The full local Pion peer's authored harness uses existing pinned
+RTCP v1.2.19 and WebRTC v4.2.22 public ReadRTCP/WriteRTCP and packet APIs. It drains
+both sender and receiver control streams, parses our compounds and writes its own
+synthetic RR/CNAME/PLI. No module version, graph, hash or third-party notice changes.
+Runtime still uses only the .NET shared framework. Synthetic encrypted local peer
+interoperability and NativeAOT do not establish a security audit, actual decoder
+output, provider/device acceptance or a latency improvement.

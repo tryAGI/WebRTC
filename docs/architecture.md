@@ -44,15 +44,14 @@ connection-state and encoded-frame types when implementing the respective milest
    Bounded initial Opus/data SDP negotiation now drives one BUNDLE transport with
    independent full Pion WebRTC offer/answer and encoded Opus/control exchange in
    both DTLS roles. Initial owned peer lifecycle, accepted Opus MID/PT/source
-   routing and bounded RTCP framing are now implemented; automatic RTCP feedback,
-   automatic video RTCP feedback, general negotiation and browser
-   coverage remain. See [SDP subset](sdp.md).
+   routing, automatic compound RTCP reports and negotiated bounded PLI are now
+   implemented; general negotiation, broader feedback and browser coverage remain. See [SDP subset](sdp.md).
    Bounded authenticated-RTP H264/VP8 reassembly now has independent Pion public
    payloader and fingerprint-bound DTLS/SRTP evidence; initial H264/VP8 video SDP now routes bounded frames through owned PeerConnection;
-   automatic feedback and decoder/provider acceptance remain. See [video peer](video-peer.md). See [encoded video](video-frames.md).
+   broader feedback and decoder/provider acceptance remain. See [video peer](video-peer.md). See [encoded video](video-frames.md).
    Bounded RTCP semantic codec, reception statistics/NTP and single-endpoint
    scheduling now have independent Pion codec plus DTLS/SRTCP exchange and rooted
-   native evidence; integration into negotiated automatic peer feedback remains.
+   native evidence; an owned bounded worker now integrates reports and negotiated PLI.
    See [RTCP primitives](rtcp.md).
    See [owned initial peer](peer-connection.md) for readiness and queue semantics.
 5. Ordered/unordered SCTP/DCEP channels with bounded reassembly, flow control,

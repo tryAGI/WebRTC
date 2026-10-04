@@ -74,8 +74,19 @@ profiles. Tests use loopback candidates and no provider endpoints.
 This is not full RFC 9429 JSEP conformance or an application-ready peer connection.
 General signaling state/rollback, renegotiation, ICE restart, multiple-interface gathering,
 name resolution, multiple accepted video sections/general MID routing,
-RTCP feedback, codec decoding and timed media delivery remain. Synthetic packet
+Full feedback capabilities beyond PLI, codec decoding and timed media delivery remain. Synthetic packet
 transport is not audible playback or measured provider/Apple Watch voice latency.
 The [initial owned peer](peer-connection.md) now supplies the initial signaling
 lifecycle and bounded Opus routing above these helpers. Explicit H264/VP8 codec
 selection and video routing now extend that initial peer; see [video negotiation](video-peer.md).
+
+## RTCP negotiation
+
+Media-level AVPF feedback is retained in bounded immutable models. The initial
+peer offers `nack pli` for supported video codecs and `rtcp-rsize` for audio/video.
+An answer can remove capabilities but cannot add a feedback value, widen it to an
+unoffered selected format or add reduced-size support. Specific and wildcard
+feedback are compared by their actual selected-format coverage. Only negotiated
+PLI is actionable; unknown bounded feedback values do not enable a feature.
+A stable random local CNAME is shared by bundled audio/video sources and their
+control reports. See [automatic RTCP](rtcp.md) for source and scheduling policy.

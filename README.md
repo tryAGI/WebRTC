@@ -31,10 +31,12 @@ is separate from SCTP/data readiness.
 reassembly from already authenticated RTP, with pinned source/PT/MID, loss/reorder
 handling, sequence rollover and explicit memory/age limits. See [video scope](docs/video-frames.md).
 
-**Status: transport in development.** Multiple interfaces, DNS/mDNS,
-ICE restart, general SDP/JSEP,
-initial video SDP and PeerConnection routing are implemented; automatic RTCP feedback remains incomplete. This library does
-not yet replace SIPSorcery in DId or Advantage. No package is automatically published.
+**Status: transport in development.** Initial video SDP and peer routing,
+automatic compound SR/RR/CNAME and bounded negotiated PLI are implemented.
+Multiple interfaces, DNS/mDNS, ICE restart, general SDP/JSEP, broader feedback
+and real consumer playback remain. See [RTCP control](docs/rtcp.md).
+This library does not yet replace SIPSorcery in DId or Advantage.
+No package is automatically published.
 
 The runtime library has no third-party NuGet or native dependencies. It uses the .NET
 shared framework for cryptography. SDK tooling, including the Microsoft linker and

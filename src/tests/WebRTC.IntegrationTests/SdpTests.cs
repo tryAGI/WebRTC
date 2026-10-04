@@ -124,6 +124,6 @@ internal static class SdpTests
         }
     }
 }
-internal sealed record SessionRequest(string Sdp, bool Passive, bool Relay = false, string Video = "");
+internal sealed record SessionRequest(string Sdp, bool Passive, bool Relay = false, string Video = "", bool Rtcp = false);
 internal sealed record SessionResponse(string Id, string Sdp, int StunPort = 0);
-internal sealed record SessionStats(int Audio, int Data, int Failures, int RelayAllocations = 0, int Video = 0);
+internal sealed record SessionStats(int Audio, int Data, int Failures, int RelayAllocations = 0, int Video = 0, int Reports = 0, int PictureLoss = 0, int SentPictureLoss = 0, int Cnames = 0);

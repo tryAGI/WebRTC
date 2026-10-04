@@ -5,6 +5,8 @@ using tryAGI.WebRTC;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("RTCP SDP PLI, reduced-size and semantic feedback subset", SdpRtcpTests.Negotiation),
+    ("RTCP SDP hostile attributes, immutable models and bounds", SdpRtcpTests.Bounds),
     ("RTCP independent signed report, Unicode CNAME and PLI vectors", RtcpTests.Vectors),
     ("RTCP SDES/PRIV/BYE boundaries and immutable views", RtcpTests.SdesAndBye),
     ("RTCP compound identity and opaque unsupported feedback", RtcpTests.CompoundAndUnknown),

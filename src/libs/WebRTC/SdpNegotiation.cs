@@ -17,12 +17,15 @@ public sealed class SdpLocalTransport
     public bool SupportsTrickle { get; }
     public ushort SctpPort { get; }
     public int MaximumMessageSize { get; }
+    public string CanonicalName { get; }
     public SdpLocalTransport(IceCredentials credentials, ReadOnlySpan<byte> fingerprintSha256, IPEndPoint candidate,
         ushort sctpPort = 5000, int maximumMessageSize = 262144,
-        IEnumerable<IceCandidate>? additionalCandidates = null, bool gatheringComplete = true, bool supportsTrickle = false, bool relayOnly = false)
+        IEnumerable<IceCandidate>? additionalCandidates = null, bool gatheringComplete = true, bool supportsTrickle = false, bool relayOnly = false, string? canonicalName = null)
     {
         ArgumentNullException.ThrowIfNull(credentials);
         if (fingerprintSha256.Length != 32 || sctpPort == 0 || maximumMessageSize is < 1 or > 1048576) throw new ArgumentOutOfRangeException(nameof(fingerprintSha256));
+        CanonicalName = canonicalName ?? Convert.ToBase64String(RandomNumberGenerator.GetBytes(18));
+        if (!SdpSessionDescription.Token(CanonicalName, 128)) throw new ArgumentException("Invalid local RTCP CNAME.", nameof(canonicalName));
         Credentials = credentials; FingerprintSha256 = Convert.ToHexString(fingerprintSha256);
         Candidate = new(candidate); SctpPort = sctpPort; MaximumMessageSize = maximumMessageSize;
         var extras = additionalCandidates?.Take(9).ToArray() ?? [];
@@ -48,6 +51,9 @@ public sealed class SdpNegotiatedSession
     public SdpDirection VideoDirection { get; }
     public IReadOnlyDictionary<int, string> OutgoingVideoHeaderExtensions { get; }
     public IReadOnlyDictionary<int, string> IncomingVideoHeaderExtensions { get; }
+    public bool VideoPictureLoss { get; }
+    public bool AudioReducedSizeRtcp { get; }
+    public bool VideoReducedSizeRtcp { get; }
     public bool CanSendVideo => LocalVideo != null && VideoDirection is SdpDirection.SendReceive or SdpDirection.SendOnly;
     public bool CanReceiveVideo => LocalVideo != null && VideoDirection is SdpDirection.SendReceive or SdpDirection.ReceiveOnly;
     public SdpMediaDescription? LocalData { get; }
@@ -80,6 +86,9 @@ public sealed class SdpNegotiatedSession
         var answeredVideo = localOfferer ? remoteVideo : localVideo;
         VideoDirection = !localOfferer ? answeredVideo?.Direction ?? SdpDirection.Inactive : answeredVideo?.Direction switch
         { SdpDirection.SendOnly => SdpDirection.ReceiveOnly, SdpDirection.ReceiveOnly => SdpDirection.SendOnly, var d => d ?? SdpDirection.Inactive };
+        VideoPictureLoss = answeredVideo?.SupportsPictureLoss(answeredVideo.Codecs[0].PayloadType) == true;
+        AudioReducedSizeRtcp = answeredAudio?.ReducedSizeRtcp == true;
+        VideoReducedSizeRtcp = answeredVideo?.ReducedSizeRtcp == true;
         VideoFormat = localVideo == null ? null : new(localVideo.Codecs.Single(c => c.PayloadType == answeredVideo!.Codecs[0].PayloadType), remoteVideo!.Codecs.Single(c => c.PayloadType == answeredVideo!.Codecs[0].PayloadType));
         OutgoingVideoHeaderExtensions = Extensions(answeredVideo, localOfferer ? SdpDirection.ReceiveOnly : SdpDirection.SendOnly);
         IncomingVideoHeaderExtensions = Extensions(answeredVideo, localOfferer ? SdpDirection.SendOnly : SdpDirection.ReceiveOnly);
@@ -159,9 +168,10 @@ public static partial class SdpNegotiation
         {
             if (ReferenceEquals(media, audio))
                 WriteAudio(builder, transport, media.Mid, Opus(media)!.PayloadType, Intersect(Invert(media.Direction), direction), setup, source,
-                    media.HeaderExtensions.FirstOrDefault(e => e.Value == MidExtension && media.HeaderExtensionDirections[e.Key] == SdpDirection.SendReceive).Key);
+                    media.HeaderExtensions.FirstOrDefault(e => e.Value == MidExtension && media.HeaderExtensionDirections[e.Key] == SdpDirection.SendReceive).Key, media.ReducedSizeRtcp);
             else if (ReferenceEquals(media, video)) WriteVideo(builder, transport, media.Mid, [selectedVideo!], Intersect(Invert(media.Direction), videoDirection), setup, videoSource,
-                media.HeaderExtensions.FirstOrDefault(e => e.Value == MidExtension && media.HeaderExtensionDirections[e.Key] == SdpDirection.SendReceive).Key);
+                media.HeaderExtensions.FirstOrDefault(e => e.Value == MidExtension && media.HeaderExtensionDirections[e.Key] == SdpDirection.SendReceive).Key,
+                media.SupportsPictureLoss(selectedVideo!.PayloadType), media.ReducedSizeRtcp);
             else if (ReferenceEquals(media, data)) WriteData(builder, transport, media.Mid, setup);
             else builder.Append(CultureInfo.InvariantCulture, $"m={media.Kind} 0 {media.Protocol} {string.Join(' ', media.Formats)}\r\na=mid:{media.Mid}\r\n");
         }
@@ -187,6 +197,7 @@ public static partial class SdpNegotiation
                 accepted.BundleOnly || offered.IsRejected && !accepted.IsRejected) throw Incompatible();
             if (accepted.IsRejected) continue;
             if (accepted.Formats.Any(format => !offered.Formats.Contains(format))) throw Incompatible();
+            if (accepted.ReducedSizeRtcp && !offered.ReducedSizeRtcp || !FeedbackCovered(offered, accepted)) throw Incompatible();
             if (accepted.Kind == "audio")
             {
                 var codec = Opus(accepted); var original = codec == null ? null : offered.Codecs.FirstOrDefault(c => c.PayloadType == codec.PayloadType);
@@ -229,6 +240,15 @@ public static partial class SdpNegotiation
             localOfferer ? dataOffer : dataAnswer, localOfferer ? dataAnswer : dataOffer, Opus(audioAnswer), localOfferer,
             localOfferer ? videoOffer : videoAnswer, localOfferer ? videoAnswer : videoOffer);
     }
+    private static bool FeedbackCovered(SdpMediaDescription offered, SdpMediaDescription accepted)
+    {
+        foreach (var feedback in accepted.RtcpFeedback)
+            foreach (var format in accepted.Formats.Where(f => feedback.PayloadType == null || f == feedback.PayloadType.Value.ToString(CultureInfo.InvariantCulture)))
+                if (!offered.RtcpFeedback.Any(f => f.Value == feedback.Value &&
+                    (f.PayloadType == null || f.PayloadType.Value.ToString(CultureInfo.InvariantCulture) == format))) return false;
+        return true;
+    }
+
     private static bool DirectionAllowed(SdpDirection offer, SdpDirection answer) => offer switch
     {
         SdpDirection.SendReceive => true,
@@ -281,12 +301,13 @@ public static partial class SdpNegotiation
         if (transport.GatheringComplete) builder.Append("a=end-of-candidates\r\n");
     }
     private static void WriteAudio(StringBuilder builder, SdpLocalTransport transport, string mid, byte payloadType,
-        SdpDirection direction, SdpSetup setup, uint source, int extension)
+        SdpDirection direction, SdpSetup setup, uint source, int extension, bool reducedSize = true)
     {
         builder.Append(CultureInfo.InvariantCulture, $"m=audio 9 UDP/TLS/RTP/SAVPF {payloadType}\r\nc=IN IP4 0.0.0.0\r\na=mid:{mid}\r\na=rtcp-mux\r\na=rtpmap:{payloadType} opus/48000/2\r\na=fmtp:{payloadType} minptime=10;useinbandfec=1\r\n");
+        if (reducedSize) builder.Append("a=rtcp-rsize\r\n");
         builder.Append("a=").Append(direction switch { SdpDirection.SendOnly => "sendonly", SdpDirection.ReceiveOnly => "recvonly", SdpDirection.Inactive => "inactive", _ => "sendrecv" }).Append("\r\n");
         if (extension != 0) builder.Append(CultureInfo.InvariantCulture, $"a=extmap:{extension} {MidExtension}\r\n");
-        builder.Append(CultureInfo.InvariantCulture, $"a=ssrc:{source} cname:tryagi\r\na=ssrc:{source} msid:tryagi audio\r\na=msid:tryagi audio\r\n");
+        builder.Append(CultureInfo.InvariantCulture, $"a=ssrc:{source} cname:{transport.CanonicalName}\r\na=ssrc:{source} msid:tryagi audio\r\na=msid:tryagi audio\r\n");
         WriteTransport(builder, transport, setup);
     }
     private static void WriteData(StringBuilder builder, SdpLocalTransport transport, string mid, SdpSetup setup)

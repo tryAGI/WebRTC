@@ -81,8 +81,12 @@ buffers; already queued output follows normal channel-drain semantics.
 and marker. It bounds the negotiated payload/MTU, validates its transport framing,
 sets the owned PT/SSRC/MID and serializes sends with unique SRTP sequence indexes.
 The caller owns encoding, packetization, pacing/congestion control and access-unit
-boundaries. Automatic packetization, RTCP reports/feedback, decoder refresh and
-retransmission are still required for complete consumer delivery.
+boundaries. Automatic compound reports and negotiated PLI now share the owned
+RTCP worker. Bootstrap, silence expiry and queued-reference loss request a bounded
+refresh; explicit decoder failure uses `RequestVideoKeyFrame`. Admitted remote PLI
+becomes a bounded encoder event, with encoding owned by the application. See
+[RTCP control](rtcp.md). Automatic packetization, actual decoding, congestion control
+and retransmission remain requirements for complete consumer delivery.
 
 ## Evidence
 

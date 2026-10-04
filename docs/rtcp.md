@@ -1,10 +1,10 @@
-# RTCP primitives and current peer boundary
+# RTCP primitives and automatic peer control
 
 `RtcpPackets`, `RtpReceptionTracker`, `RtcpClock` and
 `RtcpTransmissionSchedule` are authored .NET 10 runtime primitives. They add no
-NuGet or native dependency. They do not yet enable automatic reports/PLI in
-`PeerConnection`, advertise RTCP feedback in SDP, drive an encoder or prove
-provider/browser playback. Existing raw authenticated control transport remains.
+NuGet or native dependency. `PeerConnection` owns automatic compound reports and
+negotiated H264/VP8 picture-loss feedback. Encoding, decoding, congestion control,
+retransmission and provider/browser playback remain application/acceptance work.
 
 ## Semantic codec
 
@@ -105,3 +105,60 @@ Primary standards: [RFC 3550](https://www.rfc-editor.org/rfc/rfc3550.html),
 [RFC 4585](https://www.rfc-editor.org/rfc/rfc4585.html),
 [RFC 5506](https://www.rfc-editor.org/rfc/rfc5506.html),
 [RFC 8108](https://www.rfc-editor.org/rfc/rfc8108.html).
+
+## Automatic PeerConnection owner
+
+Offers advertise `rtcp-rsize` on audio/video and `nack pli` for supported video
+formats. Answers retain only offered capabilities for the selected codec; wildcard
+feedback is compared by the formats it covers. The binding answer governs both
+roles. Audio/video share one random per-peer CNAME, stable through candidate
+updates. A CNAME is a grouping hint, not an authenticated participant identity.
+
+One bounded worker sends full SR/RR plus SDES compounds, even with reduced-size
+feedback negotiated. Reports rotate admitted reception sources within the control
+MTU. SR packet/octet counters advance after successful RTP writes; NTP/RTP mapping,
+loss intervals and DLSR are built after bandwidth admission, immediately before
+the transport write. RTT requires a matching SR actually emitted within one minute
+and a nonnegative result within that window. Reception accounting follows accepted
+routing/payload admission, so it is not a measurement of network-only loss.
+
+`PeerRtcpOptions` bounds the endpoint control rate, reception sources and PLI
+interval/attempts. The endpoint share is the smaller of the configured cap and
+2.5% of session bandwidth. A token bucket permits one MTU-sized initial burst and
+accounts for a conservative128-byte transport overhead estimate; this is not exact
+wire-byte measurement or a congestion controller. Audio RTP never waits for RTCP
+credit. `PointToPoint` defaults false; set it only with a signaling guarantee.
+Two distinct admitted CNAME groups irreversibly disable early feedback.
+
+Valid authenticated video bootstrap, frame expiry and lost queued references mark
+one refresh episode. A complete syntactically identified key frame clears it;
+this does not prove successful decoding. `RequestVideoKeyFrame(remoteSource)` lets
+an application report decoder failure for an announced/admitted source. Requests
+are coalesced and throttled, default500ms with at most three automatic attempts
+per episode. A key/reset cannot bypass the last-send cooldown. A dropped reference
+superseded by a queued key for the same source needs no new refresh.
+
+`ReceiveVideoKeyFrameRequestsAsync` yields a bounded eight-event queue for admitted
+remote PLI targeting this peer's negotiated local video sender. The application
+owns the encoder response. Foreign/audio/local sender collisions, unnegotiated
+PLI, contradictory CNAME and invalid compounds are rejected before report or
+feedback side effects. Unsupported opaque feedback has no actionable effect.
+Reduced-size receiving is checked against the negotiated media; an unclassified
+reporter requires all active RTP media to allow it. Control-only reporter and
+CNAME maps are bounded separately from RTP reception state.
+
+`SendRtcpAsync` is an advanced SR/RR/CNAME API with an eight-request queue, immediate
+failure when full, owned input snapshot and cancellation/teardown completion. It
+shares the byte budget; callers own report fields and regular-report timing.
+PLI must use the scheduled key-frame API and cannot bypass retry/rate policy.
+This alpha API no longer accepts arbitrary opaque feedback or BYE. Automatic BYE,
+NACK/retransmission, TWCC/REMB, general multiparty membership estimation and full
+RTCP conformance remain separate work.
+
+Local tests cover compound clocks/counters/reception/RTT in both DTLS roles/all
+SRTP profiles, PLI bootstrap/retries/cooldown/key cancellation/silence expiry,
+whole-compound rejection, topology fallback, bounded raw sends/cancellation and
+audio isolation. The pinned full Pion peer independently parses reports/CNAME and
+exchanges PLI in both SDP/DTLS roles for H264 and VP8. Whole-library-rooted native
+execution includes the owned controller; this is synthetic local transport evidence,
+not decoded media, real providers, real NAT or measured physical Watch delivery.

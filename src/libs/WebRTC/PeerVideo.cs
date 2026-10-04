@@ -23,6 +23,8 @@ internal sealed class PeerVideo : IDisposable
     private readonly uint _source;
     private readonly int _incomingMid, _outgoingMid;
     private readonly byte[] _remoteMid, _localMid;
+    private readonly Dictionary<uint, long> _refresh = [];
+    private long _revision;
     private long _rejected;
     private bool _disposed;
     internal int HeaderLength { get; }
@@ -68,7 +70,31 @@ internal sealed class PeerVideo : IDisposable
     }
     internal void RejectSource() { lock (_gate) _rejected++; }
     internal bool HasSource(uint source) { lock (_gate) return _sources.ContainsKey(source); }
-    internal bool Read(ReadOnlySpan<byte> data, out IReadOnlyList<EncodedVideoFrame> frames)
+    internal IReadOnlyDictionary<uint, long> RefreshRequests() { lock (_gate) return new Dictionary<uint, long>(_refresh); }
+    internal void RequestRefresh(uint source)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_sources.ContainsKey(source) && !_announced.Contains(source)) throw new ArgumentException("Video source is not authorized.", nameof(source));
+            if (!_refresh.ContainsKey(source) && _refresh.Count == 8) throw new InvalidOperationException("Video refresh source budget is full.");
+            _refresh[source] = ++_revision;
+        }
+    }
+    internal bool QueueLoss(uint source) { lock (_gate) return MarkRefresh(source); }
+    private bool MarkRefresh(uint source)
+    {
+        if (_disposed || _refresh.ContainsKey(source) || _refresh.Count == 8) return false;
+        _refresh[source] = ++_revision; return true;
+    }
+    internal bool Read(ReadOnlySpan<byte> data, out IReadOnlyList<EncodedVideoFrame> frames, out bool refreshChanged)
+    {
+        lock (_gate)
+        {
+            var before = _revision; var valid = ReadCore(data, out frames); refreshChanged = before != _revision; return valid;
+        }
+    }
+    private bool ReadCore(ReadOnlySpan<byte> data, out IReadOnlyList<EncodedVideoFrame> frames)
     {
         lock (_gate)
         {
@@ -87,13 +113,25 @@ internal sealed class PeerVideo : IDisposable
                     SynchronizationSource = packet.SynchronizationSource, H264PacketizationMode = _session.VideoFormat.H264PacketizationMode,
                     MidExtensionId = _incomingMid, Mid = _incomingMid == 0 ? null : _session.RemoteVideo!.Mid,
                     MaximumFrameBytes = _options.MaximumFrameBytes, MaximumBufferedBytes = _options.MaximumBufferedBytes, MaximumFrameAge = _options.MaximumFrameAge });
-                _sources.Add(packet.SynchronizationSource, assembler);
+                _sources.Add(packet.SynchronizationSource, assembler); MarkRefresh(packet.SynchronizationSource);
             }
-            frames = assembler.Push(data); return true;
+            var prior = assembler.GetDiagnostics();
+            frames = assembler.Push(data);
+            if (assembler.GetDiagnostics().DroppedFrames > prior.DroppedFrames) MarkRefresh(packet.SynchronizationSource);
+            foreach (var frame in frames) if (frame.IsKeyFrame && _refresh.Remove(frame.SynchronizationSource)) _revision++;
+            return true;
         }
     }
-    private void ExpireCore() { if (!_disposed) foreach (var s in _sources.Values) s.Expire(); }
-    internal void Expire() { lock (_gate) ExpireCore(); }
+    private void ExpireCore()
+    {
+        if (_disposed) return;
+        foreach (var (source, assembler) in _sources)
+        {
+            var prior = assembler.GetDiagnostics().DroppedFrames; assembler.Expire();
+            if (assembler.GetDiagnostics().DroppedFrames > prior) MarkRefresh(source);
+        }
+    }
+    internal bool Expire() { lock (_gate) { var before = _revision; ExpireCore(); return before != _revision; } }
     internal PeerVideoDiagnostics Diagnostics(long droppedQueue)
     {
         lock (_gate)
@@ -103,5 +141,5 @@ internal sealed class PeerVideo : IDisposable
                 d.Sum(s => s.CompletedFrames), d.Sum(s => s.DroppedFrames), droppedQueue);
         }
     }
-    public void Dispose() { lock (_gate) { if (_disposed) return; _disposed = true; foreach (var s in _sources.Values) s.Dispose(); } }
+    public void Dispose() { lock (_gate) { if (_disposed) return; _disposed = true; _refresh.Clear(); foreach (var s in _sources.Values) s.Dispose(); } }
 }

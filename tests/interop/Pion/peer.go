@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3"
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/turn/v5"
 	"github.com/pion/webrtc/v4"
@@ -26,6 +27,7 @@ type sessionRequest struct {
 	Passive bool   `json:"passive"`
 	Relay   bool   `json:"relay"`
 	Video   string `json:"video"`
+	Rtcp    bool   `json:"rtcp"`
 }
 type sessionResponse struct {
 	Id       string `json:"id"`
@@ -33,13 +35,17 @@ type sessionResponse struct {
 	StunPort int    `json:"stunPort,omitempty"`
 }
 type fullSession struct {
-	peer     *webrtc.PeerConnection
-	cancel   context.CancelFunc
-	audio    atomic.Int32
-	video    atomic.Int32
-	data     atomic.Int32
-	failures atomic.Int32
-	relay    *turn.Server
+	peer            *webrtc.PeerConnection
+	cancel          context.CancelFunc
+	audio           atomic.Int32
+	video           atomic.Int32
+	data            atomic.Int32
+	failures        atomic.Int32
+	reports         atomic.Int32
+	pictureLoss     atomic.Int32
+	sentPictureLoss atomic.Int32
+	cnames          atomic.Int32
+	relay           *turn.Server
 }
 
 func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
@@ -111,6 +117,9 @@ func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
 				videoCapability.SDPFmtpLine = "profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=0"
 				videoPt = 102
 			}
+			if request.Rtcp {
+				videoCapability.RTCPFeedback = []webrtc.RTCPFeedback{{Type: "nack", Parameter: "pli"}}
+			}
 			err = media.RegisterCodec(webrtc.RTPCodecParameters{RTPCodecCapability: videoCapability, PayloadType: videoPt}, webrtc.RTPCodecTypeVideo)
 			if err == nil {
 				err = media.RegisterHeaderExtension(webrtc.RTPHeaderExtensionCapability{URI: "urn:ietf:params:rtp-hdrext:sdes:mid"}, webrtc.RTPCodecTypeVideo)
@@ -163,13 +172,37 @@ func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
 			fail()
 			return
 		}
-		go func() {
-			for {
-				if _, _, e := sender.ReadRTCP(); e != nil {
-					return
+
+		observeControl := func(packets []rtcp.Packet) {
+			for _, packet := range packets {
+				switch p := packet.(type) {
+				case *rtcp.SenderReport:
+					session.reports.Add(1)
+				case *rtcp.ReceiverReport:
+					session.reports.Add(1)
+				case *rtcp.SourceDescription:
+					for _, chunk := range p.Chunks {
+						for _, item := range chunk.Items {
+							if item.Type == rtcp.SDESCNAME {
+								session.cnames.Add(1)
+							}
+						}
+					}
+				case *rtcp.PictureLossIndication:
+					session.pictureLoss.Add(1)
 				}
 			}
-		}()
+		}
+		readControl := func(sender *webrtc.RTPSender) {
+			for {
+				packets, _, e := sender.ReadRTCP()
+				if e != nil {
+					return
+				}
+				observeControl(packets)
+			}
+		}
+		go readControl(sender)
 		var videoTrack *webrtc.TrackLocalStaticRTP
 		if request.Video != "" {
 			videoTrack, err = webrtc.NewTrackLocalStaticRTP(videoCapability, "video", "tryagi")
@@ -181,15 +214,30 @@ func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
 				fail()
 				return
 			}
-			go func() {
-				for {
-					if _, _, e := videoSender.ReadRTCP(); e != nil {
-						return
-					}
-				}
-			}()
+			go readControl(videoSender)
 		}
 		pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+			go func() {
+				for {
+					packets, _, e := receiver.ReadRTCP()
+					if e != nil {
+						return
+					}
+					observeControl(packets)
+				}
+			}()
+			if request.Rtcp && track.Kind() == webrtc.RTPCodecTypeVideo {
+				// Newly authored compound feedback using pinned public wire APIs.
+				source := uint32(0x12345678)
+				if pc.WriteRTCP([]rtcp.Packet{&rtcp.ReceiverReport{SSRC: source},
+					&rtcp.SourceDescription{Chunks: []rtcp.SourceDescriptionChunk{{Source: source, Items: []rtcp.SourceDescriptionItem{{Type: rtcp.SDESCNAME, Text: "pion-feedback"}}}}},
+					&rtcp.PictureLossIndication{SenderSSRC: source, MediaSSRC: uint32(track.SSRC())}}) != nil {
+					session.failures.Add(1)
+					cancel()
+					return
+				}
+				session.sentPictureLoss.Add(1)
+			}
 			go func() {
 				for {
 					packet, _, e := track.ReadRTP()
@@ -321,7 +369,7 @@ func registerPeerConnections(mux *http.ServeMux, slots chan struct{}) {
 		if session.relay != nil {
 			allocations = session.relay.AllocationCount()
 		}
-		_ = json.NewEncoder(w).Encode(map[string]int32{"audio": session.audio.Load(), "video": session.video.Load(), "data": session.data.Load(), "failures": session.failures.Load(), "relayAllocations": int32(allocations)})
+		_ = json.NewEncoder(w).Encode(map[string]int32{"audio": session.audio.Load(), "video": session.video.Load(), "data": session.data.Load(), "failures": session.failures.Load(), "relayAllocations": int32(allocations), "reports": session.reports.Load(), "pictureLoss": session.pictureLoss.Load(), "sentPictureLoss": session.sentPictureLoss.Load(), "cnames": session.cnames.Load()})
 	})
 	mux.HandleFunc("DELETE /session/{id}", func(w http.ResponseWriter, r *http.Request) {
 		gate.Lock()

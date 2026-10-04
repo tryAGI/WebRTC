@@ -7,6 +7,7 @@ namespace tryAGI.WebRTC;
 
 public enum SdpDirection { SendReceive, SendOnly, ReceiveOnly, Inactive }
 public enum SdpSetup { Active, Passive, ActPass, HoldConnection }
+public sealed record SdpRtcpFeedback(byte? PayloadType, string Value);
 public sealed record SdpRtpCodec(byte PayloadType, string Name, int ClockRate, int Channels, string FormatParameters);
 
 /// <summary>Bounded candidate syntax. Parsing never resolves a name or opens a socket.</summary>
@@ -59,6 +60,9 @@ public sealed class SdpMediaDescription
     public bool IsRejected => Port == 0 && !BundleOnly;
     public SdpDirection Direction { get; }
     public bool RtcpMux { get; }
+    public bool ReducedSizeRtcp { get; }
+    public IReadOnlyList<SdpRtcpFeedback> RtcpFeedback { get; }
+    public bool SupportsPictureLoss(byte payloadType) => RtcpFeedback.Any(f => (f.PayloadType == null || f.PayloadType == payloadType) && f.Value == "nack pli");
     public IceCredentials? IceCredentials { get; }
     public string? FingerprintSha256 { get; }
     public SdpSetup? Setup { get; }
@@ -74,7 +78,8 @@ public sealed class SdpMediaDescription
     {
         Kind = section.Kind; Port = section.Port; Protocol = section.Protocol; Mid = section.Mid ?? throw SdpSessionDescription.Invalid();
         BundleOnly = section.BundleOnly; Direction = section.Direction ?? session.Direction ?? SdpDirection.SendReceive;
-        RtcpMux = section.RtcpMux;
+        RtcpMux = section.RtcpMux; ReducedSizeRtcp = section.RtcpReducedSize;
+        RtcpFeedback = Array.AsReadOnly(section.Feedback.ToArray());
         if (!IsRejected && !section.Connection && !session.Connection) throw SdpSessionDescription.Invalid();
         var fragment = section.Fragment ?? session.Fragment; var password = section.Password ?? session.Password;
         if ((fragment == null) != (password == null)) throw SdpSessionDescription.Invalid();
@@ -187,6 +192,22 @@ public sealed class SdpSessionDescription
                             current.Direction = key switch { "sendrecv" => SdpDirection.SendReceive, "sendonly" => SdpDirection.SendOnly,
                                 "recvonly" => SdpDirection.ReceiveOnly, _ => SdpDirection.Inactive }; break;
                         case "rtcp-mux": if (current == session || current.RtcpMux || colon >= 0) throw Invalid(); current.RtcpMux = true; break;
+                        case "rtcp-rsize":
+                            if (current == session || current.RtcpReducedSize || colon >= 0 || current.Kind is not ("audio" or "video")) throw Invalid();
+                            current.RtcpReducedSize = true; break;
+                        case "rtcp-fb":
+                            var separator = body.IndexOf(' '); byte? feedbackPayload = null;
+                            if (current == session || separator <= 0 || current.Feedback.Count == 128 || !current.Protocol.EndsWith("AVPF", StringComparison.Ordinal)) throw Invalid();
+                            if (body[..separator] != "*")
+                            {
+                                if (!byte.TryParse(body.AsSpan(0, separator), NumberStyles.None, CultureInfo.InvariantCulture, out var feedbackPt) || feedbackPt > 127 ||
+                                    !current.Formats.Contains(feedbackPt.ToString(CultureInfo.InvariantCulture))) throw Invalid();
+                                feedbackPayload = feedbackPt;
+                            }
+                            var feedbackValue = body[(separator + 1)..];
+                            if (feedbackValue.Length is < 1 or > 256 || feedbackValue[0] == ' ' || feedbackValue[^1] == ' ' || feedbackValue.Any(c => c is < ' ' or > '~')) throw Invalid();
+                            var feedback = new SdpRtcpFeedback(feedbackPayload, feedbackValue);
+                            if (current.Feedback.Contains(feedback)) throw Invalid(); current.Feedback.Add(feedback); break;
                         case "bundle-only": if (current == session || current.BundleOnly || colon >= 0) throw Invalid(); current.BundleOnly = true; break;
                         case "candidate":
                             if (current == session || current.Candidates.Count == 64) throw Invalid(); current.Candidates.Add(SdpIceCandidate.Parse(body)); break;
@@ -249,7 +270,8 @@ public sealed class SdpSessionDescription
         internal string? Mid, Fragment, Password, Fingerprint;
         internal SdpSetup? Setup;
         internal SdpDirection? Direction;
-        internal bool RtcpMux, BundleOnly, Connection;
+        internal bool RtcpMux, RtcpReducedSize, BundleOnly, Connection;
+        internal readonly List<SdpRtcpFeedback> Feedback = [];
         internal ushort? SctpPort;
         internal ulong? MessageSize;
         internal readonly List<string> Formats = [];

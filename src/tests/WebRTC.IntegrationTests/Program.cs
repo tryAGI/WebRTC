@@ -26,6 +26,17 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Early request remote identity is checked after signaling", EarlyIdentity),
 };
 foreach (var profile in Enum.GetValues<SrtpProfile>())
+    foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive })
+        cases.Add(($"Automatic RTCP reports, CNAME, counters and RTT {profile} {setup}", () => RtcpPeerTests.Reports(profile, setup)));
+foreach (var reduced in new[] { false, true })
+{
+    cases.Add(($"Automatic RTCP PLI bootstrap, retries, key cancellation and silent expiry reduced={reduced}", () => RtcpPeerTests.Feedback(reduced)));
+    foreach (var pli in new[] { false, true })
+        cases.Add(($"Automatic RTCP whole-compound admission reduced={reduced} pli={pli}", () => RtcpPeerTests.Admission(reduced, pli)));
+}
+cases.Add(("Automatic RTCP regular deadline survives queued budget wait", RtcpPeerTests.RegularDeadline));
+cases.Add(("Automatic RTCP bounded manual queue, cancellation, snapshot and audio isolation", RtcpPeerTests.BudgetAndCancellation));
+foreach (var profile in Enum.GetValues<SrtpProfile>())
     cases.Add(($"RTCP semantic vectors over encrypted ICE {profile}", () => RtcpNetworkTests.Network(profile)));
 foreach (var codec in Enum.GetValues<VideoCodec>())
     foreach (var profile in Enum.GetValues<SrtpProfile>())
@@ -191,6 +202,10 @@ for (var option = 0; option < args.Length; option += 2)
 }
 if (pionUri != null)
 {
+    foreach (var codec in Enum.GetValues<VideoCodec>())
+        foreach (var offerer in new[] { false, true })
+            foreach (var passive in new[] { false, true })
+                cases.Add(($"Pion automatic RTCP reports and PLI {codec} local offer={offerer} passive={passive}", () => VideoPeerTests.Pion(pionUri, codec, offerer, passive, true)));
     foreach (var profile in Enum.GetValues<SrtpProfile>())
         foreach (var role in Enum.GetValues<DtlsRole>())
             cases.Add(($"Pion RTCP semantic codec and secure exchange {profile} {role}", () => RtcpInteropTests.Pion(pionUri, role, profile)));

@@ -37,7 +37,8 @@ internal static class PeerTests
         await right.SendOpusAsync(payload, 96000, cancellationToken: ct);
         Check((await First(left.ReceiveAudioAsync(ct), ct)).SynchronizationSource == right.AudioSource);
         var rr = Convert.FromHexString("80C9000100000000"); BinaryPrimitives.WriteUInt32BigEndian(rr.AsSpan(4), left.AudioSource);
-        await left.SendRtcpAsync(rr, ct); Check((await First(right.ReceiveRtcpAsync(ct), ct)).SequenceEqual(rr));
+        await left.SendRtcpAsync(rr, ct);
+        await foreach (var control in right.ReceiveRtcpAsync(ct)) if (control.SequenceEqual(rr)) break;
         await Reject<ArgumentOutOfRangeException>(() => left.SendOpusAsync(new byte[left.MaximumAudioPayloadBytes + 1], 960, cancellationToken: ct).AsTask());
         await channel.CloseAsync(ct); await left.CloseAsync(ct);
         Check(await right.Completion.WaitAsync(ct) == null && right.State == PeerConnectionState.Closed);

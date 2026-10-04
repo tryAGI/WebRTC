@@ -109,11 +109,13 @@ Apps must preserve their existing continuity, queue-age and source-clock policie
 
 ## RTCP and evidence
 
-`ReceiveRtcpAsync` exposes authenticated bounded compound/reduced-size RTCP after
-length/padding/SR/RR count checks. `SendRtcpAsync` requires valid framing and the
-local sender SSRC. These methods do not implement SDES item validation, periodic
-SR/RR, feedback dispatch, RTT/jitter statistics or retransmission. They are raw
-control transport primitives, not full RTCP conformance.
+`PeerConnection` owns automatic compound SR/RR/CNAME, bounded reception statistics,
+recent-emitted-SR RTT and negotiated H264/VP8 PLI. `ReceiveRtcpAsync` exposes controls
+after SRTCP authentication and complete semantic/policy admission. `SendRtcpAsync`
+permits advanced locally owned SR/RR/CNAME through a bounded shared-budget queue;
+feedback uses `RequestVideoKeyFrame`. Encoder notifications arrive through
+`ReceiveVideoKeyFrameRequestsAsync`. See [RTCP control](rtcp.md) for timing, bounds,
+reduced-size negotiation and remaining retransmission/conformance limits.
 
 Local tests cover media/data/control in both DTLS answer roles, signaling recovery,
 socket release on failure, cancellation/disposal, audio direction, queue overflow,
@@ -128,4 +130,4 @@ Real DId/Advantage/Simli provider sessions, physical Watch playback and measured
 latency distributions remain separate acceptance gates. This initial peer provides
 neither a complete browser/JSEP implementation nor an independent security audit.
 
-Initial explicitly configured H264/VP8 SDP and bounded received-frame routing now extend this peer. See [video negotiation](video-peer.md) for capabilities, source ownership, aggregate memory bounds and remaining feedback/decoder gates.
+Initial explicitly configured H264/VP8 SDP and bounded received-frame routing now extend this peer. See [video negotiation](video-peer.md) for capabilities, source ownership, aggregate memory bounds and remaining decoder/provider gates.

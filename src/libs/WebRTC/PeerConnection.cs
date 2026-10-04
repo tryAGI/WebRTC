@@ -18,6 +18,7 @@ public sealed record PeerConnectionOptions
     public IReadOnlyList<VideoCodecCapability> VideoCodecs { get; init; } = [];
     public SdpDirection VideoDirection { get; init; } = SdpDirection.ReceiveOnly;
     public PeerVideoOptions Video { get; init; } = new();
+    public PeerRtcpOptions Rtcp { get; init; } = new();
     public IceUdpTransportOptions Ice { get; init; } = new();
     public DtlsSrtpOptions Dtls { get; init; } = new();
     public SctpOptions Sctp { get; init; } = new();
@@ -56,6 +57,8 @@ public sealed class PeerConnection : IAsyncDisposable
     private SdpNegotiatedSession? _session;
     private PeerAudio? _routing;
     private PeerVideo? _videoRouting;
+    private PeerRtcp? _rtcp;
+    public string CanonicalName { get; } = Convert.ToBase64String(RandomNumberGenerator.GetBytes(18));
     private DtlsSrtpTransport? _dtls;
     private SctpAssociation? _sctp;
     private DataChannelAssociation? _channels;
@@ -93,6 +96,7 @@ public sealed class PeerConnection : IAsyncDisposable
             options.Sctp.SendBufferBytes < options.Sctp.MaximumMessageSize) throw new ArgumentOutOfRangeException(nameof(options));
         _ = new IceCandidate(new(options.LocalEndPoint.Address, options.LocalEndPoint.Port == 0 ? 1 : options.LocalEndPoint.Port));
         PeerVideo.Validate(options.Video);
+        PeerRtcp.Validate(options.Rtcp, options.Dtls.MaximumDatagramSize);
         ArgumentNullException.ThrowIfNull(options.VideoCodecs);
         var videoCodecs = options.VideoCodecs.Take(9).ToArray();
         _ = SdpNegotiation.VideoCapabilities(videoCodecs);
@@ -105,14 +109,14 @@ public sealed class PeerConnection : IAsyncDisposable
         do { AudioSource = BinaryPrimitives.ReadUInt32BigEndian(RandomNumberGenerator.GetBytes(4)); } while (AudioSource == 0);
         do { VideoSource = BinaryPrimitives.ReadUInt32BigEndian(RandomNumberGenerator.GetBytes(4)); } while (VideoSource == 0 || VideoSource == AudioSource);
         _video = Channel.CreateBounded<EncodedVideoFrame>(new BoundedChannelOptions(options.Video.QueueCapacity)
-        { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = false, SingleWriter = true }, _ => Interlocked.Increment(ref _droppedVideo));
+        { FullMode = BoundedChannelFullMode.Wait, SingleReader = false, SingleWriter = true });
         _audio = Channel.CreateBounded<EncodedOpusPacket>(new BoundedChannelOptions(options.AudioQueueCapacity)
         { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = false, SingleWriter = true }, _ => Interlocked.Increment(ref _droppedAudio));
         _control = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(options.ControlQueueCapacity)
         { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = false, SingleWriter = true }, _ => Interlocked.Increment(ref _droppedControl));
     }
     private SdpLocalTransport LocalTransport() => new(_ice.LocalCredentials, _identity.GetFingerprintSha256(), _endpoint,
-        _options.Sctp.LocalPort, Math.Min(_options.Sctp.MaximumMessageSize, _options.Channels.ReceiveBufferBytes), _localCandidates, _gatheringComplete, true, _options.Ice.RelayOnly);
+        _options.Sctp.LocalPort, Math.Min(_options.Sctp.MaximumMessageSize, _options.Channels.ReceiveBufferBytes), _localCandidates, _gatheringComplete, true, _options.Ice.RelayOnly, CanonicalName);
     public IReadOnlyList<IceCandidate> GetLocalCandidates()
     { lock (_gate) { RequireOpen(); return LocalTransport().Candidates; } }
     public StunGatheringDiagnostics GetGatheringDiagnostics() => _ice.GetGatheringDiagnostics();
@@ -199,6 +203,8 @@ public sealed class PeerConnection : IAsyncDisposable
             var session = SdpNegotiation.ValidateAnswer(remote, local, false);
             var routing = new PeerAudio(session, remote, AudioSource, _options.MaximumAudioSources);
             _videoRouting = new(session, remote, VideoSource, AudioSource, _options.Video);
+            _rtcp = session.LocalAudio == null && session.LocalVideo == null ? null :
+                new(session, _videoRouting, AudioSource, VideoSource, CanonicalName, _options.Rtcp, _options.Dtls.MaximumDatagramSize);
             _remote = remote; _local = local; _session = session; _routing = routing;
             LocalDescription = text; _state = PeerConnectionState.Ready; return text;
         }
@@ -212,6 +218,8 @@ public sealed class PeerConnection : IAsyncDisposable
             var session = SdpNegotiation.ValidateAnswer(_local!, remote, true);
             var routing = new PeerAudio(session, remote, AudioSource, _options.MaximumAudioSources);
             _videoRouting = new(session, remote, VideoSource, AudioSource, _options.Video);
+            _rtcp = session.LocalAudio == null && session.LocalVideo == null ? null :
+                new(session, _videoRouting, AudioSource, VideoSource, CanonicalName, _options.Rtcp, _options.Dtls.MaximumDatagramSize);
             _remote = remote; _session = session; _routing = routing; _state = PeerConnectionState.Ready;
         }
     }
@@ -256,6 +264,7 @@ public sealed class PeerConnection : IAsyncDisposable
             var packet = _routing!.Write(payload.Span, _sequence++, rtpTimestamp, marker);
             // Consume the sequence even if transmission is cancelled after protection; SRTP indexes cannot be reused.
             await _dtls!.SendRtpAsync(packet, linked.Token).ConfigureAwait(false);
+            _rtcp!.SentRtp(false, rtpTimestamp, payload.Length);
         }
         finally { _audioSend.Release(); }
     }
@@ -272,6 +281,7 @@ public sealed class PeerConnection : IAsyncDisposable
             if (payload.Length < 1 || payload.Length > MaximumVideoPayloadBytes) throw new ArgumentOutOfRangeException(nameof(payload));
             var packet = _videoRouting!.Write(payload.Span, _videoSequence++, rtpTimestamp, marker);
             await _dtls!.SendRtpAsync(packet, linked.Token).ConfigureAwait(false);
+            _rtcp!.SentRtp(true, rtpTimestamp, payload.Length);
         }
         finally { _videoSend.Release(); }
     }
@@ -279,14 +289,39 @@ public sealed class PeerConnection : IAsyncDisposable
     public PeerVideoDiagnostics GetVideoDiagnostics() => _videoRouting?.Diagnostics(Interlocked.Read(ref _droppedVideo)) ?? new(0, 0, 0, 0, 0, 0, 0);
     public IAsyncEnumerable<EncodedOpusPacket> ReceiveAudioAsync(CancellationToken cancellationToken = default) => _audio.Reader.ReadAllAsync(cancellationToken);
     public IAsyncEnumerable<byte[]> ReceiveRtcpAsync(CancellationToken cancellationToken = default) => _control.Reader.ReadAllAsync(cancellationToken);
-    public ValueTask SendRtcpAsync(ReadOnlyMemory<byte> packet, CancellationToken cancellationToken = default)
+    /// <summary>Advanced SR/RR/CNAME sending through a bounded shared RTCP budget. Caller owns report fields and regular-report timing.
+    /// Feedback must use RequestVideoKeyFrame so it cannot bypass source, retry or scheduling limits.</summary>
+    public async ValueTask SendRtcpAsync(ReadOnlyMemory<byte> packet, CancellationToken cancellationToken = default)
     {
-        lock (_gate) RequireOpen();
-        if (!_mediaReady.Task.IsCompletedSuccessfully) throw new InvalidOperationException("Secure media is not ready.");
-        if (!RtcpFraming.IsValid(packet.Span) || BinaryPrimitives.ReadUInt32BigEndian(packet.Span[4..]) != AudioSource)
-            throw new ArgumentException("RTCP requires valid framing and the local sender source.", nameof(packet));
-        return _dtls!.SendRtcpAsync(packet, cancellationToken);
+        PeerRtcp control;
+        lock (_gate)
+        {
+            RequireOpen();
+            if (!_mediaReady.Task.IsCompletedSuccessfully) throw new InvalidOperationException("Secure media is not ready.");
+            control = _rtcp ?? throw new NotSupportedException("RTCP media was not negotiated.");
+        }
+        if (packet.Length is < 8 or > 1200) throw new ArgumentException("Invalid RTCP packet size.", nameof(packet));
+        var owned = packet.ToArray(); // Snapshot before the first await; the caller may reuse its buffer.
+        if (!control.ValidateOutgoing(owned)) throw new ArgumentException("RTCP requires admitted local reports and negotiated framing; use RequestVideoKeyFrame for feedback.", nameof(packet));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        await control.SendExternalAsync(owned, linked.Token).ConfigureAwait(false);
     }
+    /// <summary>Requests a refresh for an announced or admitted remote video source. PLI must have been negotiated; requests are coalesced, scheduled and bounded.</summary>
+    public void RequestVideoKeyFrame(uint source)
+    {
+        lock (_gate) { RequireOpen(); if (_rtcp == null) throw new NotSupportedException("RTCP media was not negotiated."); _rtcp.RequestPictureLoss(source); }
+    }
+    /// <summary>Bounded encoder notifications for admitted remote PLI targeting this peer's negotiated local video source. Application owns encoding.</summary>
+    public IAsyncEnumerable<VideoKeyFrameRequest> ReceiveVideoKeyFrameRequestsAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            RequireOpen();
+            if (_rtcp == null || _session?.CanSendVideo != true || !_session.VideoPictureLoss) throw new NotSupportedException("Sending video with picture-loss feedback was not negotiated.");
+            return _rtcp.KeyFrameRequests(cancellationToken);
+        }
+    }
+    public PeerRtcpDiagnostics? GetRtcpDiagnostics() => _rtcp?.Diagnostics();
     public async Task<DataChannel> OpenDataChannelAsync(DataChannelParameters parameters, CancellationToken cancellationToken = default)
     {
         RequireData(); await _dataReady.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -307,7 +342,7 @@ public sealed class PeerConnection : IAsyncDisposable
     }
     private async Task RunAsync(IceCandidate[] candidates, CancellationToken caller)
     {
-        Exception? reason = null; Task? media = null, videoExpiry = null;
+        Exception? reason = null; Task? media = null, videoExpiry = null, control = null;
         using var establishment = CancellationTokenSource.CreateLinkedTokenSource(caller, _lifetime.Token);
         establishment.CancelAfter(_options.ConnectionTimeout);
         try
@@ -316,6 +351,7 @@ public sealed class PeerConnection : IAsyncDisposable
             _dtls = new(_ice, _identity, _session.DtlsRole, Convert.FromHexString(_session.RemoteFingerprintSha256), _options.Dtls);
             await _dtls.ConnectAsync(establishment.Token).ConfigureAwait(false);
             Interlocked.Exchange(ref _mediaAt, Stopwatch.GetTimestamp()); _mediaReady.TrySetResult();
+            control = _rtcp?.RunAsync(_dtls, _lifetime.Token) ?? Task.Delay(Timeout.InfiniteTimeSpan, _lifetime.Token);
             media = ReceiveMediaAsync(); videoExpiry = _session.CanReceiveVideo ? ExpireVideoAsync() : Task.Delay(Timeout.InfiniteTimeSpan, _lifetime.Token);
             if (_session.LocalData != null)
             {
@@ -331,12 +367,13 @@ public sealed class PeerConnection : IAsyncDisposable
             Interlocked.Exchange(ref _connectedAt, Stopwatch.GetTimestamp()); _connected.TrySetResult();
             establishment.Dispose();
             // Caller cancellation applies to establishment only, including a stalled SCTP handshake.
-            var ends = new List<Task> { _ice.Completion, _dtls.Completion, media, videoExpiry, Task.Delay(Timeout.InfiniteTimeSpan, _lifetime.Token) };
+            var ends = new List<Task> { _ice.Completion, _dtls.Completion, media, videoExpiry, control, Task.Delay(Timeout.InfiniteTimeSpan, _lifetime.Token) };
             if (_channels != null) ends.Add(_channels.Completion);
             await Task.WhenAny(ends).ConfigureAwait(false);
             if (_channels?.Completion.IsCompleted == true) reason = await _channels.Completion.ConfigureAwait(false);
             else if (_dtls.Completion.IsCompleted) reason = await _dtls.Completion.ConfigureAwait(false);
             else if (_ice.Completion.IsCompleted) reason = await _ice.Completion.ConfigureAwait(false);
+            else if (control.IsCompleted) { await control.ConfigureAwait(false); reason = new IOException("RTCP worker ended unexpectedly."); }
             else if (videoExpiry.IsCompleted) { await videoExpiry.ConfigureAwait(false); reason = new IOException("Video expiry task ended unexpectedly."); }
             else if (media.IsCompleted) { await media.ConfigureAwait(false); reason = new IOException("Secure media stream ended."); }
         }
@@ -348,6 +385,7 @@ public sealed class PeerConnection : IAsyncDisposable
             catch (Exception error) { reason ??= error; }
             if (media != null) { try { await media.ConfigureAwait(false); } catch (OperationCanceledException) { } catch (Exception error) { reason ??= error; } }
             if (videoExpiry != null) { try { await videoExpiry.ConfigureAwait(false); } catch (OperationCanceledException) { } catch (Exception error) { reason ??= error; } }
+            if (control != null) { try { await control.ConfigureAwait(false); } catch (OperationCanceledException) { } catch (Exception error) { reason ??= error; } }
             _videoRouting?.Dispose();
             Finish(reason);
         }
@@ -361,23 +399,45 @@ public sealed class PeerConnection : IAsyncDisposable
                 if (_session!.VideoFormat != null && RtpPacket.TryParse(datagram.Data, out var rtp) && rtp.PayloadType == _session.VideoFormat.PayloadType)
                 {
                     if (_routing!.HasSource(rtp.SynchronizationSource)) _videoRouting!.RejectSource();
-                    else if (_videoRouting!.Read(datagram.Data, out var frames)) foreach (var frame in frames) _video.Writer.TryWrite(frame);
+                    else
+                    {
+                        if (_videoRouting!.Read(datagram.Data, out var frames, out var refreshChanged))
+                        {
+                            _rtcp!.ReceivedRtp(rtp.SynchronizationSource, rtp.SequenceNumber, rtp.Timestamp, true);
+                            foreach (var frame in frames) EnqueueVideo(frame);
+                        }
+                        if (refreshChanged) _rtcp!.Wake();
+                    }
                 }
                 else
                 {
                     var collision = RtpPacket.TryParse(datagram.Data, out var audioRtp) && _videoRouting!.HasSource(audioRtp.SynchronizationSource);
                     var packet = collision ? null : _routing!.Read(datagram.Data);
-                    if (packet == null) Interlocked.Increment(ref _rejectedAudio); else _audio.Writer.TryWrite(packet);
+                    if (packet == null) Interlocked.Increment(ref _rejectedAudio);
+                    else { _rtcp!.ReceivedRtp(packet.SynchronizationSource, packet.SequenceNumber, packet.Timestamp, false); _audio.Writer.TryWrite(packet); }
                 }
             }
-            else if (!RtcpFraming.IsValid(datagram.Data)) Interlocked.Increment(ref _rejectedControl);
+            else if (_rtcp == null || !_rtcp.Read(datagram.Data)) Interlocked.Increment(ref _rejectedControl);
             else _control.Writer.TryWrite(datagram.Data);
+        }
+    }
+    private void EnqueueVideo(EncodedVideoFrame frame)
+    {
+        // One producer owns eviction. A queued fresh key frame for the same source supersedes the dropped reference.
+        while (!_video.Writer.TryWrite(frame))
+        {
+            if (_video.Reader.TryRead(out var dropped))
+            {
+                Interlocked.Increment(ref _droppedVideo);
+                if ((!frame.IsKeyFrame || frame.SynchronizationSource != dropped.SynchronizationSource) && _videoRouting!.QueueLoss(dropped.SynchronizationSource)) _rtcp!.Wake();
+            }
+            else if (_lifetime.IsCancellationRequested) return;
         }
     }
     private async Task ExpireVideoAsync()
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(25));
-        while (await timer.WaitForNextTickAsync(_lifetime.Token).ConfigureAwait(false)) _videoRouting!.Expire();
+        while (await timer.WaitForNextTickAsync(_lifetime.Token).ConfigureAwait(false)) { if (_videoRouting!.Expire()) _rtcp!.Wake(); }
     }
     private async Task CleanupAsync()
     {
@@ -397,6 +457,7 @@ public sealed class PeerConnection : IAsyncDisposable
         lock (_gate) { if (_disposed) reason = null; _state = reason == null ? PeerConnectionState.Closed : PeerConnectionState.Failed; }
         var failure = reason ?? new ObjectDisposedException(nameof(PeerConnection));
         _connected.TrySetException(failure); _mediaReady.TrySetException(failure); _dataReady.TrySetException(failure);
+        _rtcp?.Complete();
         _videoRouting?.Dispose(); _video.Writer.TryComplete(reason);
         _audio.Writer.TryComplete(reason); _control.Writer.TryComplete(reason); _completion.TrySetResult(reason);
     }

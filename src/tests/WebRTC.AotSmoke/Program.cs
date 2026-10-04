@@ -13,11 +13,22 @@ if (!RtpPacket.TryParse(data, out var rtp) || rtp.Payload.Length != 2)
 {
     return 1;
 }
+SdpRtcpTests.Negotiation(); SdpRtcpTests.Bounds();
 RtcpTests.Vectors(); RtcpTests.SdesAndBye(); RtcpTests.CompoundAndUnknown(); RtcpTests.BoundsAndCorpus();
 RtcpTests.Reception(); RtcpTests.Clock(); RtcpTests.Schedule();
 Console.WriteLine("NativeAOT bounded RTCP semantic codec, reception statistics and scheduling passed");
 foreach (var profile in Enum.GetValues<SrtpProfile>()) await RtcpNetworkTests.Network(profile);
 Console.WriteLine("NativeAOT independent RTCP vectors over encrypted ICE and replay rejection passed");
+foreach (var profile in Enum.GetValues<SrtpProfile>())
+    foreach (var setup in new[] { SdpSetup.Active, SdpSetup.Passive }) await RtcpPeerTests.Reports(profile, setup);
+foreach (var reduced in new[] { false, true })
+{
+    await RtcpPeerTests.Feedback(reduced);
+    foreach (var pli in new[] { false, true }) await RtcpPeerTests.Admission(reduced, pli);
+}
+await RtcpPeerTests.RegularDeadline();
+await RtcpPeerTests.BudgetAndCancellation();
+Console.WriteLine("NativeAOT automatic peer RTCP reports, feedback, admission and bounded send queue passed");
 VideoTests.H264(); VideoTests.Vp8(); VideoTests.LossAndDuplicates(); VideoTests.Malformed(); VideoTests.Routing(); VideoTests.BoundsAndExpiry(); VideoTests.LifetimeAndCorpus();
 Console.WriteLine("NativeAOT bounded video H264/VP8 reassembly and hostile input passed");
 SdpVideoTests.Selection(); SdpVideoTests.Profiles(); SdpVideoTests.ParametersAndBounds(); SdpVideoTests.HostileAnswer();

@@ -162,13 +162,15 @@ public static partial class SdpNegotiation
         return null;
     }
     private static void WriteVideo(StringBuilder builder, SdpLocalTransport transport, string mid, SdpRtpCodec[] codecs,
-        SdpDirection direction, SdpSetup setup, uint source, int extension)
+        SdpDirection direction, SdpSetup setup, uint source, int extension, bool pictureLoss = true, bool reducedSize = true)
     {
         builder.Append(CultureInfo.InvariantCulture, $"m=video 9 UDP/TLS/RTP/SAVPF {string.Join(' ', codecs.Select(c => c.PayloadType))}\r\nc=IN IP4 0.0.0.0\r\na=mid:{mid}\r\na=rtcp-mux\r\n");
         foreach (var codec in codecs) builder.Append(CultureInfo.InvariantCulture, $"a=rtpmap:{codec.PayloadType} {codec.Name}/90000\r\na=fmtp:{codec.PayloadType} {codec.FormatParameters}\r\n");
+        if (pictureLoss) foreach (var codec in codecs) builder.Append(CultureInfo.InvariantCulture, $"a=rtcp-fb:{codec.PayloadType} nack pli\r\n");
+        if (reducedSize) builder.Append("a=rtcp-rsize\r\n");
         builder.Append("a=").Append(direction switch { SdpDirection.SendOnly => "sendonly", SdpDirection.ReceiveOnly => "recvonly", SdpDirection.Inactive => "inactive", _ => "sendrecv" }).Append("\r\n");
         if (extension != 0) builder.Append(CultureInfo.InvariantCulture, $"a=extmap:{extension} {MidExtension}\r\n");
-        if (direction is SdpDirection.SendOnly or SdpDirection.SendReceive) builder.Append(CultureInfo.InvariantCulture, $"a=ssrc:{source} cname:tryagi\r\na=ssrc:{source} msid:tryagi video\r\na=msid:tryagi video\r\n");
+        if (direction is SdpDirection.SendOnly or SdpDirection.SendReceive) builder.Append(CultureInfo.InvariantCulture, $"a=ssrc:{source} cname:{transport.CanonicalName}\r\na=ssrc:{source} msid:tryagi video\r\na=msid:tryagi video\r\n");
         WriteTransport(builder, transport, setup);
     }
 }
