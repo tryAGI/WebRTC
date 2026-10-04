@@ -5,6 +5,27 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+## [0.2.6] - 2026-10-05
+
+- Expose the loaded library's exact package version and source commit without
+  reflection or consumer-inlined constants. Preserve this build identity in
+  establishment evidence after cancellation/disposal and under NativeAOT.
+  Verify the actual packaged DLL in a separate process before publication,
+  including wrong-version/source negative controls; retain an assembly-hash-bound
+  runtime proof alongside the package manifest proof.
+- Accept bounded, filtered and deduplicated trickle candidates after successful
+  offer/answer but before `ConnectAsync`. Preserve cancellation, disposal,
+  credential generation and destination checks. Bound retained candidates even
+  when an application's filter changes; account for SDP and trickle together.
+- Cover empty BUNDLE tags, higher-priority non-tag decoys, both DTLS roles and
+  audio/data tag orders with 16 encrypted local UDP permutations, before and
+  after connect. Run bidirectional media/data and admission regressions in the
+  managed integration suite and executed NativeAOT smoke.
+- Record a real deployed 0.2.5 Advantage series blocked at provider call creation
+  by HTTP 429 for both transports. ICE/DTLS were not started, so this is neither
+  successful provider acceptance nor evidence of a new transport regression.
+  DId/Simli live-provider and physical Watch playback acceptance remain open.
+
 ## [0.2.5] - 2026-10-05
 
 - Use the negotiated BUNDLE-tagged section for remote transport candidates,

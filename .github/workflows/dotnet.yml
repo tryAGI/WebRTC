@@ -37,6 +37,8 @@ jobs:
             -p:RepositoryCommit="$GITHUB_SHA" -p:SourceRevisionId="$GITHUB_SHA"
       - name: Verify package
         run: python3 scripts/verify-package.py artifacts/package "$GITHUB_SHA"
+      - name: Execute exact packaged library identity
+        run: python3 scripts/verify-package-identity.py artifacts/package "$GITHUB_SHA"
       - name: Verify release tag matches package
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -99,7 +101,7 @@ jobs:
           Path('release-notes.md').write_text('Experimental 0.x release. Provider/device E2E acceptance remains; see README and docs/acceptance.md.\n\n' + notes + '\n')
           PY
           if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" artifacts/package/*.nupkg artifacts/package/package-proof.json \
+            gh release create "$RELEASE_TAG" artifacts/package/*.nupkg artifacts/package/package-proof.json artifacts/package/package-runtime-proof.json \
               --verify-tag --prerelease --generate-notes --notes-file release-notes.md \
               --repo "$GITHUB_REPOSITORY"
           fi

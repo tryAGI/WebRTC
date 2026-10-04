@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(VerifiedPackageAssembly)' == ''">
+    <ProjectReference Include="../../libs/WebRTC/WebRTC.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(VerifiedPackageAssembly)' != ''">
+    <Reference Include="tryAGI.WebRTC">
+      <HintPath>$(VerifiedPackageAssembly)</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../WebRTC.IntegrationTests/BuildIdentityTests.cs" Link="BuildIdentityTests.cs" />
+  </ItemGroup>
+  <Target Name="RequireVerifiedPackageAssembly" BeforeTargets="ResolveReferences" Condition="'$(VerifiedPackageAssembly)' != ''">
+    <Error Condition="!Exists('$(VerifiedPackageAssembly)')" Text="The explicitly verified package assembly is missing; source fallback is forbidden." />
+  </Target>
+</Project>

@@ -15,6 +15,28 @@ combined `MediaReady`, `ConnectAsync` and channel opening. There is no fresh
 provider trace proving that a particular protocol defect is fixed by a newer
 release. Keep the existing production transport default until repeat acceptance.
 
+## Provider admission blocked on deployed 0.2.5, 2026-10-04 22:50 UTC
+
+A fresh bounded series first verified the actual serving image, health 200 and
+`tryagi.webrtc/0.2.5/lib/net10.0/tryAGI.WebRTC.dll` in the production publish log.
+All 10 tryAGI attempts and both SIPSorcery controls then received HTTP 429 at
+`call_create`, before ICE/DTLS. All five tryAGI phase statuses were `NotStarted`;
+all seven rejection counters were zero. Packet-boundary and rejection projections
+were present in the actual consumer. Every result reported zero microphone samples
+and zero tools; active voice settings were unchanged.
+
+This is **inconclusive provider acceptance**, not a transport failure-rate result.
+Do not repeat the unchanged series while admission is blocked. The next useful
+probe needs provider admission restored, with protocol establishment and physical
+playback measured separately. Keep issue #3 open and do not change the default
+transport on the basis of local/independent tests alone.
+
+[Sanitized results and proof hashes](https://github.com/tryAGI/WebRTC/issues/3#issuecomment-5985350232)
+are retained in the issue; the complete sanitized trace remains private. No raw
+provider signaling, credentials or media are published. The current driver ran all
+12 requests despite admission failure; future drivers should fail fast on 429 and
+other non-protocol admission errors instead of presenting them as DTLS failures.
+
 ## Fresh provider evidence, 2026-10-04
 
 Two subsequent independent Advantage probes with the adapter declared pinned to

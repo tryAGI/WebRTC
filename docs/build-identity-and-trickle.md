@@ -35,6 +35,16 @@ exact inputs via `WEBRTC_EXPECTED_PACKAGE_VERSION` and
 `WEBRTC_EXPECTED_SOURCE_REVISION`. Missing expected-input variables do not validate
 a particular release; the default case only validates the API and retained shape.
 
+Before publication, `scripts/verify-package-identity.py PACKAGE_DIRECTORY EXPECTED_COMMIT`
+verifies the nupkg, extracts only its library DLL into an isolated temporary directory,
+and builds a separate executable against that exact DLL (no library ProjectReference).
+That process must match the manifest version and commit both before and after disposal.
+`package-runtime-proof.json` binds the result to the verified assembly hash. A missing DLL
+cannot fall back to rebuilding source. Two negative controls require that the same
+compiled consumer rejects an incorrect version and an incorrect source revision.
+Any stale runtime proof is removed before verification. The publication workflow runs this gate before
+uploading the immutable package; release assets retain both manifest and runtime proofs.
+
 ## Candidates after offer/answer, before ConnectAsync
 
 Once `CreateAnswer` or `SetRemoteAnswer` succeeds, `AddRemoteCandidate` accepts a
