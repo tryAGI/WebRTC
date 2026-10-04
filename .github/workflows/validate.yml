@@ -46,3 +46,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build -f tests/interop/Pion/Dockerfile -t tryagi-webrtc-interop .
       - run: docker run --rm tryagi-webrtc-interop
+
+  independent-browser:
+    name: Chromium decode and loss recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: ./tests/interop/Chromium/run.sh

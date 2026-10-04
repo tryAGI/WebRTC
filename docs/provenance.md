@@ -268,3 +268,26 @@ synthetic RR/CNAME/PLI. No module version, graph, hash or third-party notice cha
 Runtime still uses only the .NET shared framework. Synthetic encrypted local peer
 interoperability and NativeAOT do not establish a security audit, actual decoder
 output, provider/device acceptance or a latency improvement.
+
+## Independent browser test tools
+
+`tests/interop/Chromium` is newly authored C#, Node and shell code. It uses only
+public PeerConnection, DevTools, WebRTC, WebCodecs and video element APIs; no
+upstream source, example, codec algorithm or fixture is imported. VP8 test frames
+are generated per run from our original gray canvas and moving black marker.
+The Node script uses built-in modules and no npm dependency.
+
+The test executes Chromium 151.0.7922.34 from the original Playwright v1.62.1-noble
+image pinned by OCI index `dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e`.
+The original image and its bundled browser/Node/FFmpeg notices are retained,
+including FFmpeg's `COPYING.LGPLv2.1`; they are not relabeled MIT or copied into
+our package. The script does not invoke FFmpeg or Playwright's API. Tool licenses
+remain upstream distribution terms. The independently authored harness is MIT;
+this is no assertion that all bundled tools are MIT. No tool/code/asset is vendored
+or included in the runtime package. Any future source/asset import still needs the
+separate file-level license and attribution gate above.
+
+Local browser tests use a disposable container profile and an internal Docker
+network without host ports or provider routes. The pixel/decode evidence proves
+initial local VP8 recovery, not a formal security audit, general browser JSEP,
+H264 decoding or actual provider/physical-device acceptance.
