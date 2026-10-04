@@ -15,12 +15,12 @@ The .NET SDK image is pinned separately in the Dockerfile. The launcher checks
 the pinned image's `chrome-linux` (arm64) and `chrome-linux64` (x64) locations
 and fails immediately with browser stderr when startup fails.
 
-Every scenario must pass, without skips:
+Every scenario runs for both VP8 and H264 and must pass, without skips:
 
 - Browser offer with owned DTLS client and server, then owned offer with browser answer.
 - Fingerprint-bound ICE/DTLS/SCTP, reliable channel messages in both directions.
 - An independently authored 320×240 gray scene with a moving black marker, encoded
-  as VP8 by the test browser and sent through the owned RTP/SRTP peer. Small fragments
+  as VP8 or H264 constrained baseline by the test browser and sent through the owned RTP/SRTP peer. Small fragments
   deliberately require browser RTP reassembly. The video element must render the first
   key frame with expected dimensions and pixels.
 - Drop one actual protected video RTP packet in the local UDP proxy. Browser PLI must
@@ -33,11 +33,17 @@ The distributed tool images retain their upstream notices and licenses. They are
 infrastructure, not dependencies or assets included in `tryAGI.WebRTC`.
 `--no-sandbox` applies only to the disposable isolated container browser.
 
-This covers VP8 and initial negotiation, not H264, general renegotiation/restart,
+This covers VP8 and constrained-baseline H264 mode 1 initial negotiation, not general renegotiation/restart,
 real NAT traversal, audio playback, provider sessions or physical Watch delivery.
-The pinned arm64 Chromium build does not offer H264 or support its WebCodecs encoder.
-The x64 build does offer and encode it; H264 decoder acceptance is still a separate
-gate, not a skipped green case. Use `TRYAGI_CHROMIUM_PLATFORM=linux/amd64` to test
-the pinned x64 browser on an arm64 host with Docker emulation. The owned peer
-continues to use the host architecture. Only linux/amd64 and linux/arm64 overrides
-are accepted; without an override the browser uses Docker's native architecture.
+The pinned x64 browser supplies both codec encoders and is the default on all
+hosts, using Docker emulation when required. The owned .NET peer uses the host
+architecture. An explicit `TRYAGI_CHROMIUM_PLATFORM=linux/arm64` override is available
+for diagnosis; that distribution lacks H264, so the H264 case must fail, not skip.
+Only linux/amd64 and linux/arm64 overrides are accepted.
+
+H264 uses independently authored AnnexB splitting and RFC 6184 single-NAL/FU-A
+framing in the test harness. Mode 1 and profile `42e01f` are advertised with explicit
+level asymmetry support. Browser answers requesting that capability must still pass
+strict negotiation; no answer check is suppressed. The encoder may emit a compatible
+lower level. Parameter sets and IDR are carried over real protected RTP, not inserted
+by the receiver. Mode 0, other profiles/levels and general H264 codec coverage remain.

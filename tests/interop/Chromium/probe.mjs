@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { access, mkdtemp, rm } from 'node:fs/promises';
 const mode=process.argv[2];
+const codec=process.argv[3];
+if(!["vp8","h264"].includes(codec))throw new Error("Unknown fixture codec");
 if(!['answer-active','answer-passive','offer'].includes(mode)) throw new Error('Unknown browser test mode');
 const server = createServer((req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><title>Owned local WebRTC probe</title>'); });
 await new Promise(resolve => server.listen(9235, '127.0.0.1', resolve));
@@ -44,6 +46,7 @@ try {
   await send('Runtime.enable');
   const result = await send('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async () => {
     const mode=${JSON.stringify(mode)};
+    const codec=${JSON.stringify(codec)};
     const peer = new RTCPeerConnection({ iceServers: [] });
     const video=document.createElement('video');video.autoplay=true;video.muted=true;video.playsInline=true;document.body.appendChild(video);
     const output=new OffscreenCanvas(320,240); const pixels=output.getContext('2d'); const frames=[];
@@ -70,7 +73,7 @@ try {
     if (reply !== 'owned-ready' || peer.connectionState !== 'connected') throw new Error('Connection did not exchange data: '+peer.connectionState+'/'+peer.iceConnectionState);
     const paintCanvas=new OffscreenCanvas(320,240);const paint=paintCanvas.getContext('2d'); const chunks=[];let encodeError;
     const encoder=new VideoEncoder({ error:e=>encodeError=String(e),output:c=>{const data=new Uint8Array(c.byteLength);c.copyTo(data);chunks.push({type:c.type,data});} });
-    encoder.configure({codec:'vp8',width:320,height:240,bitrate:200000,framerate:10,latencyMode:'realtime'});
+    encoder.configure({...(codec==='h264'?{avc:{format:'annexb'}}:{}),codec:codec==='h264'?'avc1.42E01F':'vp8',width:320,height:240,bitrate:200000,framerate:10,latencyMode:'realtime'});
     const sendFrame=async(i,key)=>{paint.fillStyle='rgb(128,128,128)';paint.fillRect(0,0,320,240);paint.fillStyle='black';paint.fillRect(16+i*8,32,16,16);const f=new VideoFrame(paintCanvas,{timestamp:i*100000});encoder.encode(f,{keyFrame:key});f.close();await encoder.flush();if(encodeError)throw new Error(encodeError);const chunk=chunks.shift();if(!chunk || chunk.type!==(key?'key':'delta'))throw new Error('Encoder did not emit requested frame type');const data=chunk.data;const r=await fetch('http://127.0.0.1:9430/frame?timestamp='+i*9000,{method:'POST',body:data});if(!r.ok)throw new Error('Owned frame send failed: '+await r.text());};
     const wait=async(test,what)=>{for(let n=0;n<200 && !test();n++)await new Promise(r=>setTimeout(r,50));if(!test())throw new Error(what+' frames='+JSON.stringify(frames));};
     await sendFrame(0,true);await wait(()=>frames.some(f=>f.width===320 && f.height===240 && f.old.every(x=>x<10) && f.fresh.every(x=>x>110 && x<150)),'Initial frame was not decoded');
@@ -88,7 +91,7 @@ try {
     await fetch('http://127.0.0.1:9430/close');peer.close();
     if(!isSecureContext)throw new Error('Browser origin is not secure');
     const media=stats.find(s=>s.type==='inbound-rtp');if(!media || media.framesDecoded<3 || media.keyFramesDecoded<2 || media.pliCount<=priorPli || media.packetsLost!==1)throw new Error('Browser decode/recovery stats incomplete: '+JSON.stringify(stats));
-    return {mode,priorPli,secure:isSecureContext,candidates,reply,feedback,frames,stats};
+    return {mode,codec,priorPli,secure:isSecureContext,candidates,reply,feedback,frames,stats};
   })()` });
   if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
   console.log(JSON.stringify(result.result.value, null, 2));

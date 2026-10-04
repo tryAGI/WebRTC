@@ -273,7 +273,7 @@ output, provider/device acceptance or a latency improvement.
 
 `tests/interop/Chromium` is newly authored C#, Node and shell code. It uses only
 public PeerConnection, DevTools, WebRTC, WebCodecs and video element APIs; no
-upstream source, example, codec algorithm or fixture is imported. VP8 test frames
+upstream source, example, codec algorithm or fixture is imported. VP8/H264 test frames
 are generated per run from our original gray canvas and moving black marker.
 The Node script uses built-in modules and no npm dependency.
 
@@ -289,8 +289,13 @@ separate file-level license and attribution gate above.
 
 Local browser tests use a disposable container profile and an internal Docker
 network without host ports or provider routes. The pixel/decode evidence proves
-initial local VP8 recovery, not a formal security audit, general browser JSEP,
-H264 decoding or actual provider/physical-device acceptance.
+initial local VP8 and constrained-baseline H264 mode 1 recovery, not a formal
+security audit, general browser JSEP, other H264 profiles/modes or actual
+provider/physical-device acceptance. H264 AnnexB single-NAL/FU-A framing in the
+test sender is authored from RFC 6184 wire fields; no upstream packetizer,
+codec algorithm or encoded fixture is imported. The pinned x64 browser supplies
+both encoders and is the default test tool on all hosts; the owned peer stays
+on its native host architecture. No runtime dependency or notice is changed.
 
 The x64 Chromium receive-only video offer reproduced a genuine parser limit:
 34 advertised RTP formats exceeded the original 32-format cap. The authored

@@ -5,11 +5,14 @@ using tryAGI.WebRTC;
 
 using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60)); var ct = deadline.Token;
 var address = IPAddress.Parse(args[0]);
+var codec=args[2];
+if(codec is not ("vp8" or "h264"))throw new ArgumentException("Unknown fixture codec");
 using var http = new HttpListener(); http.Prefixes.Add("http://127.0.0.1:9430/"); http.Start();
 await using var peer = new PeerConnection(new() {
     LocalEndPoint = new(address, 0), AudioDirection = SdpDirection.SendOnly,
     VideoDirection = SdpDirection.SendOnly,
-    VideoCodecs = [new() { Codec=VideoCodec.Vp8, PayloadType=96, Vp8MaximumMacroblocks=1200, Vp8MaximumFrameRate=30 }],
+    VideoCodecs = [codec=="vp8" ? new() { Codec=VideoCodec.Vp8, PayloadType=96, Vp8MaximumMacroblocks=1200, Vp8MaximumFrameRate=30 } :
+        new() { Codec=VideoCodec.H264, PayloadType=102, H264ProfileLevelId="42e01f", H264PacketizationMode=1, H264LevelAsymmetryAllowed=true }],
     CandidateFilter = c => c.EndPoint.Address.Equals(address) || IPAddress.IsLoopback(c.EndPoint.Address),
     ConnectionTimeout = TimeSpan.FromSeconds(20), Rtcp = new() { PointToPoint = true }
 });
@@ -64,11 +67,32 @@ while (!ct.IsCancellationRequested) {
             using var buffer = new MemoryStream(); await context.Request.InputStream.CopyToAsync(buffer, ct);
             var data=buffer.ToArray();
             var time=uint.Parse(context.Request.QueryString["timestamp"]!);
+            if(codec=="vp8") {
             // Deliberately fragment even tiny authored frames, exercising real browser RTP reassembly.
             for(var offset=0;offset<data.Length;offset+=24) {
                 var length=Math.Min(24,data.Length-offset);var rtp=new byte[length+1];
                 rtp[0]=offset==0 ? (byte)0x10 : (byte)0;data.AsSpan(offset,length).CopyTo(rtp.AsSpan(1));
                 await peer.SendVideoRtpAsync(rtp,time,offset+length==data.Length,ct);
+            }
+            } else {
+            var starts=new List<(int Offset,int Prefix)>();
+            for(var i=0;i<data.Length-2;i++) {
+                var prefix=i+3<data.Length && data[i]==0 && data[i+1]==0 && data[i+2]==0 && data[i+3]==1 ? 4 :
+                    data[i]==0 && data[i+1]==0 && data[i+2]==1 ? 3 : 0;
+                if(prefix==0)continue; starts.Add((i,prefix));i+=prefix-1;
+            }
+            if(starts.Count==0 || starts[0].Offset!=0)throw new IOException("Expected authored AnnexB fixture");
+            for(var n=0;n<starts.Count;n++) {
+                var begin=starts[n].Offset+starts[n].Prefix;var end=n+1<starts.Count?starts[n+1].Offset:data.Length;
+                var nal=data[begin..end];if(nal.Length==0)throw new IOException("Empty NAL fixture");
+                if(nal.Length<=24){await peer.SendVideoRtpAsync(nal,time,n==starts.Count-1,ct);continue;}
+                for(var offset=1;offset<nal.Length;offset+=24) {
+                    var length=Math.Min(24,nal.Length-offset);var rtp=new byte[length+2];
+                    rtp[0]=(byte)((nal[0]&0xe0)|28);rtp[1]=(byte)((nal[0]&0x1f)|(offset==1?0x80:0)|(offset+length==nal.Length?0x40:0));
+                    nal.AsSpan(offset,length).CopyTo(rtp.AsSpan(2));
+                    await peer.SendVideoRtpAsync(rtp,time,n==starts.Count-1 && offset+length==nal.Length,ct);
+                }
+            }
             }
             result="sent";
         } else if (path == "/close") { result = "closed"; }
