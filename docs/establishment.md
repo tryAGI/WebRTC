@@ -13,7 +13,7 @@ combined `MediaReady`, `ConnectAsync` and channel opening. There is no fresh
 provider trace proving that a particular protocol defect is fixed by a newer
 release. Keep the existing production transport default until repeat acceptance.
 
-## Retained establishment evidence (version 1)
+## Retained establishment evidence (version 1, package 0.2.2)
 
 `peer.GetEstablishmentEvidence()` works before starting, during establishment,
 after timeout and after `DisposeAsync`. It is independent of opt-in packet capture.
@@ -56,7 +56,7 @@ that larger buffer's lifecycle is unchanged.
 ## Required Advantage adapter change
 
 1. Upgrade the explicitly selected experimental adapter from 0.1.0-dev.37 to the
-   release containing this contract. Keep the existing production default.
+   **0.2.2**. Keep the existing production default.
 2. Measure call creation/admission, `MediaReady`, complete `ConnectAsync`, local
    channel OPEN and cleanup independently. `MediaReady` proves authenticated
    media readiness, not SCTP or DCEP readiness.

@@ -5,6 +5,8 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+## [0.2.2] - 2026-10-04
+
 - Retain bounded ICE/DTLS/SCTP/local-DCEP establishment evidence after timeout and
   disposal, including expected handshake steps, elapsed times and retries. Preserve
   negotiated SRTP profile after shutdown and classify total deadlines as timeouts.
