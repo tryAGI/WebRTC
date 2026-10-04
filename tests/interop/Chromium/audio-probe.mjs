@@ -16,7 +16,7 @@ export async function createAudioProbe(peer) {
     const first=windows.map((w,i)=>({w,i})).filter(({w})=>w.rms>.07 && w.rms<.4 && w.a>.003 && w.a>w.b*6);
     const second=windows.map((w,i)=>({w,i})).filter(({w})=>w.rms>.07 && w.rms<.4 && w.b>.003 && w.b>w.a*6);
     const tail=windows.filter((w,i)=>i>(second.at(-1)?.i??Infinity) && w.rms<.025);
-    if(first.length<8 || second.length<8 || tail.length<4 || first.at(-1).i>=second[0].i)throw new Error(label+' missing ordered tones/final silence: '+JSON.stringify({first:first.length,second:second.length,tail:tail.length,windows:windows.length}));
+    if(first.length<25 || second.length<25 || tail.length<4 || first.at(-1).i>=second[0].i)throw new Error(label+' missing ordered tones/final silence: '+JSON.stringify({first:first.length,second:second.length,tail:tail.length,windows:windows.length}));
     return {firstToneWindows:first.length,secondToneWindows:second.length,finalSilentWindows:tail.length,decodedSamples:windows.reduce((sum,w)=>sum+w.samples,0)};
   };
   const source=context.createMediaStreamDestination();
@@ -96,18 +96,52 @@ export async function createAudioProbe(peer) {
       }
       await encoder.flush();encoder.close();if(encodeError)throw new Error(encodeError);
       if(chunks.length<90 || chunks.length>92 || chunks.some(c=>c.type!=='key' || c.duration!==20000 || c.data.length<1 || c.data.length>1275))throw new Error('Encoder did not emit bounded 20ms raw Opus');
-      windows.length=0;
-      for(let i=0;i<chunks.length;i++){
-        const chunk=chunks[i];// WebCodecs exposes integer microseconds; map them to the nearest 48kHz sample.
-        const clock=Math.round((chunk.timestamp-chunks[0].timestamp)*48/1000);
-        if(clock!==i*960)throw new Error('Opus encoder clock changed');
-        await check('/audio?timestamp='+(100000+clock)+'&marker='+(i===0),{method:'POST',body:chunk.data});await pause(20);
+      const audioStats=async()=>{
+        const stats=[];(await peer.getStats()).forEach(s=>{if(s.type==='inbound-rtp' && s.kind==='audio')stats.push({packetsReceived:s.packetsReceived,packetsLost:s.packetsLost,totalSamplesReceived:s.totalSamplesReceived,jitterBufferEmittedCount:s.jitterBufferEmittedCount,concealedSamples:s.concealedSamples,jitterBufferDelay:s.jitterBufferDelay,insertedSamplesForDeceleration:s.insertedSamplesForDeceleration,removedSamplesForAcceleration:s.removedSamplesForAcceleration});});
+        if(stats.length>1)throw new Error('Unexpected multiple audio sources');return stats[0];
+      };
+      const runs=[];let streamStart,nextTimestampBase=100000;
+      for(const loss of [false,true]){
+        const prior=await audioStats();
+        await check('/audio-observation-start?loss='+loss+'&startup-delay='+!loss);
+        windows.length=0;
+        const requestedAt=performance.now();let started,activationRoundTripMs;
+        const timestampBase=Math.max(nextTimestampBase,streamStart===undefined?100000:100000+Math.round((requestedAt-streamStart)/20)*960);
+        nextTimestampBase=timestampBase+chunks.length*960;
+        for(let i=0;i<chunks.length;i++){
+          const chunk=chunks[i];
+          // Integer microseconds map to the nearest 48 kHz sample; sends use an absolute monotonic deadline.
+          const clock=Math.round((chunk.timestamp-chunks[0].timestamp)*48/1000);
+          if(clock!==i*960)throw new Error('Opus encoder clock changed');
+          if(i>0){const delay=started+i*20-performance.now();if(delay>0)await pause(delay);}
+          await check('/audio?timestamp='+((timestampBase+clock)>>>0)+'&marker='+(i===0),{method:'POST',body:chunk.data});
+          if(i===0){started=performance.now();activationRoundTripMs=started-requestedAt;streamStart??=started;}
+        }
+        if(!loss && activationRoundTripMs<110)throw new Error('Startup delay fault was not observed');
+        const expectedLoss=loss?3:0;let stats;
+        for(let n=0;n<100;n++){
+          if(observerFailure)throw new Error(observerFailure);
+          stats=await audioStats();
+          if(stats && stats.packetsReceived-(prior?.packetsReceived??0)===chunks.length-expectedLoss){
+            try{validate(windows,'Owned peer to browser');break;}catch{}
+          }
+          await pause(25);
+        }
+        const sendProof=validate(windows,'Owned peer to browser');
+        if(!stats || ['packetsReceived','packetsLost','totalSamplesReceived','jitterBufferEmittedCount','concealedSamples'].some(k=>!Number.isFinite(stats[k]) || stats[k]<0) || stats.packetsReceived-(prior?.packetsReceived??0)!==chunks.length-expectedLoss || stats.packetsLost-(prior?.packetsLost??0)!==expectedLoss || stats.totalSamplesReceived-(prior?.totalSamplesReceived??0)<48000)throw new Error('Browser audio RTP evidence incomplete: '+JSON.stringify({prior,stats,expectedLoss}));
+        const wire=(await (await check('/audio-observation')).text()).split('\n').map(line=>{const [sequence,timestamp,at,dropped]=line.split(',').map(Number);return {sequence,timestamp,at,dropped};});
+        if(wire.length!==chunks.length || wire.some((p,i)=>!Number.isFinite(p.at) || p.at<0 || (i>0 && p.at<wire[i-1].at) || ((p.sequence-wire[0].sequence)&65535)!==i || ((p.timestamp-wire[0].timestamp)>>>0)!==i*960 || p.dropped!==(loss && [20,45,46].includes(i)?1:0)))throw new Error('Protected audio clock/loss evidence mismatch');
+        const drift=wire.map((p,i)=>Math.abs(p.at-i*20));const ordered=[...drift].sort((a,b)=>a-b);
+        const maximumClockDriftMs=Math.max(...drift),p95ClockDriftMs=ordered[Math.ceil(ordered.length*.95)-1];
+        if(maximumClockDriftMs>80 || p95ClockDriftMs>40)throw new Error('Protected RTP pacing missed its budget: '+JSON.stringify({maximumClockDriftMs,p95ClockDriftMs,activationRoundTripMs,worst:wire.map((p,i)=>({i,at:p.at,drift:p.at-i*20})).sort((a,b)=>Math.abs(b.drift)-Math.abs(a.drift)).slice(0,8)}));
+        // Require ongoing non-silent output inside each tone, then distinct second tone and silence.
+        const active=windows.map((w,i)=>({w,i})).filter(({w})=>w.rms>.07 && (w.a>.003 || w.b>.003));
+        let quiet=0,maximumSilentWindows=0;
+        for(let i=active[0].i;i<=active.at(-1).i;i++){quiet=windows[i].rms<.025?quiet+1:0;maximumSilentWindows=Math.max(maximumSilentWindows,quiet);}
+        if(maximumSilentWindows>(loss?3:1))throw new Error('Decoded audio stalled inside the authored tones: '+maximumSilentWindows+' windows');
+        runs.push({forcedLoss:expectedLoss,protectedPackets:wire.length,droppedSequences:wire.filter(p=>p.dropped).map(p=>p.sequence),pacing:{activationRoundTripMs,maximumClockDriftMs,p95ClockDriftMs,lastPacketAtMs:wire.at(-1).at},sendProof,maximumSilentWindows,stats,concealedSampleDelta:stats.concealedSamples-(prior?.concealedSamples??0)});
       }
-      for(let n=0;n<100;n++){if(observerFailure)throw new Error(observerFailure);try{validate(windows,'Owned peer to browser');break;}catch{await pause(25);}}
-      let sendProof;try{sendProof=validate(windows,'Owned peer to browser');}catch(e){const stats=[];(await peer.getStats()).forEach(s=>{if(s.type==='inbound-rtp'&&s.kind==='audio')stats.push(s);});throw new Error(e.message+' stats='+JSON.stringify(stats)+' strongest='+JSON.stringify([...windows].sort((a,b)=>b.rms-a.rms).slice(0,5)));}
-      const stats=[];(await peer.getStats()).forEach(s=>{if(s.type==='inbound-rtp' && s.kind==='audio')stats.push({packetsReceived:s.packetsReceived,packetsLost:s.packetsLost,totalSamplesReceived:s.totalSamplesReceived,jitterBufferEmittedCount:s.jitterBufferEmittedCount,concealedSamples:s.concealedSamples});});
-      if(stats.length!==1 || stats[0].packetsReceived<chunks.length || stats[0].packetsLost!==0 || stats[0].totalSamplesReceived<48000)throw new Error('Browser audio RTP evidence incomplete: '+JSON.stringify(stats));
-      return {sampleRate:48000,receivedPackets:incoming.length,sentPackets:chunks.length,receiveProof,sendProof,stats};
+      return {sampleRate:48000,receivedPackets:incoming.length,sentPacketsPerRun:chunks.length,receiveProof,runs};
     },
     async close(){oscillator.stop();source.stream.getTracks().forEach(t=>t.stop());playback?.pause();if(playback)playback.srcObject=null;remoteSource?.disconnect();observer?.disconnect();await context.close();}
   };

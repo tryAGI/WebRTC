@@ -1,3 +1,6 @@
+using System.Buffers.Binary;
+using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -63,7 +66,7 @@ void ValidateIncomingChannel(DataChannel channel) {
     if(p.Ordered!=ordered || p.Reliability!=reliability || p.ReliabilityParameter!=parameter)throw new IOException("DCEP policy was not preserved");
 }
 var audioGate=new object();var audioPackets=new List<EncodedOpusPacket>();bool captureAudio=false;
-Task? audio=null;
+Task? audio=null;int audioActivationDelay=0;
 Task? connect = null; Task? channels = null; Task? feedback = null; int requests=0, baseline=0;
 Console.WriteLine("Owned browser video probe listening");
 while (!ct.IsCancellationRequested) {
@@ -80,6 +83,7 @@ while (!ct.IsCancellationRequested) {
             if(mode == "offer") { peer.SetRemoteAnswer(remote); result="accepted"; }
             else result = Advertise(peer.CreateAnswer(remote, mode == "answer-passive" ? SdpSetup.Passive : SdpSetup.Active));
             proxy.PayloadType = peer.VideoFormat!.PayloadType;
+            proxy.AudioPayloadType = SdpSessionDescription.Parse(peer.LocalDescription!).Media.Single(m=>m.Kind=="audio").Codecs.Single(c=>c.Name.Equals("opus",StringComparison.OrdinalIgnoreCase)).PayloadType;
             connect = peer.ConnectAsync(ct);
             audio=Task.Run(async()=>{await foreach(var packet in peer.ReceiveAudioAsync(ct)) {
                 lock(audioGate)if(captureAudio) {
@@ -104,8 +108,15 @@ while (!ct.IsCancellationRequested) {
         } else if(path=="/audio") {
             if(context.Request.ContentLength64 is < 1 or > 1275)throw new IOException("Opus fixture bound");
             using var buffer=new MemoryStream();await context.Request.InputStream.CopyToAsync(buffer,ct);
+            var activationDelay=Interlocked.Exchange(ref audioActivationDelay,0);
+            if(activationDelay>0)await Task.Delay(activationDelay,ct);
             await peer.SendOpusAsync(buffer.ToArray(),uint.Parse(context.Request.QueryString["timestamp"]!),context.Request.QueryString["marker"]=="true",ct);
             result="sent";
+        } else if(path=="/audio-observation-start") {
+            proxy.BeginAudioObservation(context.Request.QueryString["loss"]=="true");
+            audioActivationDelay=context.Request.QueryString["startup-delay"]=="true"?120:0;result="armed";
+        } else if(path=="/audio-observation") {
+            result=proxy.EndAudioObservation();
         } else if(path=="/audio-capture-start") {
             lock(audioGate){audioPackets.Clear();captureAudio=true;}result="armed";
         } else if(path=="/audio-incoming") {
@@ -169,7 +180,22 @@ while (!ct.IsCancellationRequested) {
 sealed class DropProxy : IAsyncDisposable {
     readonly Socket socket=new(AddressFamily.InterNetwork,SocketType.Dgram,ProtocolType.Udp);
     readonly CancellationTokenSource lifetime; readonly Task worker;
-    public IPEndPoint? Owned {get;set;} public byte PayloadType {get;set;}
+    public IPEndPoint? Owned {get;set;} public byte PayloadType {get;set;} public byte AudioPayloadType {get;set;}
+    readonly object audioGate=new();readonly List<(ushort Sequence,uint Timestamp,long At,bool Dropped)> audioPackets=[];
+    bool observingAudio,loseAudio;
+    public void BeginAudioObservation(bool loss) {
+        if(worker.IsFaulted)throw new IOException("Proxy worker failed",worker.Exception);
+        lock(audioGate){audioPackets.Clear();observingAudio=true;loseAudio=loss;}
+    }
+    public string EndAudioObservation() {
+        if(worker.IsFaulted)throw new IOException("Proxy worker failed",worker.Exception);
+        lock(audioGate) {
+            observingAudio=false;
+            if(audioPackets.Count==0)throw new IOException("No protected audio observed");
+            var first=audioPackets[0].At;
+            return string.Join("\n",audioPackets.Select(p=>$"{p.Sequence},{p.Timestamp},{Stopwatch.GetElapsedTime(first,p.At).TotalMilliseconds.ToString(CultureInfo.InvariantCulture)},{(p.Dropped?1:0)}"));
+        }
+    }
     int dropNext, dropped;
     public int Dropped => Volatile.Read(ref dropped);
     public void ArmLoss() => Interlocked.Exchange(ref dropNext, 1);
@@ -185,6 +211,16 @@ sealed class DropProxy : IAsyncDisposable {
                     if(!((IPEndPoint)received.RemoteEndPoint).Address.Equals(address)) continue;
                     if(browser!=null && !browser.Equals(received.RemoteEndPoint)) continue;
                     browser=(IPEndPoint)received.RemoteEndPoint;
+                }
+                if(fromOwned && received.ReceivedBytes>12 && (buffer[0]&0xc0)==0x80 && (buffer[1]&0x7f)==AudioPayloadType) {
+                    bool drop=false;
+                    lock(audioGate)if(observingAudio) {
+                        if(audioPackets.Count>=128)throw new IOException("Protected audio observation bound exceeded");
+                        // Independent fault injection: one loss, then a two-packet burst inside the second tone.
+                        drop=loseAudio && audioPackets.Count is 20 or 45 or 46;
+                        audioPackets.Add((BinaryPrimitives.ReadUInt16BigEndian(buffer.AsSpan(2)),BinaryPrimitives.ReadUInt32BigEndian(buffer.AsSpan(4)),Stopwatch.GetTimestamp(),drop));
+                    }
+                    if(drop)continue;
                 }
                 if(fromOwned && Volatile.Read(ref dropNext)==1 && received.ReceivedBytes>12 && (buffer[0]&0xc0)==0x80 && (buffer[1]&0x7f)==PayloadType) {
                     Interlocked.Exchange(ref dropNext,0);Interlocked.Increment(ref dropped);continue;

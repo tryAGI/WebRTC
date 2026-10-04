@@ -358,7 +358,32 @@ source with incoming offer media in the browser-answer case; pre-created explici
 transceivers left that send direction unassociated in the initial scratch test.
 
 This is six local initial-negotiation decode cases, not physical audibility,
-forced audio loss/jitter, production consumer/provider sessions or Watch latency.
+general audio jitter/reordering/speech quality, production consumer/provider sessions or Watch latency.
 API references: [WebCodecs Opus registration](https://www.w3.org/TR/webcodecs-opus-codec-registration/),
 [Web Audio](https://www.w3.org/TR/webaudio/) and
 [WebRTC](https://www.w3.org/TR/webrtc/). No examples from those documents are copied.
+
+
+## Browser audio timing and loss probes
+
+The newly authored Opus fixture now schedules each 20 ms frame against an absolute
+monotonic deadline, activated by the first acknowledged send. Activation round trip
+is reported separately. A bounded 120 ms deliberate first-dispatch delay must be
+observed without causing catch-up bursts in subsequent protected RTP. The owned
+UDP proxy independently records the actual outgoing protected RTP sequence,
+timestamp and monotonic arrival clock before forwarding or dropping it. No
+self-reported browser timer alone is accepted as pacing evidence.
+
+Each of the six role/video cases runs a baseline and a distinct one-plus-two-packet
+loss pattern (indexes 20, 45 and 46). Browser counters must report exactly the
+injected loss, and decoded waveform assertions must confirm distinct ordered tones,
+final silence and bounded interior quiet periods. Recorded concealed samples remain
+visible; they are not suppressed or confused with packet loss. Wire drift budgets
+(80 ms maximum, 40 ms p95) and interior quiet bounds (one/three consecutive 20 ms RMS windows) apply to the authored
+fixture only, not a promised speech-quality or production latency SLO.
+
+The first experimental deadline origin preceded the first RPC and one scratch case
+reported 146.56 ms maximum wire-clock drift; its precise original stall source was
+not captured. The explicit delayed-first-dispatch fixture now verifies the activation
+contract deterministically. This changes test-producer scheduling, not library or
+Advantage pacing. No source, encoded fixture, runtime dependency or notices are imported.

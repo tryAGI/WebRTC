@@ -31,7 +31,21 @@ Every scenario runs for both VP8 and H264 and must pass, without skips:
   owned-sent packets traverse the browser's actual WebRTC receiver and are measured
   as PCM by an AudioWorklet. Require the distinct tones in order, final silence,
   bounded packet/clock evidence and browser decoded-sample statistics. Silent and
-  wrong-frequency negative controls must fail. The container uses a zero-volume
+  wrong-frequency negative controls must fail. Every signaling/video case includes
+  a paced baseline and a separate run with one lost packet and a two-packet burst.
+  The UDP proxy observes protected RTP sequence/timestamp/arrival clocks before
+  dropping exactly packet indexes 20, 45 and 46; browser loss counters must agree.
+  Require continued decoded tones without more than one consecutive quiet 20 ms
+  RMS window in the baseline or three in the loss run. These limits bound this authored signal,
+  not arbitrary speech quality.
+- Pace audio against absolute monotonic deadlines, starting after the first send
+  acknowledgement. The baseline deliberately delays first dispatch by 120 ms;
+  require the measured activation round trip to include that fault, then maintain
+  the real protected RTP clock within 80 ms maximum/40 ms p95 drift across the clip.
+  Keep activation delay and browser concealed-sample counters in the report. This
+  rejects accumulated per-request overhead and catches startup catch-up bursts;
+  it is test-producer scheduling, not a production consumer pacing change.
+  The container uses a zero-volume
   audio element to start browser playout and a silent Web Audio sink for observation;
   this is decoder evidence, not audible speaker or physical-device acceptance.
 - An independently authored 320×240 gray scene with a moving black marker, encoded
@@ -49,7 +63,7 @@ infrastructure, not dependencies or assets included in `tryAGI.WebRTC`.
 `--no-sandbox` applies only to the disposable isolated container browser.
 
 This covers VP8 and constrained-baseline H264 mode 1 initial negotiation, not general renegotiation/restart,
-real NAT traversal, audible device playback, provider sessions or physical Watch delivery.
+real NAT traversal, general audio jitter/reordering, audible device playback, provider sessions or physical Watch delivery.
 The pinned x64 browser supplies both codec encoders and is the default on all
 hosts, using Docker emulation when required. The owned .NET peer uses the host
 architecture. An explicit `TRYAGI_CHROMIUM_PLATFORM=linux/arm64` override is available
