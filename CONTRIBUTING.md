@@ -47,7 +47,9 @@ independent interoperability where relevant. Use bounded queues, allocations, re
 and destinations. Preserve fail-closed authentication and trim/AOT diagnostics.
 
 Update the relevant scope document and changelog for user-visible changes. Versions
-remain `0.x`, and API changes may occur during development. Use a descriptive commit
+remain `0.x`, and API changes may occur during development. Before tagging a
+release, move its entries from Unreleased into a dated `[0.x.y]` changelog section;
+the release workflow uses that section and attaches the verified package/source proof. Use a descriptive commit
 message, preferably Conventional Commits. Do not include credentials, private SDP,
 provider responses or media recordings. Contributions are submitted under MIT;
 retain notices for any separately licensed permitted material.

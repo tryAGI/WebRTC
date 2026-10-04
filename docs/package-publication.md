@@ -4,7 +4,9 @@
 runs the complete validation workflow, then packs and publishes a development
 version. Release tags use `v0.x.y`; MinVer derives the exact version from Git.
 Untagged main builds use `dev` prerelease identifiers and Git height. A release tag
-produces its exact package version and a GitHub release with generated notes.
+produces its exact package version and a GitHub prerelease with its changelog
+section, generated change links, nupkg and source/assembly proof. GitHub releases
+remain marked experimental during the `0.x` development line.
 
 Versions are restricted to `0.x` in both MSBuild packing and package verification.
 A `1.x` tag, CLI version override or wrong-version nupkg cannot pass publication.

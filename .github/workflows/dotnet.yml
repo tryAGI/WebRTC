@@ -69,16 +69,34 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Fetch verified publication artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "webrtc-package-$RELEASE_TAG-$GITHUB_SHA" --dir artifacts/package
+          python3 scripts/verify-package.py artifacts/package "$GITHUB_SHA"
       - name: Create release notes
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          version = os.environ['RELEASE_TAG'].removeprefix('v')
+          match = re.search(r'^## \[' + re.escape(version) + r'\][^\n]*\n(.*?)(?=^## |\Z)',
+                            Path('CHANGELOG.md').read_text(), re.M | re.S)
+          if not match:
+              raise SystemExit('Missing dated changelog section for release')
+          Path('release-notes.md').write_text('Experimental 0.x release. Provider/device E2E acceptance remains; see README and docs/acceptance.md.\n\n' + match[1].strip() + '\n')
+          PY
           if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            args=()
-            if [[ "$RELEASE_TAG" == *-* ]]; then args+=(--prerelease); fi
-            gh release create "$RELEASE_TAG" --verify-tag --generate-notes \
-              --repo "$GITHUB_REPOSITORY" "${args[@]}"
+            gh release create "$RELEASE_TAG" artifacts/package/*.nupkg artifacts/package/package-proof.json \
+              --verify-tag --prerelease --generate-notes --notes-file release-notes.md \
+              --repo "$GITHUB_REPOSITORY"
           fi

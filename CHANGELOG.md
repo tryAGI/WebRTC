@@ -5,6 +5,10 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+No changes recorded yet.
+
+## [0.1.0] - 2026-10-04
+
 - Initial framework-only .NET 10 transport: bounded STUN/ICE/TURN, authenticated
   DTLS/SRTP/SRTCP, SCTP/DCEP channels and explicit Opus/H264/VP8 negotiation.
 - Independent local Pion and Chromium interoperability, decoded media/loss recovery,
