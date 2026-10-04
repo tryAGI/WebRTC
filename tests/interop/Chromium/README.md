@@ -35,5 +35,9 @@ infrastructure, not dependencies or assets included in `tryAGI.WebRTC`.
 
 This covers VP8 and initial negotiation, not H264, general renegotiation/restart,
 real NAT traversal, audio playback, provider sessions or physical Watch delivery.
-The pinned Chromium build does not offer H264 or support its WebCodecs encoder;
-H264 decoder acceptance remains an explicit separate gate, not a skipped green case.
+The pinned arm64 Chromium build does not offer H264 or support its WebCodecs encoder.
+The x64 build does offer and encode it; H264 decoder acceptance is still a separate
+gate, not a skipped green case. Use `TRYAGI_CHROMIUM_PLATFORM=linux/amd64` to test
+the pinned x64 browser on an arm64 host with Docker emulation. The owned peer
+continues to use the host architecture. Only linux/amd64 and linux/arm64 overrides
+are accepted; without an override the browser uses Docker's native architecture.

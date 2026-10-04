@@ -291,3 +291,14 @@ Local browser tests use a disposable container profile and an internal Docker
 network without host ports or provider routes. The pixel/decode evidence proves
 initial local VP8 recovery, not a formal security audit, general browser JSEP,
 H264 decoding or actual provider/physical-device acceptance.
+
+The x64 Chromium receive-only video offer reproduced a genuine parser limit:
+34 advertised RTP formats exceeded the original 32-format cap. The authored
+parser now admits at most 128 unique formats, matching RTP's 7-bit payload space,
+while preserving total bytes, lines, per-line length, media-section, extension,
+source and duplicate limits. The same browser advertises 198 video attributes;
+video sections allow at most 512 total attributes with a separate 128 unknown
+attribute cap, and session/audio/application keep their 128 total cap. RTP formats
+now also reject nonnumeric/out-of-range payload types and semantic numeric duplicates. Authored protocol tests cover 33/34/64/128 alternatives,
+select only supported Opus, and reject duplicate/over-budget inventories. No
+upstream parser implementation or fixture was imported.

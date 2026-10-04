@@ -33,6 +33,8 @@ var tests = new (string Name, Action Run)[]
     ("SDP local relay provenance and relay-only inventory", SdpTests.RelayCandidates),
     ("SDP bounded syntax, inheritance and immutable models", SdpTests.Syntax),
     ("SDP duplicate/security/framing/size rejection", SdpTests.Malformed),
+    ("SDP full bounded RTP payload inventory and selection", SdpTests.FullPayloadInventory),
+    ("SDP broad browser codecs, feedback, attribute bounds and selection", SdpTests.BrowserCodecInventory),
     ("SDP DTLS/ICE roles and effective media directions", SdpTests.RolesAndDirections),
     ("SDP answer negotiation before transport side effects", SdpTests.NegotiationPreflight),
     ("SDP deterministic hostile-input corpus", SdpTests.HostileCorpus),

@@ -50,9 +50,10 @@ Limit | Maximum
 UTF-8 bytes and input characters | 65536
 Lines / characters per line | 1024 / 2048
 Media sections | 8
-Attributes per section | 128
+Total attributes per video / other section | 512 / 128
+Unknown attributes per section | 128
 Candidates per media section | 64
-Formats / header extensions / sources per section | 32 / 32 / 64
+Formats / header extensions / sources per section | 128 / 32 / 64
 
 Duplicate critical transport/security fields, invalid fingerprints/roles, control
 characters, malformed framing, plaintext `k=`/SDES `a=crypto`, invalid candidate

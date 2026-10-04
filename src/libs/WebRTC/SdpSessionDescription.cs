@@ -152,14 +152,23 @@ public sealed class SdpSessionDescription
                 case 'm':
                     if (!time || sections.Count == 8) throw Invalid();
                     var media = Fields(value);
-                    if (media.Length is < 4 or > 35 || !Token(media[0], 32) || !int.TryParse(media[1], NumberStyles.None, CultureInfo.InvariantCulture, out var port) ||
+                    if (media.Length is < 4 or > 131 || !Token(media[0], 32) || !int.TryParse(media[1], NumberStyles.None, CultureInfo.InvariantCulture, out var port) ||
                         port is < 0 or > 65535 || !Token(media[2], 64) || media.Skip(3).Any(f => !Token(f, 64)) ||
                         media.Skip(3).Distinct(StringComparer.Ordinal).Count() != media.Length - 3) throw Invalid();
+                    // An RTP media inventory is bounded by its complete 7-bit payload type space.
+                    // Preserve generic tokens for non-RTP formats such as webrtc-datachannel.
+                    if (media[2].Split('/').Contains("RTP", StringComparer.Ordinal))
+                    {
+                        var payloads = new HashSet<byte>();
+                        foreach (var format in media.Skip(3))
+                            if (!byte.TryParse(format, NumberStyles.None, CultureInfo.InvariantCulture, out var payload) ||
+                                payload > 127 || !payloads.Add(payload)) throw Invalid();
+                    }
                     current = new() { Kind = media[0], Port = port, Protocol = media[2] };
                     current.Formats.AddRange(media.Skip(3)); sections.Add(current); break;
                 case 'a':
                     if (!time) throw Invalid();
-                    if (++current.Attributes > 128) throw Invalid();
+                    if (++current.Attributes > (current.Kind == "video" ? 512 : 128)) throw Invalid();
                     var colon = value.IndexOf(':'); var key = colon < 0 ? value : value[..colon]; var body = colon < 0 ? "" : value[(colon + 1)..];
                     if (!Token(key, 64) || body.Length > 1024) throw Invalid();
                     switch (key)
@@ -236,6 +245,7 @@ public sealed class SdpSessionDescription
                             if (current == session || current.MessageSize != null || !ulong.TryParse(body, NumberStyles.None, CultureInfo.InvariantCulture, out var size)) throw Invalid();
                             current.MessageSize = size; break;
                         case "crypto": throw Invalid(); // SDES keys cannot replace DTLS authentication.
+                        default: if (++current.UnknownAttributes > 128) throw Invalid(); break;
                     }
                     break;
                 case 'c':
@@ -266,7 +276,7 @@ public sealed class SdpSessionDescription
     internal sealed class Section
     {
         internal string Kind = "", Protocol = "";
-        internal int Port, Attributes;
+        internal int Port, Attributes, UnknownAttributes;
         internal string? Mid, Fragment, Password, Fingerprint;
         internal SdpSetup? Setup;
         internal SdpDirection? Direction;

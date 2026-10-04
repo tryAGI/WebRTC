@@ -7,6 +7,11 @@ network="$run_id-local"
 browser="$run_id-browser"
 peer="$run_id-peer"
 image="$run_id-peer:local"
+browser_platform=()
+if [[ -n "${TRYAGI_CHROMIUM_PLATFORM:-}" ]]; then
+  case "$TRYAGI_CHROMIUM_PLATFORM" in linux/amd64|linux/arm64) ;; *) echo "Unsupported browser test platform" >&2; exit 1 ;; esac
+  browser_platform=(--platform "$TRYAGI_CHROMIUM_PLATFORM")
+fi
 cleanup() {
   docker rm -f "$peer" "$browser" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
@@ -15,7 +20,7 @@ cleanup() {
 trap cleanup EXIT
 docker build -f tests/interop/Chromium/Dockerfile -t "$image" .
 docker network create --internal "$network" >/dev/null
-docker run -d --name "$browser" --network "$network" \
+docker run "${browser_platform[@]}" -d --init --name "$browser" --network "$network" \
   --mount "type=bind,src=$PWD/tests/interop/Chromium/probe.mjs,dst=/probe.mjs,readonly" \
   --entrypoint sh \
   mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e \

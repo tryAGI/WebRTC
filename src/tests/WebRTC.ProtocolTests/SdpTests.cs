@@ -63,8 +63,51 @@ internal static class SdpTests
         Reject(text + string.Concat(Enumerable.Repeat("a=unknown:bounded\r\n", 129)));
         Reject(text + new string('x', 65536));
         Reject(text.Replace("s=-", "s=" + new string('ж', 32768)));
-        var formats = string.Join(' ', Enumerable.Range(1, 32));
+        var formats = string.Join(' ', Enumerable.Range(0, 128));
         Reject(text.Replace("UDP/TLS/RTP/SAVPF 111", $"UDP/TLS/RTP/SAVPF 111 {formats}"));
+    }
+    internal static void FullPayloadInventory()
+    {
+        // Chromium's receive-only offer legitimately lists more than 32 codec/PT alternatives.
+        // RTP has a finite 7-bit payload space; retain total SDP, line and duplicate limits.
+        var text = Offer();
+        foreach(var count in new[] { 33, 34, 64, 128 })
+        {
+            var formats = new[] { 111 }.Concat(Enumerable.Range(0, 128).Where(pt => pt != 111).Take(count - 1));
+            var expanded = text.Replace("UDP/TLS/RTP/SAVPF 111", $"UDP/TLS/RTP/SAVPF {string.Join(' ', formats)}");
+            var parsed = SdpSessionDescription.Parse(expanded);
+            Check(parsed.Media[0].Formats.Count == count && parsed.Media[0].Codecs.Single().PayloadType == 111);
+            var answer = SdpSessionDescription.Parse(SdpNegotiation.CreateOpusAnswer(parsed, Transport(49153), 5678));
+            Check(SdpNegotiation.ValidateOpusAnswer(parsed, answer, true).AudioCodec!.PayloadType == 111);
+            Reject(expanded.Replace("UDP/TLS/RTP/SAVPF", "UDP/TLS/RTP/SAVPF 111"));
+        }
+        foreach(var invalid in new[] { "128", "256", "-1", "VP8", "0111" })
+            Reject(text.Replace("UDP/TLS/RTP/SAVPF 111", $"UDP/TLS/RTP/SAVPF 111 {invalid}"));
+        var all = string.Join(' ', Enumerable.Range(0,128));
+        Reject(text.Replace("UDP/TLS/RTP/SAVPF 111", $"UDP/TLS/RTP/SAVPF {all} 128"));
+    }
+    internal static void BrowserCodecInventory()
+    {
+        var offer = SdpNegotiation.CreateOffer(Transport(), 1234, 2345,
+            [new() { Codec=VideoCodec.Vp8, PayloadType=96, Vp8MaximumMacroblocks=1200, Vp8MaximumFrameRate=30 }]);
+        var formats = Enumerable.Range(33,32).Concat(new[] {96,97}).ToArray();
+        var codecLines = string.Concat(formats.Select(pt => $"a=rtpmap:{pt} {(pt==96?"VP8":"synthetic")}/90000\r\na=fmtp:{pt} max-fs=1200;max-fr=30\r\n"));
+        var feedback = string.Concat(Enumerable.Range(0,111).Select(i=>$"a=rtcp-fb:96 future{i}\r\n"));
+        offer=offer.Replace("m=video 9 UDP/TLS/RTP/SAVPF 96", $"m=video 9 UDP/TLS/RTP/SAVPF {string.Join(' ',formats)}")
+            .Replace("a=fmtp:96 max-fs=1200;max-fr=30\r\n", "")
+            .Replace("a=rtpmap:96 VP8/90000\r\n",codecLines+feedback);
+        var parsed=SdpSessionDescription.Parse(offer);
+        Check(parsed.Media[1].Codecs.Count==34 && parsed.Media[1].RtcpFeedback.Count==112);
+        var answer=SdpSessionDescription.Parse(SdpNegotiation.CreateAnswer(parsed,Transport(49153),5678,6789,
+            [new() { Codec=VideoCodec.Vp8,PayloadType=96,Vp8MaximumMacroblocks=1200,Vp8MaximumFrameRate=30 }]));
+        Check(SdpNegotiation.ValidateAnswer(parsed,answer,true).VideoFormat!.PayloadType==96 && answer.Media[1].Codecs.Count==1);
+        // Preserve a smaller unknown-attribute budget even for legitimate large video inventories.
+        Reject(offer.Replace("a=mid:video", "a=mid:video\r\n"+string.Concat(Enumerable.Repeat("a=unknown:bounded\r\n",129)).TrimEnd('\r','\n')));
+        var video=offer.Split("m=video")[1].Split("m=application")[0];
+        var count=video.Split("\r\n").Count(line=>line.StartsWith("a="));
+        var padding=string.Concat(Enumerable.Repeat("a=ssrc:2345 cname:synthetic\r\n",512-count));
+        Check(SdpSessionDescription.Parse(offer.Replace("a=mid:video\r\n","a=mid:video\r\n"+padding)).Media[1].Codecs.Count==34);
+        Reject(offer.Replace("a=mid:video\r\n","a=mid:video\r\n"+padding+"a=ssrc:2345 cname:synthetic\r\n"));
     }
     internal static void RolesAndDirections()
     {
