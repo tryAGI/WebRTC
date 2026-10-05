@@ -221,8 +221,10 @@ public sealed class SdpSessionDescription
                                     !current.Formats.Contains(feedbackPt.ToString(CultureInfo.InvariantCulture))) throw Invalid();
                                 feedbackPayload = feedbackPt;
                             }
-                            var feedbackValue = body[(separator + 1)..];
-                            if (feedbackValue.Length is < 1 or > 256 || feedbackValue[0] == ' ' || feedbackValue[^1] == ' ' || feedbackValue.Any(c => c is < ' ' or > '~')) throw Invalid();
+                            // Browser/provider SDP commonly emits optional trailing SP after rtcp-fb values.
+                            // Normalize only that bounded whitespace; leading/embedded control syntax stays strict.
+                            var feedbackValue = body[(separator + 1)..].TrimEnd(' ');
+                            if (feedbackValue.Length is < 1 or > 256 || feedbackValue[0] == ' ' || feedbackValue.Any(c => c is < ' ' or > '~')) throw Invalid();
                             var feedback = new SdpRtcpFeedback(feedbackPayload, feedbackValue);
                             if (current.Feedback.Contains(feedback)) throw Invalid(); current.Feedback.Add(feedback); break;
                         case "bundle-only": if (current == session || current.BundleOnly || colon >= 0) throw Invalid(); current.BundleOnly = true; break;

@@ -5,6 +5,13 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+## [0.2.8] - 2026-10-05
+
+- Accept bounded trailing SP in `a=rtcp-fb` values while retaining strict rejection
+  of leading whitespace and control syntax. This restores interoperability with
+  current D-ID Agents Streams SDP offers (`nack ` / `transport-cc `) without
+  relaxing transport authentication or feedback negotiation.
+
 ## [0.2.7] - 2026-10-05
 
 - Accept bounded multiple DTLS fingerprint attributes as permitted by RFC 8122 while

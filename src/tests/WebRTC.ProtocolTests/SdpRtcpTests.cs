@@ -18,6 +18,8 @@ internal static class SdpRtcpTests
         var noRsize = offer.Replace("a=rtcp-rsize\r\n", "");
         Check(Pair(noRsize, Answer(noRsize)) is { AudioReducedSizeRtcp: false, VideoReducedSizeRtcp: false });
         Reject(() => Pair(noRsize, answer));
+        var providerWhitespace = offer.Replace("a=rtcp-fb:102 nack pli\r\n", "a=rtcp-fb:102 nack pli \r\n");
+        Check(Pair(providerWhitespace, Answer(providerWhitespace)).VideoPictureLoss);
         var noPli = offer.Replace("a=rtcp-fb:102 nack pli\r\n", "");
         Check(!Pair(noPli, Answer(noPli)).VideoPictureLoss);
         Reject(() => Pair(noPli, answer));
@@ -41,7 +43,7 @@ internal static class SdpRtcpTests
         var parsed = SdpSessionDescription.Parse(unknown).Media[1];
         Check(parsed.RtcpFeedback.Count == 3 && parsed.RtcpFeedback.Any(f => f.Value == "future feedback"));
         try { ((IList<SdpRtcpFeedback>)parsed.RtcpFeedback)[0] = new(null, "bad"); throw new IOException("Mutable SDP feedback"); } catch (NotSupportedException) { }
-        foreach (var value in new[] { "102", "102 ", "102  nack pli", "128 nack pli", "97 nack pli", "102 nack pli ", "102 bad\tvalue", "102 " + new string('a', 257) })
+        foreach (var value in new[] { "102", "102 ", "102  nack pli", "128 nack pli", "97 nack pli", "102 bad\tvalue", "102 " + new string('a', 257) })
             Reject(() => SdpSessionDescription.Parse(offer.Replace("102 nack pli", value)));
         Reject(() => SdpSessionDescription.Parse(offer.Replace("a=rtcp-rsize", "a=rtcp-rsize\r\na=rtcp-rsize")));
         Reject(() => SdpSessionDescription.Parse(offer.Replace("a=rtcp-fb:102 nack pli", "a=rtcp-fb:102 nack pli\r\na=rtcp-fb:102 nack pli")));
