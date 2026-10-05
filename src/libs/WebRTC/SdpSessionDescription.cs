@@ -188,10 +188,18 @@ public sealed class SdpSessionDescription
                         case "ice-pwd": Unique(ref current.Password, body); break;
                         case "fingerprint":
                             var fingerprint = Fields(body);
-                            if (fingerprint.Length != 2 || !fingerprint[0].Equals("sha-256", StringComparison.OrdinalIgnoreCase)) throw Invalid();
+                            if (fingerprint.Length != 2 || !Token(fingerprint[0], 32)) throw Invalid();
                             var bytes = fingerprint[1].Split(':');
-                            if (bytes.Length != 32 || bytes.Any(b => b.Length != 2 || !byte.TryParse(b, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out _))) throw Invalid();
-                            Unique(ref current.Fingerprint, string.Concat(bytes).ToUpperInvariant()); break;
+                            if (bytes.Length is < 16 or > 128 || bytes.Any(b => b.Length != 2 || !byte.TryParse(b, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out _))) throw Invalid();
+                            // RFC 8122 permits peers to advertise multiple fingerprint algorithms.
+                            // DTLS authentication remains pinned to SHA-256; stronger/other advertised
+                            // algorithms are parsed for bounded syntax but never replace that binding.
+                            if (fingerprint[0].Equals("sha-256", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (bytes.Length != 32) throw Invalid();
+                                Unique(ref current.Fingerprint, string.Concat(bytes).ToUpperInvariant());
+                            }
+                            break;
                         case "setup":
                             if (current.Setup != null) throw Invalid();
                             current.Setup = body switch { "active" => SdpSetup.Active, "passive" => SdpSetup.Passive,

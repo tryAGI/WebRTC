@@ -25,6 +25,10 @@ internal static class SdpTests
         Check(!parsed.ToString().Contains(new string('a', 22)) && !parsed.Media[0].ToString().Contains(new string('a', 22)));
         try { ((IList<SdpMediaDescription>)parsed.Media)[0] = parsed.Media[1]; throw new IOException("Mutable media inventory"); } catch (NotSupportedException) { }
         var fingerprint = string.Join(':', Fingerprint.Select(b => b.ToString("X2")));
+        var multipleFingerprints = text.Replace(
+            $"a=fingerprint:sha-256 {fingerprint}",
+            $"a=fingerprint:sha-384 {string.Join(':', Enumerable.Repeat("AA", 48))}\r\na=fingerprint:sha-512 {string.Join(':', Enumerable.Repeat("BB", 64))}\r\na=fingerprint:sha-256 {fingerprint}");
+        Check(SdpSessionDescription.Parse(multipleFingerprints).Media.All(m => m.FingerprintSha256 == Convert.ToHexString(Fingerprint)));
         var inherited = text;
         foreach (var field in new[] { "ice-ufrag:local012", $"ice-pwd:{new string('a', 22)}", $"fingerprint:sha-256 {fingerprint}", "setup:actpass" })
             inherited = inherited.Replace($"a={field}\r\n", "");
@@ -49,7 +53,7 @@ internal static class SdpTests
         Reject(text.Replace("49152 typ", "0 typ"));
         Reject(text.Replace("2130706431", "4294967295"));
         Reject(text.Replace("a=setup:actpass", "a=setup:unexpected"));
-        Reject(text.Replace("sha-256", "sha-1"));
+        Check(SdpSessionDescription.Parse(text.Replace("sha-256", "sha-1")).Media.All(m => m.FingerprintSha256 == null));
         Reject(text.Replace("c=IN IP4 0.0.0.0\r\n", ""));
         Reject(text.Replace("s=-", "s=-\r\nk=clear:synthetic"));
         Reject(text.Replace("s=-", "s=-\0"));
