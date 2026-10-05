@@ -5,6 +5,14 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+## [0.2.7] - 2026-10-05
+
+- Accept bounded multiple DTLS fingerprint attributes as permitted by RFC 8122 while
+  continuing to authenticate the peer exclusively with the negotiated SHA-256
+  fingerprint. This restores interoperability with Simli/aiortc answers that
+  advertise SHA-256, SHA-384 and SHA-512 together without weakening fingerprint
+  binding. Add positive multi-algorithm and unsupported-only regression coverage.
+
 ## [0.2.6] - 2026-10-05
 
 - Expose the loaded library's exact package version and source commit without
