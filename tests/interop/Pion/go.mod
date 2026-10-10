@@ -4,8 +4,8 @@ go 1.26.0
 
 require (
 	github.com/pion/datachannel v1.6.3
-	github.com/pion/dtls/v3 v3.1.9
-	github.com/pion/ice/v4 v4.4.5
+	github.com/pion/dtls/v3 v3.1.10
+	github.com/pion/ice/v4 v4.4.6
 	github.com/pion/logging v0.2.4
 	github.com/pion/rtcp v1.2.19
 	github.com/pion/rtp v1.10.5
