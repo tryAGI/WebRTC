@@ -4,7 +4,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="tryAGI.WebRTC" Version="[0.2.2]" />
+    <PackageReference Include="tryAGI.WebRTC" Version="[0.2.8]" />
     <Compile Include="../WebRTC.IntegrationTests/PeerSctpRoleTests.cs" Link="PeerSctpRoleTests.cs" />
     <Compile Include="../WebRTC.IntegrationTests/BundleTransportTests.cs" Link="BundleTransportTests.cs" />
   </ItemGroup>
