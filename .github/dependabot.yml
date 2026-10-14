@@ -11,6 +11,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # PublishedRegression deliberately pins the old package to reproduce fixed bugs.
+    ignore:
+      - dependency-name: tryAGI.WebRTC
     groups:
       all:
         patterns: ['*']
