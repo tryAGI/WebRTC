@@ -66,23 +66,31 @@ public sealed class RtcpTransmissionSchedule
     public void Sent(int onWireBytes, bool early)
     {
         ValidateSize(onWireBytes);
-        lock (_gate)
+        string? error;
+        lock (_gate) error = TrySentCore(onWireBytes, early);
+        if (error is not null) throw new InvalidOperationException(error);
+    }
+    // Keep expected admission failures outside the lock/calculation frame. NativeAOT on
+    // macOS arm64 can lose the caller's saved floating-point registers when unwinding
+    // that frame (#9). Returning normally preserves them before Sent throws.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private string? TrySentCore(int onWireBytes, bool early)
+    {
+        if (early && (!_pointToPoint || !_allowEarly)) return "Early RTCP was not admitted.";
+        var now = Now;
+        if (!early && now < _next) return "Regular RTCP is not due.";
+        var average = (15 * _average + onWireBytes) / 16;
+        if (early && now < _next)
         {
-            if (early && (!_pointToPoint || !_allowEarly)) throw new InvalidOperationException("Early RTCP was not admitted.");
-            var now = Now;
-            if (!early && now < _next) throw new InvalidOperationException("Regular RTCP is not due.");
-            var average = (15 * _average + onWireBytes) / 16;
-            if (early && now < _next)
-            {
-                var interval = _next - _previous; _previous += interval; _next = _previous + interval; _allowEarly = false;
-            }
-            else
-            {
-                var interval = Interval(average, false, _pointToPoint);
-                _previous = now; _next = _previous + interval; _allowEarly = true;
-            }
-            _average = average; _initial = false;
+            var interval = _next - _previous; _previous += interval; _next = _previous + interval; _allowEarly = false;
         }
+        else
+        {
+            var interval = Interval(average, false, _pointToPoint);
+            _previous = now; _next = _previous + interval; _allowEarly = true;
+        }
+        _average = average; _initial = false;
+        return null;
     }
     private static void ValidateSize(int bytes)
     { if (bytes is < 1 or > 1500) throw new ArgumentOutOfRangeException(nameof(bytes)); }

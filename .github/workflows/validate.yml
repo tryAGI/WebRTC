@@ -46,6 +46,23 @@ jobs:
       - run: dotnet publish src/tests/WebRTC.AotSmoke -c Release -r linux-x64 -p:PublishAot=true -o artifacts/aot
       - run: ./artifacts/aot/WebRTC.AotSmoke
 
+  native-macos-arm64:
+    name: macOS arm64 NativeAOT execution
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Require native macOS arm64 host
+        run: test "$(uname -m)" = arm64
+      - run: dotnet publish src/tests/WebRTC.AotSmoke -c Release -r osx-arm64 -p:PublishAot=true -o artifacts/aot-macos-arm64
+      - name: Execute whole-root transport and RTCP admission regressions
+        run: ./artifacts/aot-macos-arm64/WebRTC.AotSmoke
+
   native-arm64:
     name: Linux arm64 protocols and NativeAOT
     runs-on: ubuntu-24.04-arm
