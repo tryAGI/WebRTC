@@ -25,6 +25,9 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Early requests require authentication and bound buffered state", EarlyCheckBounds),
     ("Early request remote identity is checked after signaling", EarlyIdentity),
 };
+foreach (var lostAck in new[] { false, true })
+    cases.Add(($"ICE single nomination survives delayed acknowledgement lostAck={lostAck}",
+        () => IceNominationRaceTests.DelayedAcknowledgement(lostAck)));
 cases.Add(("Build identity remains available after disposal without reflection", BuildIdentityTests.Retained));
 cases.Add(("BUNDLE tag selects candidates independently of media order", () => { BundleTransportTests.Selection(); return Task.CompletedTask; }));
 cases.Add(("BUNDLE two actual ICE routes retain tagged DTLS and wrong-source rejection", () => BundleTransportTests.Exchange()));

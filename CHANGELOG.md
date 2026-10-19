@@ -5,6 +5,16 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+## [0.2.9] - 2026-10-19
+
+- Keep one controlling ICE nomination in flight per component. Delayed or lost
+  nomination acknowledgements no longer allow a second validated candidate to be
+  nominated concurrently and split the peers' selected routes. Retry the original
+  nomination; an exhausted acknowledgement requires a new ICE generation.
+- Add authenticated two-candidate regression coverage with delayed and dropped
+  nomination acknowledgements. Preserve rejection of unselected-source data,
+  DTLS fingerprints, record authentication and consent checks.
+
 ## [0.2.8] - 2026-10-05
 
 - Accept bounded trailing SP in `a=rtcp-fb` values while retaining strict rejection

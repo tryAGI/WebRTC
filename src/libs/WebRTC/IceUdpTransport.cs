@@ -79,7 +79,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
     private readonly ulong _tieBreaker;
     private byte[]? _remoteKey, _outgoingUsername, _incomingUsername;
     private IceRole _role;
-    private Pair? _selected;
+    private Pair? _selected, _nominating;
     private long _startedAt, _selectedAt, _lastConsentAt, _nextConsentAt, _lastCheckSentAt;
     private TimeSpan? _lastRoundTrip;
     private long _lastRoundTripAt;
@@ -330,6 +330,10 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
                     if (now < active.NextSendAt) continue;
                     if (active.Attempts >= 7)
                     {
+                        // A lost response doesn't undo the peer's accepted nomination.
+                        // Another route in this generation can split the selected pair.
+                        if (active.UseCandidate)
+                            throw new TimeoutException("ICE nomination confirmation timed out; restart ICE before selecting another pair.");
                         _transactions.Remove(active.Id);
                         pair.Active = null;
                         pair.Failed = true;
@@ -341,7 +345,9 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
                     break;
                 }
                 if (pair.Validated && _role == IceRole.Controlled) continue;
+                if (pair.Validated && _role == IceRole.Controlling && _nominating is not null && _nominating != pair) continue;
                 transaction = CreateTransaction(pair, useCandidate: pair.Validated && _role == IceRole.Controlling, consent: false);
+                if (transaction.UseCandidate) _nominating = pair;
                 pair.Active = transaction;
                 break;
             }
@@ -545,6 +551,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
     private void ChangeRole(IceRole role)
     {
         _role = role;
+        _nominating = null;
         _transactions.Clear();
         foreach (var pair in _pairs)
         {
