@@ -122,6 +122,10 @@ cases.Add(("DTLS cookie exchange", () => DtlsTests.Exchange(SrtpProfile.AeadAes1
 cases.Add(("DTLS fragmented certificates with loss", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, mtu: 256, fault: "fragment-loss")));
 cases.Add(("DTLS lost initial ClientHello", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, fault: "hello-loss")));
 cases.Add(("DTLS lost final server flight", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, fault: "final-loss")));
+foreach (var profile in Enum.GetValues<SrtpProfile>())
+    foreach (var cookie in new[] { false, true })
+        cases.Add(($"DTLS combined loss and reorder {profile} cookie={cookie}",
+            () => DtlsTests.Exchange(profile, cookie, 256, "combined-loss-reorder")));
 cases.Add(("DTLS tamper and replay rejection", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, fault: "app-replay")));
 cases.Add(("DTLS wrong certificate fingerprint", () => DtlsTests.Rejection("fingerprint")));
 cases.Add(("DTLS tampered handshake signature", () => DtlsTests.Rejection("signature")));

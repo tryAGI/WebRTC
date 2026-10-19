@@ -54,6 +54,14 @@ internal static class DtlsTests
             catch (OperationCanceledException) { }
         }
         if (mtu == 256) Check(proxy.Fragments > 0, "Certificate fragmentation was not exercised");
+        if (fault == "combined-loss-reorder")
+        {
+            Check(proxy.DroppedHellos == 2 && proxy.DroppedCertificates == 1 && proxy.DroppedFinished == 1,
+                "Every planned handshake loss must occur");
+            Check(proxy.ReorderedFlights == 1, "Server handshake reorder was not exercised");
+            Check(client.GetDiagnostics().Retransmissions + server.GetDiagnostics().Retransmissions >= 2,
+                "Combined losses must exercise retransmission");
+        }
     }
 
     internal static async Task Rejection(string fault)
@@ -179,9 +187,13 @@ internal sealed class DtlsProxy : IAsyncDisposable
     private readonly Socket _socket = new(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _worker;
-    private int _affected, _fragments;
+    private int _affected, _fragments, _droppedHellos, _droppedCertificates, _droppedFinished, _reorderedFlights;
     public int Affected => Volatile.Read(ref _affected);
     public int Fragments => Volatile.Read(ref _fragments);
+    public int DroppedHellos => Volatile.Read(ref _droppedHellos);
+    public int DroppedCertificates => Volatile.Read(ref _droppedCertificates);
+    public int DroppedFinished => Volatile.Read(ref _droppedFinished);
+    public int ReorderedFlights => Volatile.Read(ref _reorderedFlights);
     public IPEndPoint EndPoint => (IPEndPoint)_socket.LocalEndPoint!;
     public DtlsProxy(IPEndPoint left, IPEndPoint right, string fault)
     {
@@ -203,6 +215,25 @@ internal sealed class DtlsProxy : IAsyncDisposable
                     var fragment = plainHandshake && (bytes[19] != 0 || bytes[20] != 0 || bytes[21] != 0 ||
                         !bytes.AsSpan(14, 3).SequenceEqual(bytes.AsSpan(22, 3)));
                     if (fragment) Interlocked.Increment(ref _fragments);
+                    if (fault == "combined-loss-reorder")
+                    {
+                        if (fromLeft && plainHandshake && bytes[13] == 1 && _droppedHellos < 2)
+                        { Interlocked.Increment(ref _droppedHellos); Interlocked.Increment(ref _affected); continue; }
+                        if (!fromLeft && fragment && bytes[13] == 11 && _droppedCertificates == 0)
+                        { Interlocked.Increment(ref _droppedCertificates); Interlocked.Increment(ref _affected); continue; }
+                        if (!fromLeft && bytes.Length >= 13 && bytes[0] == 22 && bytes[4] == 1 && _droppedFinished == 0)
+                        { Interlocked.Increment(ref _droppedFinished); Interlocked.Increment(ref _affected); continue; }
+                        if (!fromLeft && plainHandshake && _reorderedFlights == 0)
+                        {
+                            if (bytes[13] == 2 && held == null) { held = bytes; continue; }
+                            if (held != null)
+                            {
+                                await _socket.SendToAsync(bytes, SocketFlags.None, destination, _lifetime.Token);
+                                await _socket.SendToAsync(held, SocketFlags.None, destination, _lifetime.Token);
+                                held = null; Interlocked.Increment(ref _reorderedFlights); Interlocked.Increment(ref _affected); continue;
+                            }
+                        }
+                    }
                     if (fault == "ccs-reorder" && !fromLeft && bytes[0] == 20 && _affected == 0) { held = bytes; continue; }
                     if (fault == "ccs-reorder" && held != null && !fromLeft && bytes[0] == 22 && bytes[4] == 1)
                     {
