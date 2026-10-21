@@ -5,6 +5,10 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+- Stop outbound traffic immediately on a matched, authenticated STUN 403 consent
+  revocation, rather than continuing until the freshness timeout. Exercise it
+  with an independent ICE-lite responder in managed and NativeAOT tests.
+
 - Retain outstanding consent requests across later checks for the finite consent
   window (RFC 7675 section 5.1). Authenticated replies to previous requests now
   renew consent instead of being discarded after 4–6 seconds. Expired requests,

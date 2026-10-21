@@ -499,6 +499,14 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
             path != transaction.Pair.Path || !source.Equals(transaction.Pair.Candidate.TransportEndPoint) || !message.VerifyMessageIntegritySha1(_remoteKey!)) return;
         if (message.Type == BindingError)
         {
+            // RFC 7675 section 5.2: an authenticated 403 revokes consent now,
+            // rather than leaving a dead pair transmitting until its timer expires.
+            if (transaction.Consent && message.TryGetUniqueAttribute(ErrorCode, out var consentError) &&
+                consentError.Length >= 4 && consentError[2] == 4 && consentError[3] == 3)
+            {
+                Stop(new IOException("ICE consent revoked by the authenticated peer."));
+                return;
+            }
             if (message.TryGetUniqueAttribute(ErrorCode, out var code) && code.Length >= 4 && code[2] == 4 && code[3] == 87)
             {
                 _roleConflicts++;

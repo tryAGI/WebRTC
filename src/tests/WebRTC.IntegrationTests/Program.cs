@@ -20,6 +20,7 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Unknown UDP source cannot deliver data", UnknownSource),
     ("Consent loss stops outbound traffic", ConsentLoss),
     ("Consent replies to previous transactions renew without extending expiry", IceConsentTests.PreviousTransactionResponse),
+    ("Consent authenticated revocation stops outbound traffic immediately", IceConsentTests.RevocationStopsImmediately),
     ("Cancellation closes an incomplete connection", Cancellation),
     ("Candidate pair limits bound trickle input", CandidateLimits),
     ("Bounded receive queue drops stale backlog", ReceiveBackpressure),

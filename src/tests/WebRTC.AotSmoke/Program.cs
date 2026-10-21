@@ -4,6 +4,7 @@ using System.Net.Sockets;
 
 await BuildIdentityTests.Retained();
 await IceConsentTests.PreviousTransactionResponse();
+await IceConsentTests.RevocationStopsImmediately();
 Console.WriteLine("NativeAOT delayed consent replies renew; replay cannot prevent expiry");
 BundleTransportTests.Selection();
 await BundleTransportTests.Exchange();
