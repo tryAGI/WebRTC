@@ -51,4 +51,5 @@
 <ItemGroup><Compile Include="../WebRTC.IntegrationTests/BundleTransportTests.cs" Link="BundleTransportTests.cs" />
 <Compile Include="../WebRTC.IntegrationTests/BundleTrickleTests.cs" Link="BundleTrickleTests.cs" />
 <Compile Include="../WebRTC.IntegrationTests/BuildIdentityTests.cs" Link="BuildIdentityTests.cs" /></ItemGroup>
+<ItemGroup><Compile Include="../WebRTC.IntegrationTests/IceConsentTests.cs" Link="IceConsentTests.cs" /></ItemGroup>
 </Project>

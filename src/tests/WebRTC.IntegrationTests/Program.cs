@@ -19,6 +19,7 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Wrong credentials cannot nominate a pair", WrongCredentials),
     ("Unknown UDP source cannot deliver data", UnknownSource),
     ("Consent loss stops outbound traffic", ConsentLoss),
+    ("Consent replies to previous transactions renew without extending expiry", IceConsentTests.PreviousTransactionResponse),
     ("Cancellation closes an incomplete connection", Cancellation),
     ("Candidate pair limits bound trickle input", CandidateLimits),
     ("Bounded receive queue drops stale backlog", ReceiveBackpressure),

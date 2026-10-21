@@ -3,6 +3,8 @@ using System.Net;
 using System.Net.Sockets;
 
 await BuildIdentityTests.Retained();
+await IceConsentTests.PreviousTransactionResponse();
+Console.WriteLine("NativeAOT delayed consent replies renew; replay cannot prevent expiry");
 BundleTransportTests.Selection();
 await BundleTransportTests.Exchange();
 Console.WriteLine("NativeAOT negotiated BUNDLE tag, two-route DTLS and wrong-source rejection passed");

@@ -315,8 +315,14 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         if (_selected is not null)
         {
             if (now < _nextConsentAt) return null;
-            // Consent requests are fresh transactions, never retransmitted (RFC 7675).
-            foreach (var id in _transactions.Where(p => p.Value.Consent).Select(p => p.Key).ToArray()) _transactions.Remove(id);
+            // RFC 7675 section 5.1 explicitly permits replies to previous requests.
+            // Keep outstanding IDs for the finite consent window, rather than
+            // making ordinary delay/reordering look like complete consent loss.
+            // Fresh IDs are sent once; the minimum interval and finite lifetime
+            // bound retained transactions, independently of remote traffic.
+            foreach (var id in _transactions.Where(p => p.Value.Consent &&
+                         Elapsed(p.Value.LastSendAt) >= _options.ConsentTimeout).Select(p => p.Key).ToArray())
+                _transactions.Remove(id);
             transaction = CreateTransaction(_selected, useCandidate: false, consent: true);
             _nextConsentAt = Add(now, _options.ConsentInterval * (RandomNumberGenerator.GetInt32(800, 1201) / 1000.0));
         }
@@ -501,6 +507,11 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
             return;
         }
         if (!message.TryGetXorMappedEndpoint(out _)) return;
+        if (transaction.Consent && Elapsed(transaction.LastSendAt) >= _options.ConsentTimeout)
+        {
+            _transactions.Remove(transaction.Id);
+            return;
+        }
         _transactions.Remove(transaction.Id);
         transaction.Pair.Active = null;
         _lastRoundTrip = Elapsed(transaction.LastSendAt); _lastRoundTripAt = Stopwatch.GetTimestamp();
@@ -585,6 +596,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         {
             if (_stopped) return;
             _stopped = true;
+            _transactions.Clear();
             _earlyChecks.Clear();
             foreach (var transaction in _gathering.Values) transaction.Done.TrySetException(reason);
             _gathering.Clear();

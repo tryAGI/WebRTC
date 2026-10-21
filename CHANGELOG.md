@@ -5,6 +5,15 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+- Retain outstanding consent requests across later checks for the finite consent
+  window (RFC 7675 section 5.1). Authenticated replies to previous requests now
+  renew consent instead of being discarded after 4–6 seconds. Expired requests,
+  consumed response replays and replies after consent expiry cannot renew it.
+- Exercise a synthetic ICE-lite peer delaying every consent reply by one request,
+  followed by replay-only traffic and mandatory expiry, in managed and NativeAOT
+  tests. This is a reproduced code defect; attribution of Advantage's October 21
+  network interruption still requires serving-path consent evidence.
+
 ## [0.2.9] - 2026-10-19
 
 - Keep one controlling ICE nomination in flight per component. Delayed or lost
