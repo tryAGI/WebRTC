@@ -28,6 +28,8 @@ jobs:
       - run: dotnet build WebRTC.slnx -c Release
       - name: Reproduce published 0.2.2 SCTP defect and positive control
         run: dotnet run --project src/tests/WebRTC.PublishedRegression -c Release --no-build
+      - name: Reproduce published 0.2.9 consent defects
+        run: dotnet run --project src/tests/WebRTC.ConsentRegression -c Release --no-build
       - run: dotnet run --project src/tests/WebRTC.ProtocolTests -c Release --no-build
       - run: dotnet run --project src/tests/WebRTC.IntegrationTests -c Release --no-build
       - name: Dependency audit
@@ -85,6 +87,8 @@ jobs:
       - run: dotnet build WebRTC.slnx -c Release
       - name: Reproduce published 0.2.2 SCTP defect and positive control
         run: dotnet run --project src/tests/WebRTC.PublishedRegression -c Release --no-build
+      - name: Reproduce published 0.2.9 consent defects
+        run: dotnet run --project src/tests/WebRTC.ConsentRegression -c Release --no-build
       - run: dotnet run --project src/tests/WebRTC.ProtocolTests -c Release --no-build
       - run: dotnet run --project src/tests/WebRTC.IntegrationTests -c Release --no-build
       - run: dotnet publish src/tests/WebRTC.AotSmoke -c Release -r linux-arm64 -p:PublishAot=true -o artifacts/aot-arm64
