@@ -131,6 +131,11 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
     foreach (var cookie in new[] { false, true })
         cases.Add(($"DTLS combined loss and reorder {profile} cookie={cookie}",
             () => DtlsTests.Exchange(profile, cookie, 256, "combined-loss-reorder")));
+foreach (var profile in Enum.GetValues<SrtpProfile>())
+    foreach (var cookie in new[] { false, true })
+        cases.Add(($"DTLS client-flight loss and reorder {profile} cookie={cookie}",
+            () => DtlsTests.Exchange(profile, cookie, 256, "client-flight-loss-reorder")));
+cases.Add(("DTLS missing client CertificateVerify fails closed with zero record rejections", DtlsTests.MissingClientCertificateVerify));
 cases.Add(("DTLS tamper and replay rejection", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, fault: "app-replay")));
 cases.Add(("DTLS wrong certificate fingerprint", () => DtlsTests.Rejection("fingerprint")));
 cases.Add(("DTLS tampered handshake signature", () => DtlsTests.Rejection("signature")));

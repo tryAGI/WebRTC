@@ -54,6 +54,14 @@ internal static class DtlsTests
             catch (OperationCanceledException) { }
         }
         if (mtu == 256) Check(proxy.Fragments > 0, "Certificate fragmentation was not exercised");
+        if (fault == "client-flight-loss-reorder")
+        {
+            Check(proxy.DroppedClientCertificates == 1 && proxy.ReorderedClientKeys == 1 &&
+                proxy.ReorderedClientCcs == 1 && proxy.DroppedFinished == 1,
+                "Every client-flight loss/reorder must be exercised");
+            Check(client.GetDiagnostics().Retransmissions + server.GetDiagnostics().Retransmissions > 0,
+                "Client-flight loss must exercise recovery");
+        }
         if (fault == "combined-loss-reorder")
         {
             Check(proxy.DroppedHellos == 2 && proxy.DroppedCertificates == 1 && proxy.DroppedFinished == 1,
@@ -170,6 +178,34 @@ internal static class DtlsTests
         Check(await client.Completion is TimeoutException, "Pending receive masked timeout");
     }
 
+    internal static async Task MissingClientCertificateVerify()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        await using var left = Ice(); await using var right = Ice();
+        await using var proxy = new DtlsProxy(left.LocalEndPoint, right.LocalEndPoint, "client-verify-blackhole");
+        await Task.WhenAll(left.ConnectAsync(right.LocalCredentials, IceRole.Controlling, [new(proxy.EndPoint)], deadline.Token),
+            right.ConnectAsync(left.LocalCredentials, IceRole.Controlled, [new(proxy.EndPoint)], deadline.Token));
+        using var a = DtlsIdentity.Generate(); using var b = DtlsIdentity.Generate();
+        var options = Options(SrtpProfile.AeadAes128Gcm, false, 256) with
+        { HandshakeTimeout = TimeSpan.FromMilliseconds(900) };
+        await using var client = new DtlsSrtpTransport(left, a, DtlsRole.Client, b.GetFingerprintSha256(), options);
+        await using var server = new DtlsSrtpTransport(right, b, DtlsRole.Server, a.GetFingerprintSha256(), options);
+        var clientConnect = client.ConnectAsync(deadline.Token);
+        var serverConnect = server.ConnectAsync(deadline.Token);
+        foreach (var connecting in new[] { clientConnect, serverConnect })
+        {
+            try { await connecting; throw new InvalidOperationException("Missing CertificateVerify established DTLS"); }
+            catch (TimeoutException) { }
+        }
+        Check(proxy.DroppedClientVerifies > 1, "CertificateVerify was not lost on initial and retransmitted flights");
+        Check(!client.IsConnected && !server.IsConnected, "Missing client authentication must fail closed");
+        Check(client.GetDiagnostics().RejectedRecords == 0 && server.GetDiagnostics().RejectedRecords == 0,
+            "Loss alone must not fabricate a record rejection");
+        Check(client.GetDiagnostics().Retransmissions > 0, "No client final-flight retransmission observed");
+        Check(await client.Completion is TimeoutException && await server.Completion is TimeoutException,
+            "Loss must retain timeout attribution after both receive loops end");
+    }
+
     internal static async Task<byte[]> App(DtlsSrtpTransport transport, CancellationToken ct)
     {
         await foreach (var bytes in transport.ReceiveApplicationDatagramsAsync(ct)) return bytes;
@@ -188,6 +224,11 @@ internal sealed class DtlsProxy : IAsyncDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _worker;
     private int _affected, _fragments, _droppedHellos, _droppedCertificates, _droppedFinished, _reorderedFlights;
+    private int _droppedClientCertificates, _reorderedClientKeys, _reorderedClientCcs, _droppedClientVerifies;
+    public int DroppedClientCertificates => Volatile.Read(ref _droppedClientCertificates);
+    public int ReorderedClientKeys => Volatile.Read(ref _reorderedClientKeys);
+    public int ReorderedClientCcs => Volatile.Read(ref _reorderedClientCcs);
+    public int DroppedClientVerifies => Volatile.Read(ref _droppedClientVerifies);
     public int Affected => Volatile.Read(ref _affected);
     public int Fragments => Volatile.Read(ref _fragments);
     public int DroppedHellos => Volatile.Read(ref _droppedHellos);
@@ -201,7 +242,7 @@ internal sealed class DtlsProxy : IAsyncDisposable
         _worker = Task.Run(async () =>
         {
             var buffer = new byte[2048];
-            byte[]? held = null;
+            byte[]? held = null, heldClientKey = null, heldClientCcs = null;
             try
             {
                 while (true)
@@ -215,6 +256,31 @@ internal sealed class DtlsProxy : IAsyncDisposable
                     var fragment = plainHandshake && (bytes[19] != 0 || bytes[20] != 0 || bytes[21] != 0 ||
                         !bytes.AsSpan(14, 3).SequenceEqual(bytes.AsSpan(22, 3)));
                     if (fragment) Interlocked.Increment(ref _fragments);
+                    if (fault == "client-verify-blackhole" && fromLeft && plainHandshake && bytes[13] == 15)
+                    { Interlocked.Increment(ref _droppedClientVerifies); Interlocked.Increment(ref _affected); continue; }
+                    if (fault == "client-flight-loss-reorder")
+                    {
+                        if (fromLeft && fragment && bytes[13] == 11 && _droppedClientCertificates == 0)
+                        { Interlocked.Increment(ref _droppedClientCertificates); Interlocked.Increment(ref _affected); continue; }
+                        if (fromLeft && plainHandshake && bytes[13] == 16 && _reorderedClientKeys == 0)
+                        { heldClientKey = bytes; continue; }
+                        if (fromLeft && plainHandshake && bytes[13] == 15 && heldClientKey != null)
+                        {
+                            await _socket.SendToAsync(bytes, SocketFlags.None, destination, _lifetime.Token);
+                            await _socket.SendToAsync(heldClientKey, SocketFlags.None, destination, _lifetime.Token);
+                            heldClientKey = null; Interlocked.Increment(ref _reorderedClientKeys); Interlocked.Increment(ref _affected); continue;
+                        }
+                        if (fromLeft && bytes[0] == 20 && _reorderedClientCcs == 0)
+                        { heldClientCcs = bytes; continue; }
+                        if (fromLeft && bytes.Length >= 13 && bytes[0] == 22 && bytes[4] == 1 && heldClientCcs != null)
+                        {
+                            await _socket.SendToAsync(bytes, SocketFlags.None, destination, _lifetime.Token);
+                            await _socket.SendToAsync(heldClientCcs, SocketFlags.None, destination, _lifetime.Token);
+                            heldClientCcs = null; Interlocked.Increment(ref _reorderedClientCcs); Interlocked.Increment(ref _affected); continue;
+                        }
+                        if (!fromLeft && bytes.Length >= 13 && bytes[0] == 22 && bytes[4] == 1 && _droppedFinished == 0)
+                        { Interlocked.Increment(ref _droppedFinished); Interlocked.Increment(ref _affected); continue; }
+                    }
                     if (fault == "combined-loss-reorder")
                     {
                         if (fromLeft && plainHandshake && bytes[13] == 1 && _droppedHellos < 2)
