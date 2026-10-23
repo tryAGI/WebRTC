@@ -38,10 +38,11 @@ def existing_matches(expected_sha: str, proof: dict) -> bool:
     return True
 
 
-def reconcile_conflict(expected_sha: str, proof: dict) -> bool:
-    # A parallel main/tag upload can be accepted before the flat-container index
-    # becomes readable. Never treat HTTP 409 alone as proof of identical contents.
-    for delay in (0, 10, 20, 40, 60, 60):
+def wait_for_registry(expected_sha: str, proof: dict) -> bool:
+    # Upload acceptance is not restore availability. At most 12 bounded GETs,
+    # 550 seconds of backoff and 30 seconds per request; never re-upload here.
+    # HTTP 409 also needs the same source/assembly proof.
+    for delay in (0, 10, 20, 40, 60, 60, 60, 60, 60, 60, 60, 60):
         if delay:
             time.sleep(delay)
         if existing_matches(expected_sha, proof):
@@ -65,6 +66,8 @@ if __name__ == "__main__":
             raise SystemExit("NuGet push timed out; check registry state before retrying") from None
         print((result.stdout + result.stderr).replace(key, "[redacted]"))
         if result.returncode:
-            if re.search(r"\b409\b", result.stdout + result.stderr) and reconcile_conflict(sha, proof):
+            if re.search(r"\b409\b", result.stdout + result.stderr) and wait_for_registry(sha, proof):
                 raise SystemExit(0)
             raise SystemExit(result.returncode)
+        if not wait_for_registry(sha, proof):
+            raise SystemExit("Upload accepted but registry package is not readable and verified; do not adopt this version yet")
