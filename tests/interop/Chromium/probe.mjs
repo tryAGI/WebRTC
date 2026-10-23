@@ -138,11 +138,16 @@ try {
     if(channelAccounting[0]!==9 || channelAccounting[1]!==8 || channelAccounting[2]!==34)throw new Error('Channel admission/closure accounting mismatch: '+channelAccounting);
     const audioProof=await audioProbe.run();
     const paintCanvas=new OffscreenCanvas(320,240);const paint=paintCanvas.getContext('2d'); const chunks=[];let encodeError;
-    const decoder=new VideoDecoder({error:e=>encodeError='direct decode: '+String(e),output:f=>{try{videoProof.recordDecoded(f);}catch(e){encodeError=String(e);}}});
+    let decodePending;
+    const decoder=new VideoDecoder({error:e=>{encodeError='direct decode: '+String(e);decodePending?.reject(new Error(encodeError));decodePending=null;},output:f=>{
+      const pending=decodePending;decodePending=null;
+      try{videoProof.recordDecoded(f);if(!pending)throw new Error('Unexpected direct decoder output');pending.resolve();}
+      catch(e){encodeError=String(e);pending?.reject(e);}
+    }});
     decoder.configure({codec:codec==='h264'?'avc1.42E01F':'vp8',codedWidth:320,codedHeight:240,optimizeForLatency:true});
     const encoder=new VideoEncoder({ error:e=>encodeError=String(e),output:c=>{const data=new Uint8Array(c.byteLength);c.copyTo(data);chunks.push({type:c.type,data});} });
     encoder.configure({...(codec==='h264'?{avc:{format:'annexb'}}:{}),codec:codec==='h264'?'avc1.42E01F':'vp8',width:320,height:240,bitrate:200000,framerate:10,latencyMode:'realtime'});
-    const sendFrame=async(i,key)=>{paint.fillStyle='rgb(128,128,128)';paint.fillRect(0,0,320,240);paint.fillStyle='black';paint.fillRect(16+i*8,32,16,16);videoProof.recordSource(paintCanvas,i*100000);const f=new VideoFrame(paintCanvas,{timestamp:i*100000});encoder.encode(f,{keyFrame:key});f.close();await encoder.flush();if(encodeError)throw new Error(encodeError);const chunk=chunks.shift();if(!chunk || chunk.type!==(key?'key':'delta'))throw new Error('Encoder did not emit requested frame type');videoProof.recordEncoded(chunk);decoder.decode(new EncodedVideoChunk({type:chunk.type,timestamp:i*100000,data:chunk.data}));await decoder.flush();if(encodeError)throw new Error(encodeError);const data=chunk.data;const r=await fetch('http://127.0.0.1:9430/frame?timestamp='+i*9000,{method:'POST',body:data});if(!r.ok)throw new Error('Owned frame send failed: '+await r.text());};
+    const sendFrame=async(i,key)=>{paint.fillStyle='rgb(128,128,128)';paint.fillRect(0,0,320,240);paint.fillStyle='black';paint.fillRect(16+i*8,32,16,16);videoProof.recordSource(paintCanvas,i*100000);const f=new VideoFrame(paintCanvas,{timestamp:i*100000});encoder.encode(f,{keyFrame:key});f.close();await encoder.flush();if(encodeError)throw new Error(encodeError);const chunk=chunks.shift();if(!chunk || chunk.type!==(key?'key':'delta'))throw new Error('Encoder did not emit requested frame type');videoProof.recordEncoded(chunk);const decoded=new Promise((resolve,reject)=>{if(decodePending)throw new Error('Overlapping direct decode');decodePending={resolve,reject};});decoder.decode(new EncodedVideoChunk({type:chunk.type,timestamp:i*100000,data:chunk.data}));await decoded;if(encodeError)throw new Error(encodeError);const data=chunk.data;const r=await fetch('http://127.0.0.1:9430/frame?timestamp='+i*9000,{method:'POST',body:data});if(!r.ok)throw new Error('Owned frame send failed: '+await r.text());};
     const wait=async(test,what)=>{for(let n=0;n<200 && !test();n++)await new Promise(r=>setTimeout(r,50));if(!test()){const inbound=[];(await peer.getStats()).forEach(s=>{if(s.type==='inbound-rtp' && s.kind==='video')inbound.push({framesDecoded:s.framesDecoded,keyFramesDecoded:s.keyFramesDecoded,framesReceived:s.framesReceived,packetsReceived:s.packetsReceived,packetsLost:s.packetsLost,framesDropped:s.framesDropped});});throw new Error(what+' evidence='+JSON.stringify({mode,codec,...videoProof.snapshot(),inbound}));}};
     await sendFrame(0,true);await wait(()=>frames.some(f=>f.width===320 && f.height===240 && f.old.every(x=>x<10) && f.fresh.every(x=>x>110 && x<150)),'Initial frame was not decoded');
     let priorPli=0;(await peer.getStats()).forEach(s=>{if(s.type==='inbound-rtp' && s.kind==='video')priorPli=s.pliCount;});
@@ -154,7 +159,7 @@ try {
     await sendFrame(6,true);await wait(()=>frames.some(f=>f.fresh.every(x=>x<10) && f.old.every(x=>x>110 && x<150)),'Fresh recovery frame was not decoded');
     for(let i=7;i<12;i++){await sendFrame(i,false);await new Promise(r=>setTimeout(r,100));}
     await wait(()=>frames.some(f=>f.last.every(x=>x<10) && f.fresh.every(x=>x>110 && x<150)), 'Post-recovery delta progress absent');
-    encoder.close();decoder.close();
+    await decoder.flush();encoder.close();decoder.close();
     const stats=[];(await peer.getStats()).forEach(s=>{if(s.type==='transport' || s.type==='inbound-rtp' && s.kind==='video')stats.push({type:s.type,dtlsState:s.dtlsState,framesDecoded:s.framesDecoded,keyFramesDecoded:s.keyFramesDecoded,pliCount:s.pliCount,packetsLost:s.packetsLost,framesReceived:s.framesReceived,framesDropped:s.framesDropped,nackCount:s.nackCount});});
     await audioProbe.close();await fetch('http://127.0.0.1:9430/close');peer.close();
     if(!isSecureContext)throw new Error('Browser origin is not secure');
