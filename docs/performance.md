@@ -161,3 +161,18 @@ reachable disposed peers. Managed post-disposal heap was approximately 0.4–0.6
 while RSS grew across early cohorts and later approached a plateau: this warrants
 longer native-resource measurement, not a leak-free claim. Final exact-source CI
 results remain separate from those local observations.
+
+Four-platform exact-source run
+[39996100914](https://github.com/tryAGI/WebRTC/actions/runs/39996100914) passed all
+expanded suites at 1972708. All 576 disposed peer instances across four platforms
+were collectible; 1,179,648 normal soak packet deliveries completed. Process RSS
+still grew across the short cohorts, despite low post-collection managed heap;
+this is not native leak acceptance. Follow-up strengthens slow-reader retention
+checks with different subsequent payload bytes so aliasing cannot hide behind
+identical content. Repeat final-source results remain a separate gate.
+
+Cold phase data attributes a notable macOS cost to the two-peer construction span,
+which includes identity/certificate, socket and queue work. It does not isolate
+certificate cost or explain a remote/provider recovery. Follow-up
+[#16](https://github.com/tryAGI/WebRTC/issues/16) preserves matched phase/hardware
+metadata and requires native profiling before changes to identity lifetime.

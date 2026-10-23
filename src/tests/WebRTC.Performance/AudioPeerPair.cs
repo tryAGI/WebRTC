@@ -93,6 +93,10 @@ internal sealed class AudioPeerPair : IAsyncDisposable
         await Left.SendOpusAsync(leftPayload, leftTimestamp += 960, cancellationToken: lifetime.Token);
         if (!await fromLeft.MoveNextAsync()) throw new IOException("Missing retained audio");
         retained = fromLeft.Current.Payload;
+        var retainedCopy = retained.ToArray();
+        // Different subsequent content makes aliasing visible; repeating identical
+        // bytes would not prove the retained receive buffer has an independent owner.
+        leftPayload[1] ^= 0x55;
         for (var i = 0; i < 48; i++)
         {
             await Left.SendOpusAsync(leftPayload, leftTimestamp += 960, cancellationToken: lifetime.Token);
@@ -105,7 +109,8 @@ internal sealed class AudioPeerPair : IAsyncDisposable
                 throw new IOException("Slow reader corrupted retained audio");
             if (fromLeft.Current.Timestamp == leftTimestamp) break;
         }
-        if (!retained.AsSpan().SequenceEqual(leftPayload)) throw new IOException("Later delivery mutated owned audio");
+        if (!retained.AsSpan().SequenceEqual(retainedCopy)) throw new IOException("Later delivery mutated owned audio");
+        leftPayload[1] ^= 0x55;
         var drops = Right.GetDiagnostics().DroppedAudioPackets - allowedRightDrops;
         allowedRightDrops += drops;
         return drops;
