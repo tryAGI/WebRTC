@@ -242,7 +242,7 @@ from RSS. Controls keep JIT/tiering defaults to match actual peer workloads.
 The budget checker consumes raw total bytes for 42 crypto and 105 packet samples.
 The packet cases cover parsing/framing, caller-buffer STUN writing (plain, SHA-1
 and SHA-256), and valid/wrong-key authentication using small stack and warmed
-4-KiB pooled input buffers. Protocol contracts also check warmed replay,
+pooled input buffers containing a 4-KiB attribute. Protocol contracts also check warmed replay,
 truncation and short-destination SRTP/SRTCP rejection across all three profiles,
 plus bad-tag AES-CM rejection. AES-GCM bad-tag exceptions are outside this zero
 contract. In every guarded rejection, caller output remains unchanged and later

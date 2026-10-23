@@ -68,8 +68,18 @@ remain explicit unknowns. See [diagnostics and collection example](https://githu
 ## Measured hot paths
 
 Warmed SRTP/SRTCP crypto with preallocated caller buffers and selected span-based
-packet parsing/framing operations have zero managed-allocation regression contracts.
+packet parsing/framing, STUN writing and STUN SHA-1/SHA-256 authentication operations
+have exact zero managed-allocation regression contracts. Small STUN authentication
+uses bounded stack storage; larger messages require warmed framework-pool reuse.
 This does **not** describe the entire asynchronous transport or owned frame outputs.
+
+| STUN authentication, small message; valid or wrong key | Before managed bytes/call | After |
+| --- | ---: | ---: |
+| SHA-1 / SHA-256, four native platforms | ~216–272 | 0 |
+
+The expanded gate covers 147 raw zero-byte samples/platform, including writes and
+larger pooled-message authentication. Cold pool misses can allocate. See
+[exact source, raw results and phase-matched memory methodology](https://github.com/tryAGI/WebRTC/blob/main/docs/stun-allocation-20261024.md).
 
 | Authenticated RTP protect + unprotect, 1,200-byte payload | AES-CM/SHA1 managed bytes/pair | Linux arm64 time/pair |
 | --- | ---: | ---: |
