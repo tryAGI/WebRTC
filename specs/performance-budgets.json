@@ -1,0 +1,263 @@
+{
+  "cohorts": {
+    ".NET 10.0.13|linux|Arm64|cpu=4|server_gc=False|dynamic_code=True": {
+      "ceilings_bytes_per_second": {
+        "associated/False/1": 90112,
+        "associated/False/3": 286720,
+        "associated/True/1": 90112,
+        "associated/True/3": 262144,
+        "off/False/0": 16384,
+        "off/False/1": 114688,
+        "off/False/3": 262144,
+        "off/True/1": 90112,
+        "off/True/3": 270336,
+        "open/False/1": 90112,
+        "open/False/3": 294912,
+        "open/True/1": 98304,
+        "open/True/3": 262144
+      },
+      "holdout_process": {
+        "associated/False/1": 47710.51,
+        "associated/False/3": 176965.83,
+        "associated/True/1": 47258.72,
+        "associated/True/3": 174709.58,
+        "off/False/0": 3915.08,
+        "off/False/1": 59673.54,
+        "off/False/3": 157723.42,
+        "off/True/1": 49902.76,
+        "off/True/3": 146110.08,
+        "open/False/1": 59490.41,
+        "open/False/3": 177481.31,
+        "open/True/1": 56627.57,
+        "open/True/3": 164609.18
+      },
+      "training_processes": [
+        {
+          "associated/False/1": 47664.97,
+          "associated/False/3": 171067.22,
+          "associated/True/1": 48750.66,
+          "associated/True/3": 160362.2,
+          "off/False/0": 3914.28,
+          "off/False/1": 53157.63,
+          "off/False/3": 165491.66,
+          "off/True/1": 51653.67,
+          "off/True/3": 174612.61,
+          "open/False/1": 53294.62,
+          "open/False/3": 161374.1,
+          "open/True/1": 55482.35,
+          "open/True/3": 159092.66
+        },
+        {
+          "associated/False/1": 50755.94,
+          "associated/False/3": 184351.03,
+          "associated/True/1": 50404.67,
+          "associated/True/3": 167671.47,
+          "off/False/0": 3914.89,
+          "off/False/1": 68981.47,
+          "off/False/3": 159864.62,
+          "off/True/1": 51205.73,
+          "off/True/3": 167873.79,
+          "open/False/1": 49665.27,
+          "open/False/3": 190639.36,
+          "open/True/1": 50737.26,
+          "open/True/3": 164583.73
+        }
+      ]
+    },
+    ".NET 10.0.13|linux|X64|cpu=4|server_gc=False|dynamic_code=True": {
+      "ceilings_bytes_per_second": {
+        "associated/False/1": 90112,
+        "associated/False/3": 262144,
+        "associated/True/1": 106496,
+        "associated/True/3": 278528,
+        "off/False/0": 16384,
+        "off/False/1": 122880,
+        "off/False/3": 253952,
+        "off/True/1": 106496,
+        "off/True/3": 262144,
+        "open/False/1": 90112,
+        "open/False/3": 262144,
+        "open/True/1": 90112,
+        "open/True/3": 270336
+      },
+      "holdout_process": {
+        "associated/False/1": 52552.39,
+        "associated/False/3": 174450.43,
+        "associated/True/1": 47415.05,
+        "associated/True/3": 157530.76,
+        "off/False/0": 3914.94,
+        "off/False/1": 53358.61,
+        "off/False/3": 171535.51,
+        "off/True/1": 55458.1,
+        "off/True/3": 169839.78,
+        "open/False/1": 53661.76,
+        "open/False/3": 158439.31,
+        "open/True/1": 58199.54,
+        "open/True/3": 166589.97
+      },
+      "training_processes": [
+        {
+          "associated/False/1": 52392.58,
+          "associated/False/3": 169200.96,
+          "associated/True/1": 52093.66,
+          "associated/True/3": 172103.18,
+          "off/False/0": 3914.93,
+          "off/False/1": 74476.76,
+          "off/False/3": 159886.95,
+          "off/True/1": 57363.88,
+          "off/True/3": 150171.36,
+          "open/False/1": 51197.7,
+          "open/False/3": 161379.7,
+          "open/True/1": 51928.43,
+          "open/True/3": 171811.2
+        },
+        {
+          "associated/False/1": 52766.86,
+          "associated/False/3": 163243.5,
+          "associated/True/1": 63732.36,
+          "associated/True/3": 178593.93,
+          "off/False/0": 3915.01,
+          "off/False/1": 52699.96,
+          "off/False/3": 162085.02,
+          "off/True/1": 62706.24,
+          "off/True/3": 166051.96,
+          "open/False/1": 51174.11,
+          "open/False/3": 167265.41,
+          "open/True/1": 41901.21,
+          "open/True/3": 170300.46
+        }
+      ]
+    },
+    ".NET 10.0.13|macos|Arm64|cpu=3|server_gc=False|dynamic_code=True": {
+      "ceilings_bytes_per_second": {
+        "associated/False/1": 73728,
+        "associated/False/3": 204800,
+        "associated/True/1": 73728,
+        "associated/True/3": 196608,
+        "off/False/0": 16384,
+        "off/False/1": 90112,
+        "off/False/3": 212992,
+        "off/True/1": 73728,
+        "off/True/3": 212992,
+        "open/False/1": 65536,
+        "open/False/3": 196608,
+        "open/True/1": 73728,
+        "open/True/3": 204800
+      },
+      "holdout_process": {
+        "associated/False/1": 36806.99,
+        "associated/False/3": 134171.32,
+        "associated/True/1": 41119.21,
+        "associated/True/3": 130643.11,
+        "off/False/0": 3841.76,
+        "off/False/1": 35080.39,
+        "off/False/3": 113544.1,
+        "off/True/1": 40383.34,
+        "off/True/3": 122401.89,
+        "open/False/1": 42970.35,
+        "open/False/3": 123553.23,
+        "open/True/1": 41634.17,
+        "open/True/3": 125481.96
+      },
+      "training_processes": [
+        {
+          "associated/False/1": 43040.13,
+          "associated/False/3": 130838.72,
+          "associated/True/1": 32535.14,
+          "associated/True/3": 121633.97,
+          "off/False/0": 3648.29,
+          "off/False/1": 46013.81,
+          "off/False/3": 131679.71,
+          "off/True/1": 43193.61,
+          "off/True/3": 115498.12,
+          "open/False/1": 37502.78,
+          "open/False/3": 123594.71,
+          "open/True/1": 38645.82,
+          "open/True/3": 128579.66
+        },
+        {
+          "associated/False/1": 36281.71,
+          "associated/False/3": 124967.43,
+          "associated/True/1": 42200.17,
+          "associated/True/3": 124703.63,
+          "off/False/0": 3707.96,
+          "off/False/1": 49631.51,
+          "off/False/3": 129447.21,
+          "off/True/1": 41521.1,
+          "off/True/3": 133692.12,
+          "open/False/1": 33729.13,
+          "open/False/3": 120979.13,
+          "open/True/1": 37455.83,
+          "open/True/3": 128876.55
+        }
+      ]
+    },
+    ".NET 10.0.13|windows|X64|cpu=4|server_gc=False|dynamic_code=True": {
+      "ceilings_bytes_per_second": {
+        "associated/False/1": 81920,
+        "associated/False/3": 253952,
+        "associated/True/1": 90112,
+        "associated/True/3": 229376,
+        "off/False/0": 16384,
+        "off/False/1": 98304,
+        "off/False/3": 229376,
+        "off/True/1": 90112,
+        "off/True/3": 237568,
+        "open/False/1": 90112,
+        "open/False/3": 229376,
+        "open/True/1": 90112,
+        "open/True/3": 237568
+      },
+      "holdout_process": {
+        "associated/False/1": 45045.38,
+        "associated/False/3": 159867.44,
+        "associated/True/1": 41957.63,
+        "associated/True/3": 138899.41,
+        "off/False/0": 3145.16,
+        "off/False/1": 58800.68,
+        "off/False/3": 150842.84,
+        "off/True/1": 44061.1,
+        "off/True/3": 149638.59,
+        "open/False/1": 44892.46,
+        "open/False/3": 149548.22,
+        "open/True/1": 55461.54,
+        "open/True/3": 142401.08
+      },
+      "training_processes": [
+        {
+          "associated/False/1": 46393.15,
+          "associated/False/3": 158609.76,
+          "associated/True/1": 52765.92,
+          "associated/True/3": 145839.7,
+          "off/False/0": 3126.33,
+          "off/False/1": 52337.21,
+          "off/False/3": 144231.28,
+          "off/True/1": 51510.17,
+          "off/True/3": 149979.81,
+          "open/False/1": 48804.63,
+          "open/False/3": 144427.94,
+          "open/True/1": 51859.39,
+          "open/True/3": 139997.19
+        },
+        {
+          "associated/False/1": 45266.13,
+          "associated/False/3": 137311.95,
+          "associated/True/1": 46029.46,
+          "associated/True/3": 144679.92,
+          "off/False/0": 3147.32,
+          "off/False/1": 58014.72,
+          "off/False/3": 135762.21,
+          "off/True/1": 46040.96,
+          "off/True/3": 130186.73,
+          "open/False/1": 51868.95,
+          "open/False/3": 144384.6,
+          "open/True/1": 50427.53,
+          "open/True/3": 151479.43
+        }
+      ]
+    }
+  },
+  "policy": "median_of_three_samples; train_processes_1_2; holdout_process_3; max_training_x1.5_plus8192_roundup8192; no_timing_gate",
+  "schema_version": 1,
+  "source_commit": "a20b2ad5b11100e606f917ba7e586944977d8cc2"
+}

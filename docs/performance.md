@@ -236,3 +236,38 @@ minutes, CI's outer job bound 25 minutes. No source copy or native dependency is
 introduced. These finite cohorts improve attribution; they do not prove prolonged
 leak freedom or identify precise native allocated bytes by subtracting GC memory
 from RSS. Controls keep JIT/tiering defaults to match actual peer workloads.
+
+### Reviewed allocation budgets
+
+The budget checker consumes raw total bytes for 42 crypto and 28 parser samples;
+its zero-byte contracts never use rounded bytes/operation. The benchmark-only
+`TRYAGI_BENCHMARK_ALLOCATION_CONTROL=1` injects one escaping 256-byte array per
+crypto sample, and the positive-control verifier requires that the same exact-zero
+validator reject it. This option introduces allocation; it cannot disable a gate.
+
+Idle budget calibration uses process repetitions 1 and 2 for training and keeps
+repetition 3 as an independent holdout. Per workload, the proposed ceiling is the
+maximum training median times 1.5, plus 8 KiB/s, rounded up to 8 KiB/s. This is an
+explicit noise allowance for process-wide counters and periodic consent, not a
+zero-allocation claim. Holdout failure blocks calibration rather than increasing
+the ceiling. Validation never rewrites limits. Runtime version, OS family,
+architecture, processor count, GC mode and dynamic-code mode identify a reviewed
+cohort; missing cohorts fail for review. Source/harness metadata, exact workload
+coverage, drained queues and retransmission-free idle intervals are mandatory.
+
+The process-wide gate is initially scoped to the new repeated idle cohorts.
+Packet/crypto exact-zero guards remain in ordinary protocol CI. Audio/media/data
+throughput and native RSS remain measured without invented timing or leak gates;
+repeat-process noise characterization is required before adding their budgets.
+
+The checked-in `.NET 10.0.13` idle budgets were calibrated from source
+`a20b2ad5b11100e606f917ba7e586944977d8cc2`, run 40013111120, with all four
+independent process-3 holdouts passing. Those same limits reject the real old
+polling baseline run 40012542666 on every platform. Reproduce with
+`python3 scripts/check-performance-budgets.py RESULTS_DIRECTORY`. The performance
+workflow now executes exact-zero, positive-control and idle budget checks and
+retains JSON verdicts. Its `long_retention` input defaults true; false skips only
+the longer fresh-process retention step when checking gates after a fully
+measured runtime change. Ordinary protocol/network and independent peers are
+unchanged. These initial process budgets cover idle workloads; repeat-process
+throughput allocation budgets and NativeAOT performance remain future scope.

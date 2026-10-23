@@ -106,6 +106,16 @@ owned ephemeral key; on the CI Mac, whole-identity median fell 78.8 -> 0.67 ms.
 See [before/after evidence and native RSS controls](https://github.com/tryAGI/WebRTC/blob/main/docs/idle-identity-20261023.md).
 These hosted-runner observations are not production performance guarantees.
 
+Connected SCTP now stops periodic maintenance only when fully quiescent, retaining
+the existing cadence for pending protocol work. Matched four-platform cohorts
+with one open data-channel pair, AES-256-GCM and tracing off observed 76–79%
+fewer process managed bytes/s and 83–86% less completed threadpool work.
+[Measurements, memory controls and limits](https://github.com/tryAGI/WebRTC/blob/main/docs/sctp-idle-20261023.md)
+include three fresh processes per platform. Reviewed allocation ceilings use two
+training processes plus an independent holdout; exact-zero crypto/parser guards
+use raw total bytes and a real injected-allocation control. These gates do not
+assert whole-transport zero allocation, native leak freedom or physical energy.
+
 ## Supported scope
 
 | Area | Implemented and tested | Current limits |

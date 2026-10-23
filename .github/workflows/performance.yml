@@ -1,6 +1,11 @@
 name: Performance baseline
 on:
   workflow_dispatch:
+    inputs:
+      long_retention:
+        description: Run longer fresh-process memory controls (already required for before/after runtime changes)
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
@@ -28,6 +33,12 @@ jobs:
       - name: Packet parsing and framing baseline
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite packets > packets.csv
+      - name: Exact-zero allocation contracts and real allocation control
+        shell: bash
+        run: |
+          python3 scripts/check-performance-budgets.py . --zero-only --output exact-zero-proof.json
+          TRYAGI_BENCHMARK_ALLOCATION_CONTROL=1 dotnet run --project src/tests/WebRTC.Performance -c Release --no-build > allocation-control.csv
+          python3 scripts/check-performance-budgets.py --verify-positive-control allocation-control.csv --output allocation-control-proof.json
       - name: Bounded loopback media pipeline
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite media > media.csv
@@ -55,7 +66,11 @@ jobs:
           for repetition in 1 2 3; do
             dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite idle-sctp > "idle-sctp-$repetition.csv"
           done
+      - name: Reviewed idle allocation budgets
+        shell: bash
+        run: python3 scripts/check-performance-budgets.py . --output budget-proof.json
       - name: Isolated longer peer retention controls
+        if: ${{ inputs.long_retention }}
         shell: bash
         run: |
           for mode in empty_control identity_only peer_audio peer_open; do
@@ -92,4 +107,8 @@ jobs:
             identity.csv
             native-*.csv
             hardware.txt
+            exact-zero-proof.json
+            allocation-control.csv
+            allocation-control-proof.json
+            budget-proof.json
           retention-days: 30

@@ -39,6 +39,7 @@ foreach (var payload in new[] { 60, 1200 })
     var encrypted = new byte[plain.Length + sender.RtpOverhead];
     var decrypted = new byte[plain.Length];
     var sequence = 0;
+    var allocationControl = Environment.GetEnvironmentVariable("TRYAGI_BENCHMARK_ALLOCATION_CONTROL") == "1";
     Roundtrips(1000);
     for (var sample = 0; sample < 7; sample++)
     {
@@ -46,6 +47,7 @@ foreach (var payload in new[] { 60, 1200 })
         var allocated = GC.GetAllocatedBytesForCurrentThread();
         var start = Stopwatch.GetTimestamp();
         Roundtrips(count);
+        if (allocationControl) GC.KeepAlive(new byte[256]);
         var elapsed = Stopwatch.GetElapsedTime(start);
         var bytes = GC.GetAllocatedBytesForCurrentThread() - allocated;
         Console.WriteLine($"{profile},{payload},{sample},{count},{bytes / (double)count:F2},{elapsed.TotalNanoseconds / count:F1},{bytes}");
