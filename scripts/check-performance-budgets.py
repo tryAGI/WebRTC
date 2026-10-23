@@ -11,7 +11,9 @@ import statistics
 import sys
 
 PROFILES = ('Aes128CmHmacSha1_80', 'AeadAes128Gcm', 'AeadAes256Gcm')
-OPERATIONS = ('rtp-mid', 'rtp-truncated', 'rtcp-framing', 'stun-fingerprint')
+ZERO_OPERATIONS = ('rtp-mid', 'rtp-truncated', 'rtcp-framing', 'stun-fingerprint',
+                   'stun-write', 'stun-write-sha1', 'stun-write-sha256')
+OPERATIONS = (*ZERO_OPERATIONS, 'stun-read-sha1', 'stun-read-sha256', 'stun-reject-sha1', 'stun-reject-sha256')
 IDLE_GROUPS = tuple(itertools.product(('off', 'associated', 'open'), ('False', 'True'), (1, 3)))
 
 
@@ -75,9 +77,10 @@ def zero_rows(rows, crypto):
 
 def check_zero(rows, crypto):
     count = zero_rows(rows, crypto)
-    if any(total_bytes(row) != 0 for row in rows):
+    guarded = rows if crypto else [row for row in rows if row['operation'] in ZERO_OPERATIONS]
+    if any(total_bytes(row) != 0 for row in guarded):
         raise BudgetViolation('Exact zero-allocation contract exceeded')
-    return count
+    return count if crypto else len(guarded)
 
 
 def idle_samples(directory):

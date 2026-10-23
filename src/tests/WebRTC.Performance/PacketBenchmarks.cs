@@ -6,7 +6,7 @@ internal static class PacketBenchmarks
     internal static void Run()
     {
         Console.WriteLine("operation,sample,operations,managed_bytes_per_op,ns_per_op,managed_total_bytes");
-        foreach (var operation in new[] { "rtp-mid", "rtp-truncated", "rtcp-framing", "stun-fingerprint" })
+        foreach (var operation in PacketAllocationChecks.Operations)
         {
             var fixture = PacketAllocationChecks.Fixture(operation);
             PacketAllocationChecks.Exercise(operation, fixture, 1000);

@@ -75,6 +75,53 @@ internal static class SrtpTests
         }
     }
 
+    internal static void RejectionAllocations()
+    {
+        foreach (var profile in Profiles)
+        {
+            using var sender = Create(profile, SrtpDirection.Send);
+            using var receiver = Create(profile, SrtpDirection.Receive);
+            using var unauthenticated = Create(profile, SrtpDirection.Receive);
+            var rtp = Protect(sender, Rtp(1));
+            var rtcp = Protect(sender, Rtcp(), true);
+            var badRtp = (byte[])rtp.Clone(); badRtp[^1] ^= 1;
+            var badRtcp = (byte[])rtcp.Clone();
+            // For AEAD the final four bytes hold the index, immediately after the tag.
+            badRtcp[profile == SrtpProfile.Aes128CmHmacSha1_80 ? badRtcp.Length - 1 : badRtcp.Length - 5] ^= 1;
+            Recover(receiver, rtp, Rtp(1));
+            Recover(receiver, rtcp, Rtcp(), true);
+            var output = new byte[128]; output.AsSpan().Fill(0xAB);
+            Exercise(1024);
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            Exercise(4096);
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Check(allocated == 0, $"Warm {profile} rejection guards allocated {allocated} bytes");
+            // Failed authentication must not poison the valid packet's replay state.
+            Recover(unauthenticated, rtp, Rtp(1));
+            Recover(unauthenticated, rtcp, Rtcp(), true);
+            void Exercise(int count)
+            {
+                for (var i = 0; i < count; i++)
+                {
+                    Check(!receiver.TryUnprotectRtp(rtp, output, out var written) && written == 0);
+                    Check(!receiver.TryUnprotectRtcp(rtcp, output, out written) && written == 0);
+                    Check(!unauthenticated.TryUnprotectRtp(rtp, output.AsSpan(0, 1), out written) && written == 0);
+                    Check(!unauthenticated.TryUnprotectRtcp(rtcp, output.AsSpan(0, 1), out written) && written == 0);
+                    Check(!unauthenticated.TryUnprotectRtp(rtp.AsSpan(0, 4), output, out written) && written == 0);
+                    Check(!unauthenticated.TryUnprotectRtcp(rtcp.AsSpan(0, 4), output, out written) && written == 0);
+                    // AES-GCM's framework API throws on bad tags; its exception path is
+                    // outside this guard contract; it cannot share a zero claim.
+                    if (profile == SrtpProfile.Aes128CmHmacSha1_80)
+                    {
+                        Check(!unauthenticated.TryUnprotectRtp(badRtp, output, out written) && written == 0);
+                        Check(!unauthenticated.TryUnprotectRtcp(badRtcp, output, out written) && written == 0);
+                    }
+                    foreach (var value in output) Check(value == 0xAB, "Rejected packet changed caller output");
+                }
+            }
+        }
+    }
+
     // Generated from our public synthetic inputs by Pion SRTP v3.1.3,
     // commit 508d3e9955121cfe30d7e15791d5810d1290c438. Reproduce with
     // pion-peer --srtp-vectors; no upstream fixture/source is copied.

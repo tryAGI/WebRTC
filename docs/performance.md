@@ -239,7 +239,15 @@ from RSS. Controls keep JIT/tiering defaults to match actual peer workloads.
 
 ### Reviewed allocation budgets
 
-The budget checker consumes raw total bytes for 42 crypto and 28 parser samples;
+The budget checker consumes raw total bytes for 42 crypto and 77 packet samples;
+49 packet samples guard parsing/framing and caller-buffer STUN writing (plain,
+SHA-1 and SHA-256). The remaining 28 samples measure valid and wrong-key STUN
+authentication; they are required for coverage but do not yet assert zero.
+Protocol contracts also check warmed replay, truncation and short-destination
+SRTP/SRTCP rejection across all three profiles, plus bad-tag AES-CM rejection.
+AES-GCM bad-tag exceptions are outside this zero contract. In every guarded
+rejection, caller output remains unchanged and later valid authentication succeeds.
+For the zero subset,
 its zero-byte contracts never use rounded bytes/operation. The benchmark-only
 `TRYAGI_BENCHMARK_ALLOCATION_CONTROL=1` injects one escaping 256-byte array per
 crypto sample, and the positive-control verifier requires that the same exact-zero
@@ -297,3 +305,27 @@ The workflow's `active_only=true` is a focused gate verification mode after
 unchanged runtime idle/retention acceptance; defaultfalse retains all suites.
 Normal crypto/parser controls and all four active suites remain mandatory in
 this mode. Protocol and independent-peer workflows remain unchanged.
+
+### Phase-matched native profiling
+
+The opt-in retention profiling controller captures waves 2 and 16 after all peers
+have been disposed, bounded full collections have completed and every disposed
+peer weak reference is dead. A startup acknowledgement warms console handling
+before any peer wave. The child waits for an exact wave acknowledgement while
+`vmmap -summary` inspects that owned process; the controller never sends suspension
+or resume signals. Each capture has a 15-second timeout, each child barrier a
+20-second cancellation deadline, and the controller a 210-second outer deadline.
+This instrumented run perturbs timing and is separate from ordinary retention CSVs.
+
+On macOS, run through host admission when required by the local machine policy:
+
+```sh
+python3 scripts/profile-retention-macos.py artifacts/bin/WebRTC.Performance/release/WebRTC.Performance.dll /tmp/webrtc-profile-new --mode peer_open --trace 1
+```
+
+The output directory must be new. It retains the complete CSV, a bounded phase
+summary and two raw native summaries. Treat raw files as private: they can contain
+process identifiers, addresses and local paths. Repeat with `empty_control`,
+`identity_only` and `peer_audio` in fresh processes to attribute differences.
+Matched disposed-peer occupancy removes the earlier live/disposed phase ambiguity;
+finite samples still do not prove native leak freedom or precise native ownership.

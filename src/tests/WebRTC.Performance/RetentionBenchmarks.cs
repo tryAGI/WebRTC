@@ -11,9 +11,14 @@ internal static class RetentionBenchmarks
         var traceSetting = Environment.GetEnvironmentVariable("TRYAGI_RETENTION_TRACE") ?? "0";
         if (traceSetting is not ("0" or "1")) throw new ArgumentException("Unknown retention trace setting");
         var trace = traceSetting == "1";
+        var profilingSetting = Environment.GetEnvironmentVariable("TRYAGI_RETENTION_PROFILE") ?? "0";
+        if (profilingSetting is not ("0" or "1")) throw new ArgumentException("Unknown retention profiling setting");
+        var profiling = profilingSetting == "1";
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(3));
         Console.WriteLine($"# process_id={Environment.ProcessId}; mode={mode}; trace={trace}; profile=AeadAes256Gcm; warmup_waves=4; waves=24; pairs=2; live_idle_ms=2000; normal_tiered_compilation");
         Console.WriteLine("mode,trace,wave,phase,elapsed_ms,managed_heap,managed_committed,fragmented_bytes,rss,private_bytes,handles,alive_disposed_peers");
+        // Warm the redirected-console handshake before creating or measuring peers.
+        if (profiling) await ProfileBarrier("ready", -5, deadline.Token);
         var weak = new List<WeakReference<PeerConnection>>();
         var start = Stopwatch.GetTimestamp();
         for (var wave = -4; wave < 24; wave++)
@@ -29,7 +34,18 @@ internal static class RetentionBenchmarks
             var alive = weak.Count(Alive);
             if (wave >= 0) Snapshot(mode, trace, wave, "disposed", Stopwatch.GetElapsedTime(start), alive);
             if (alive != 0) throw new IOException("Disposed retention peer remains rooted");
+            if (profiling && wave is 2 or 16) await ProfileBarrier("disposed", wave, deadline.Token);
         }
+    }
+    private static async Task ProfileBarrier(string phase, int wave, CancellationToken ct)
+    {
+        if (!Console.IsInputRedirected) throw new IOException("Profiling requires an owned redirected-input controller");
+        Console.WriteLine($"# profile_barrier={phase};wave={wave};alive_disposed_peers=0");
+        Console.Out.Flush();
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(20));
+        var reply = await Console.In.ReadLineAsync(deadline.Token);
+        if (reply != $"continue:{wave}") throw new IOException("Profiling controller ended or supplied an invalid acknowledgement");
     }
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static bool Alive(WeakReference<PeerConnection> peer) => peer.TryGetTarget(out _);

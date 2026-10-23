@@ -62,6 +62,7 @@ var tests = new (string Name, Action Run)[]
     ("ICE credentials and candidates reject unsafe input", IceInputBounds),
     ("Packet parsers and framing warm zero-allocation contracts", PacketAllocationChecks.ZeroAllocation),
     ("SRTP/SRTCP warm crypto roundtrips allocate zero managed bytes", SrtpTests.SteadyStateAllocations),
+    ("SRTP/SRTCP replay, framing and output guards allocate zero", SrtpTests.RejectionAllocations),
     ("SRTP/SRTCP independent Pion synthetic vectors and E=0 tampering", SrtpTests.IndependentVectors),
     ("SRTP/SRTCP profiles, padding, extensions and empty payload", SrtpTests.RoundTrips),
     ("SRTP/SRTCP every-byte tampering, truncation and wrong keys", SrtpTests.Tampering),

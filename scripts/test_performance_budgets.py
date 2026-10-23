@@ -49,7 +49,7 @@ class PerformanceBudgetsTests(unittest.TestCase):
     def test_zero_and_calibrated_holdout_pass(self):
         limits = budget.calibrate([self.directory], SOURCE)
         result = budget.check(self.directory, limits)
-        self.assertEqual(result['exact_zero_samples'], 70)
+        self.assertEqual(result['exact_zero_samples'], 42 + len(budget.ZERO_OPERATIONS) * 7)
         self.assertEqual(result['idle_processes'], 3)
         self.assertFalse(result['limits_auto_updated'])
 
@@ -64,6 +64,25 @@ class PerformanceBudgetsTests(unittest.TestCase):
             del row['managed_total_bytes']
         self.write('performance.csv', self.crypto)
         with self.assertRaisesRegex(budget.BudgetViolation, 'exact total'):
+            budget.check(self.directory, {}, True)
+
+    def test_measured_authentication_rows_are_required_but_not_claimed_zero(self):
+        for row in self.packets:
+            if row['operation'] not in budget.ZERO_OPERATIONS:
+                row['managed_total_bytes'] = '123456'
+        self.write('packets.csv', self.packets)
+        budget.check(self.directory, {}, True)
+        self.write('packets.csv', self.packets[:-1])
+        with self.assertRaisesRegex(budget.BudgetViolation, 'Missing zero-contract samples'):
+            budget.check(self.directory, {}, True)
+
+    def test_writer_single_byte_regression_fails(self):
+        for row in self.packets:
+            if row['operation'] == 'stun-write-sha256':
+                row['managed_total_bytes'] = '1'
+                break
+        self.write('packets.csv', self.packets)
+        with self.assertRaisesRegex(budget.BudgetViolation, 'Exact zero-allocation'):
             budget.check(self.directory, {}, True)
 
     def test_deliberate_regression_is_rejected_after_training(self):
