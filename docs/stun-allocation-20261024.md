@@ -93,3 +93,25 @@ itself perturbs timing; repeat-process/longer attribution remains [#10](https://
 The existing runtime-compatible nine-lane validation passed in
 [40027032611](https://github.com/tryAGI/WebRTC/actions/runs/40027032611).
 NativeAOT performance comparisons remain [#15](https://github.com/tryAGI/WebRTC/issues/15).
+
+## Complete runtime regression matrix
+
+The subsequent [full four-platform run40030796289](https://github.com/tryAGI/WebRTC/actions/runs/40030796289)
+passed at5c3727b907e2f2da6b5eef47b843e8747f301df0, with `active_only=false`,
+`long_retention=true` and no repeated invasive native profiling. This source
+changes only README/docs from the final profiling harness; runtime tree remains
+32c3f2bb23f719d236281908c31f8f589bfb674d.
+
+Every platform reports147 exact-zero samples,42 real allocation controls rejected,
+three fresh idle processes against the unchanged ceilings,40 unchanged active
+budgets and six fresh longer-retention processes. All144 measured retention rows
+per platform have zero rooted disposed peers (24 waves/process after four warmup
+waves). Cold, soak, identity and process-isolated native controls also completed.
+All four performance builds report0 warnings/0 errors; no budget was raised.
+Finite cohorts remain distinct from long-duration/native leak acceptance.
+
+The optimized runtime is published as0.2.10-dev.31 at sourcef091f6f. A direct
+public NuGet download was verified against CI: assembly SHA256
+7d7f094749128cc16686d29a99093690e609b56fee3880a0dddf36daa61e6e6b,
+no NuGet runtime dependencies. Later test/docs package identities are not required
+to consume this runtime change.
