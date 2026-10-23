@@ -1,0 +1,74 @@
+name: NativeAOT performance contracts
+on:
+  workflow_dispatch:
+    inputs:
+      calibration_capture:
+        description: Collect bounded rejection calibration data; nonzero ceilings are not accepted in this mode
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, rid: linux-x64, exe: WebRTC.Performance}
+          - {os: ubuntu-24.04-arm, rid: linux-arm64, exe: WebRTC.Performance}
+          - {os: macos-latest, rid: osx-arm64, exe: WebRTC.Performance}
+          - {os: windows-latest, rid: win-x64, exe: WebRTC.Performance.exe}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Guard regression tests
+        run: python3 -m unittest discover -s scripts -p "test_*.py"
+      - name: Build managed harness
+        run: dotnet build src/tests/WebRTC.Performance -c Release
+      - name: Publish native harness without diagnostic suppressions
+        run: dotnet publish src/tests/WebRTC.Performance -c Release -r ${{ matrix.rid }} -p:PublishAot=true -o artifacts/native
+      - name: Paired managed and NativeAOT measurements
+        shell: bash
+        env:
+          NATIVE_EXE: artifacts/native/${{ matrix.exe }}
+        run: |
+          mkdir -p jit aot
+          for mode in jit aot; do
+            if [ "$mode" = jit ]; then command=(dotnet src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll)
+            else command=("$NATIVE_EXE"); fi
+            "${command[@]}" > "$mode/performance.csv"
+            "${command[@]}" --suite packets > "$mode/packets.csv"
+            python3 scripts/check-performance-budgets.py "$mode" --zero-only --output "$mode/exact-zero-proof.json"
+            TRYAGI_BENCHMARK_ALLOCATION_CONTROL=1 "${command[@]}" > "$mode/allocation-control.csv"
+            python3 scripts/check-performance-budgets.py --verify-positive-control "$mode/allocation-control.csv" --output "$mode/allocation-control-proof.json"
+            for repetition in 1 2 3; do
+              "${command[@]}" --suite rejection > "$mode/rejection-$repetition.csv"
+            done
+          done
+      - name: Validate rejection captures or enforce reviewed ceilings
+        shell: bash
+        env:
+          CAPTURE: ${{ inputs.calibration_capture }}
+        run: |
+          for mode in jit aot; do
+            options=()
+            if [ "$CAPTURE" = true ]; then options+=(--capture-only); fi
+            python3 scripts/check-rejection-budgets.py "$mode" "${options[@]}" --output "$mode/rejection-proof.json"
+          done
+          python3 scripts/compare-aot-performance.py . --output comparison.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: aot-performance-${{ matrix.rid }}-${{ github.sha }}
+          path: |
+            jit/*.csv
+            jit/*.json
+            aot/*.csv
+            aot/*.json
+            comparison.json
+          if-no-files-found: error
+          retention-days: 30

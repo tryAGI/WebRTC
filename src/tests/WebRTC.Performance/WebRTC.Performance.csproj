@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType><IsPackable>false</IsPackable></PropertyGroup>
+  <PropertyGroup><OutputType>Exe</OutputType><IsPackable>false</IsPackable><IsAotCompatible>true</IsAotCompatible><SuppressTrimAnalysisWarnings>false</SuppressTrimAnalysisWarnings><TrimmerSingleWarn>false</TrimmerSingleWarn></PropertyGroup>
   <ItemGroup><ProjectReference Include="../../libs/WebRTC/WebRTC.csproj" /></ItemGroup>
   <ItemGroup><Compile Include="../WebRTC.ProtocolTests/PacketAllocationChecks.cs" Link="PacketAllocationChecks.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../WebRTC.ProtocolTests/RejectionAllocationChecks.cs" Link="RejectionAllocationChecks.cs" /></ItemGroup>
 </Project>

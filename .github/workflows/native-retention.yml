@@ -1,0 +1,39 @@
+name: Repeated native memory attribution
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  attribution:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [empty_control, identity_only, crypto_only, peer_audio, peer_open]
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - run: python3 -m unittest discover -s scripts -p "test_*.py"
+      - run: dotnet build src/tests/WebRTC.Performance -c Release
+      - name: Verify missing-controller deadline
+        run: python3 scripts/check-retention-timeout.py src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll
+      - name: Three fresh extended phase-matched cohorts
+        shell: bash
+        run: |
+          for repetition in 1 2 3; do
+            python3 scripts/profile-retention-macos.py src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll "profiles/process-$repetition" --mode "${{ matrix.mode }}" --trace 0 --waves 64
+          done
+          python3 scripts/summarize-native-retention.py profiles --mode "${{ matrix.mode }}" --output summary.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-retention-${{ matrix.mode }}-${{ github.sha }}
+          path: |
+            profiles/*/retention.csv
+            profiles/*/profile.json
+            summary.json
+          if-no-files-found: error
+          retention-days: 30

@@ -42,7 +42,8 @@ def read_csv(path, header):
         raise BudgetViolation('Library and harness source identity must match')
     cohort = '|'.join((runtime, os_family, architecture, 'cpu=' + settings['cpu_count'],
                        'server_gc=' + settings['server_gc'], 'dynamic_code=' + settings['dynamic_code']))
-    if not lines[4].startswith(header + ','):
+    lines = lines[:4] + [line for line in lines[4:] if not line.startswith('#')]
+    if len(lines) < 5 or not lines[4].startswith(header + ','):
         raise BudgetViolation('Unexpected result schema')
     rows = list(csv.DictReader(line for line in lines[4:] if not line.startswith('#')))
     if len(rows) > 10000 or any(None in row for row in rows):

@@ -60,15 +60,16 @@ def native_summary(text):
     return result
 
 
-def run(binary, output, mode, trace):
+def run(binary, output, mode, trace, waves=24):
     if sys.platform != 'darwin':
         raise ValueError('This controller requires macOS vmmap')
     output.mkdir(parents=True, exist_ok=False)
-    settings = dict(os.environ, TRYAGI_RETENTION_MODE=mode, TRYAGI_RETENTION_TRACE=str(trace), TRYAGI_RETENTION_PROFILE='1')
-    expected = [-5, 2, 16]
+    settings = dict(os.environ, TRYAGI_RETENTION_MODE=mode, TRYAGI_RETENTION_TRACE=str(trace), TRYAGI_RETENTION_PROFILE='1', TRYAGI_RETENTION_WAVES=str(waves))
+    expected = [-5, 2, 16, 32, 63] if waves == 64 else [-5, 2, 16]
     samples = []
     started = time.monotonic()
-    child = subprocess.Popen(['dotnet', str(binary.resolve()), '--suite', 'retention'],
+    command = (['dotnet', str(binary.resolve())] if binary.suffix == '.dll' else [str(binary.resolve())]) + ['--suite', 'retention']
+    child = subprocess.Popen(command,
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=settings)
     try:
         with selectors.DefaultSelector() as selector, (output / 'retention.csv').open('wb') as log:
@@ -76,7 +77,7 @@ def run(binary, output, mode, trace):
             pending = b''
             total = 0
             while selector.get_map():
-                if time.monotonic() - started > 210:
+                if time.monotonic() - started > (600 if waves == 64 else 210):
                     raise TimeoutError('Owned retention controller exceeded its deadline')
                 for key, _ in selector.select(timeout=1):
                     data = os.read(key.fileobj.fileno(), 65536)
@@ -111,7 +112,7 @@ def run(binary, output, mode, trace):
                         child.stdin.flush()
             if child.wait(timeout=10) != 0 or expected:
                 raise RuntimeError('Retention child failed or omitted a profiling barrier')
-        result = dict(mode=mode, trace=trace, samples=samples, child_exit=0,
+        result = dict(mode=mode, trace=trace, waves=waves, samples=samples, child_exit=0,
                       scope='phase-matched post-disposal snapshots; profiling perturbs timing; no leak-freedom verdict')
         (output / 'profile.json').write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps(result))
@@ -131,7 +132,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('binary', type=Path)
     parser.add_argument('output', type=Path, help='New private output directory; raw vmmap contains process details')
-    parser.add_argument('--mode', choices=('empty_control', 'identity_only', 'peer_audio', 'peer_open'), default='peer_open')
+    parser.add_argument('--mode', choices=('empty_control', 'identity_only', 'crypto_only', 'peer_audio', 'peer_open'), default='peer_open')
     parser.add_argument('--trace', type=int, choices=(0, 1), default=0)
+    parser.add_argument('--waves', type=int, choices=(24, 64), default=24)
     args = parser.parse_args()
-    run(args.binary, args.output, args.mode, args.trace)
+    run(args.binary, args.output, args.mode, args.trace, args.waves)

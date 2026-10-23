@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "source_commit": null,
+  "policy": "Unreviewed cohorts fail closed; calibration capture does not accept nonzero ceilings.",
+  "cohorts": {}
+}
