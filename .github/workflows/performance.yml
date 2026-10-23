@@ -2,6 +2,10 @@ name: Performance baseline
 on:
   workflow_dispatch:
     inputs:
+      active_only:
+        description: Verify active allocation gates for an unchanged runtime; omit previously accepted idle and retention diagnostics
+        type: boolean
+        default: false
       long_retention:
         description: Run longer fresh-process memory controls (already required for before/after runtime changes)
         type: boolean
@@ -21,6 +25,8 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet build src/tests/WebRTC.Performance -c Release
+      - name: Budget guard regression tests
+        run: python3 -m unittest discover -s scripts -p "test_*performance_budgets.py"
       - name: Retain hardware metadata
         shell: bash
         run: |
@@ -49,28 +55,36 @@ jobs:
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite channels > channels.csv
       - name: New-connection and fresh SRTP generation costs
+        if: ${{ !inputs.active_only }}
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite cold > cold.csv
       - name: Bidirectional encoded-audio pipeline
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite audio > audio.csv
+      - name: Reviewed active pipeline allocation budgets
+        shell: bash
+        run: python3 scripts/check-active-performance-budgets.py . --output active-budget-proof.json
       - name: Bounded repeated peer lifetime and memory soak
+        if: ${{ !inputs.active_only }}
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite soak > soak.csv
       - name: Idle transport maintenance baseline
+        if: ${{ !inputs.active_only }}
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite idle > idle.csv
       - name: Repeated data-channel idle cohorts
+        if: ${{ !inputs.active_only }}
         shell: bash
         run: |
           for repetition in 1 2 3; do
             dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite idle-sctp > "idle-sctp-$repetition.csv"
           done
       - name: Reviewed idle allocation budgets
+        if: ${{ !inputs.active_only }}
         shell: bash
         run: python3 scripts/check-performance-budgets.py . --output budget-proof.json
       - name: Isolated longer peer retention controls
-        if: ${{ inputs.long_retention }}
+        if: ${{ inputs.long_retention && !inputs.active_only }}
         shell: bash
         run: |
           for mode in empty_control identity_only peer_audio peer_open; do
@@ -80,9 +94,11 @@ jobs:
             done
           done
       - name: Native identity construction attribution
+        if: ${{ !inputs.active_only }}
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite identity > identity.csv
       - name: Process-isolated native identity retention controls
+        if: ${{ !inputs.active_only }}
         shell: bash
         run: |
           for mode in empty_control legacy_private_certificate public_only_certificate runtime_identity; do
@@ -111,4 +127,5 @@ jobs:
             allocation-control.csv
             allocation-control-proof.json
             budget-proof.json
+            active-budget-proof.json
           retention-days: 30

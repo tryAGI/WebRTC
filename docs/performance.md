@@ -271,3 +271,29 @@ the longer fresh-process retention step when checking gates after a fully
 measured runtime change. Ordinary protocol/network and independent peers are
 unchanged. These initial process budgets cover idle workloads; repeat-process
 throughput allocation budgets and NativeAOT performance remain future scope.
+
+### Active workload allocation ceilings
+
+Active gates additionally cover40 existing workloads per native cohort:
+24 protected media combinations (three profiles, 60/1000-byte payloads,
+tracing off/on, caller cancellation default/explicit),12 bidirectional encoded
+audio combinations,60/4096-byte data-channel messages and H264/VP8 trusted-input
+two-packet reassembly (1005/1000-byte owned output frames). Five samples form
+each median. Media/audio/channel counters are process-wide; video is current
+thread. Owned outputs and fixture/queue costs remain included and nonzero.
+
+Two independent process captures, runs40013111120/sourcea20b2ad and
+40015452037/source6bcd687, train active ceilings. The runtime library tree is
+identical (`efd11dd08a4651e4ca5ab82b0db03f68d8ef381b`); active workload classes,
+shared fixture and build inputs were compared unchanged. The second harness
+only adds a crypto-only positive-control branch, outside active dispatch paths.
+Each ceiling is max of the two training medians x1.5 +64 bytes/operation,
+rounded up to64. A fresh native-matrix holdout is required before acceptance;
+validation never adjusts ceilings. No elapsed-time or native-leak gate is inferred.
+
+`check-active-performance-budgets.py` rejects incomplete/duplicate workloads,
+source/runtime mixtures and unreviewed cohorts, and retains JSON verdicts.
+The workflow's `active_only=true` is a focused gate verification mode after
+unchanged runtime idle/retention acceptance; defaultfalse retains all suites.
+Normal crypto/parser controls and all four active suites remain mandatory in
+this mode. Protocol and independent-peer workflows remain unchanged.
