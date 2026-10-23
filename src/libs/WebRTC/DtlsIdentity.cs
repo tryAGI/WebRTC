@@ -29,7 +29,13 @@ public sealed class DtlsIdentity : IDisposable
         {
             var request = new CertificateRequest("CN=tryAGI.WebRTC", key, HashAlgorithmName.SHA256);
             var now = DateTimeOffset.UtcNow;
-            using var certificate = request.CreateSelfSigned(now.AddMinutes(-5), now.AddDays(30));
+            // The identity already owns the signing key. A private-key-associated X509
+            // object adds an unnecessary native key import (especially on macOS).
+            var serial = RandomNumberGenerator.GetBytes(16);
+            serial[0] &= 0x7f;
+            serial[0] |= 1;
+            using var certificate = request.Create(request.SubjectName,
+                X509SignatureGenerator.CreateForECDsa(key), now.AddMinutes(-5), now.AddDays(30), serial);
             return new DtlsIdentity(key, certificate.RawData);
         }
         catch { key.Dispose(); throw; }

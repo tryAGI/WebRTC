@@ -231,6 +231,7 @@ public sealed partial class DtlsSrtpTransport : IAsyncDisposable
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(20));
             var next = receive.MoveNextAsync().AsTask();
             var tick = timer.WaitForNextTickAsync(_lifetime.Token).AsTask();
+            var maintenanceScheduled = false;
             try
             {
                 while (true)
@@ -242,13 +243,26 @@ public sealed partial class DtlsSrtpTransport : IAsyncDisposable
                         ProcessDatagram(receive.Current.Data, receive.Current.Trace);
                         if (_sendPending) await SendFlightAsync(false).ConfigureAwait(false);
                         if (_finishAfterSend) { _finishAfterSend = false; Establish(); }
-                        if (_ready) FreezeHandshakeCounters();
+                        if (_ready)
+                        {
+                            FreezeHandshakeCounters();
+                            if (!maintenanceScheduled)
+                            {
+                                // Incoming duplicate flights still wake the receive path immediately.
+                                timer.Period = _role == DtlsRole.Server ? TimeSpan.FromMinutes(4) : Timeout.InfiniteTimeSpan;
+                                maintenanceScheduled = true;
+                            }
+                        }
                         next = receive.MoveNextAsync().AsTask();
                     }
                     if (tick.IsCompleted)
                     {
                         if (!await tick.ConfigureAwait(false)) break;
-                        if (_ready && _role == DtlsRole.Server && Stopwatch.GetElapsedTime(_readyAt) >= TimeSpan.FromMinutes(4)) _flight.Clear();
+                        if (_ready && _role == DtlsRole.Server && Stopwatch.GetElapsedTime(_readyAt) >= TimeSpan.FromMinutes(4))
+                        {
+                            _flight.Clear();
+                            timer.Period = Timeout.InfiniteTimeSpan;
+                        }
                         if (!_ready && Stopwatch.GetElapsedTime(_startedAt) >= _options.HandshakeTimeout) throw new TimeoutException("DTLS handshake timed out.");
                         if (!_ready && _flight.Count != 0 && Stopwatch.GetElapsedTime(_lastFlightSentAt) >= _retryDelay)
                         {

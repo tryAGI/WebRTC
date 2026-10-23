@@ -18,6 +18,7 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Unreachable UDP candidate does not abort the checklist", () => CandidateFallback(true)),
     ("Wrong credentials cannot nominate a pair", WrongCredentials),
     ("Unknown UDP source cannot deliver data", UnknownSource),
+    ("Selected ICE idle wait allows immediate data and disposal", IdleMaintenanceTests.SelectedDisposal),
     ("Consent loss stops outbound traffic", ConsentLoss),
     ("Consent replies to previous transactions renew without extending expiry", IceConsentTests.PreviousTransactionResponse),
     ("Consent authenticated revocation stops outbound traffic immediately", IceConsentTests.RevocationStopsImmediately),

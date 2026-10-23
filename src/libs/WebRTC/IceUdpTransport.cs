@@ -294,11 +294,26 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
                         // Keep bounded retry/consent deadlines as the authoritative liveness test.
                     }
                 }
-                await _wake.WaitAsync(_options.CheckInterval, _lifetime.Token).ConfigureAwait(false);
+                TimeSpan delay;
+                lock (_gate) delay = NextCheckDelay();
+                await _wake.WaitAsync(delay, _lifetime.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception exception) { Stop(exception); }
+    }
+
+    // Before nomination retain checklist pacing. Once selected, only consent send
+    // and absolute expiry deadlines require a timer; signaling still wakes _wake.
+    private TimeSpan NextCheckDelay()
+    {
+        if (_selected is null) return _options.CheckInterval;
+        var now = Stopwatch.GetTimestamp();
+        var sendAt = Math.Max(_nextConsentAt, Add(_lastCheckSentAt, _options.CheckInterval));
+        var due = Math.Min(sendAt, Add(_lastConsentAt, _options.ConsentTimeout));
+        if (due <= now) return TimeSpan.Zero;
+        // SemaphoreSlim truncates millisecond timeouts. Round up to avoid spinning.
+        return TimeSpan.FromMilliseconds(Math.Ceiling(Stopwatch.GetElapsedTime(now, due).TotalMilliseconds));
     }
 
     private (LocalPath Path, byte[] Packet, IPEndPoint Destination)? GetNextCheck()
