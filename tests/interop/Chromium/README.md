@@ -102,3 +102,26 @@ bounded. It does not emulate browser decoding. CI runs three independent cohorts
 of the six codec/role cases; every cohort must pass, and the first failure stops
 execution. `TRYAGI_CHROMIUM_COHORTS=1` retains the local default. Repetitions are
 explicit test cohorts, never retries that conceal a failed decode.
+
+## Drawable-frame readiness and independent receiver pixels
+
+Run 39996101762 at 1972708 reproduced the initial H264/offer failure after 17
+passing cases. The callback sample was transparent (alpha 0), readyState 0, while
+the synthetic source/direct decode were correct and inbound statistics reported
+one decoded/received key frame with no packet loss or dropped frame.
+
+HTML distinguishes an unavailable video frame from an opaque black decoded image:
+[ready states](https://html.spec.whatwg.org/multipage/media.html#ready-states).
+The proof retains that raw callback unchanged. Drawable-element pixel assertions
+wait for HAVE_CURRENT_DATA, using the frame callback or a single loadeddata event;
+they never resend media, poll for alternate pixels or count metadata alone as success.
+The same exact dimensions, alpha and moving-patch colors must also appear in
+independent receiver VideoFrames from a bounded MediaStreamTrackProcessor sink.
+Every received frame closes immediately; the reader is cancelled/joined on success.
+See the [W3C draft processing model](https://www.w3.org/TR/mediacapture-transform/)
+for the additional sink's ownership model (the pinned browser exposes its Window API).
+
+Deterministic tests preserve an early transparent callback, then check an actual
+current-data event; opaque black remains a failed content sample. Receiver reader
+cancellation and VideoFrame closure are checked. No authentication, replay, codec
+assembly, loss-recovery assertion or pixel threshold is weakened.

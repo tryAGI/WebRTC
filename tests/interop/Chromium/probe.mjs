@@ -69,8 +69,9 @@ try {
     const peer = new RTCPeerConnection({ iceServers: [] });
     const audioProbe=await (${createAudioProbe.toString()})(peer);
     const videoProof=(${createVideoProof.toString()})();
-    const {video,frames,observe}=videoProof;
-    peer.ontrack=e=>{ if(e.track.kind==='video') { video.srcObject=new MediaStream([e.track]);video.play();video.requestVideoFrameCallback(observe); } };
+    const {video,observe}=videoProof;
+    const frames=videoProof.drawable;
+    peer.ontrack=e=>{ if(e.track.kind==='video') { videoProof.attachTrack(e.track);video.srcObject=new MediaStream([e.track]);video.play();video.requestVideoFrameCallback(observe); } };
     const channel = peer.createDataChannel('owned'); let reply = '';
     channel.onmessage = e => reply = e.data;
     channel.onopen = () => channel.send('browser-ready');
@@ -148,23 +149,23 @@ try {
     const encoder=new VideoEncoder({ error:e=>encodeError=String(e),output:c=>{const data=new Uint8Array(c.byteLength);c.copyTo(data);chunks.push({type:c.type,data});} });
     encoder.configure({...(codec==='h264'?{avc:{format:'annexb'}}:{}),codec:codec==='h264'?'avc1.42E01F':'vp8',width:320,height:240,bitrate:200000,framerate:10,latencyMode:'realtime'});
     const sendFrame=async(i,key)=>{paint.fillStyle='rgb(128,128,128)';paint.fillRect(0,0,320,240);paint.fillStyle='black';paint.fillRect(16+i*8,32,16,16);videoProof.recordSource(paintCanvas,i*100000);const f=new VideoFrame(paintCanvas,{timestamp:i*100000});encoder.encode(f,{keyFrame:key});f.close();await encoder.flush();if(encodeError)throw new Error(encodeError);const chunk=chunks.shift();if(!chunk || chunk.type!==(key?'key':'delta'))throw new Error('Encoder did not emit requested frame type');videoProof.recordEncoded(chunk);const decoded=new Promise((resolve,reject)=>{if(decodePending)throw new Error('Overlapping direct decode');decodePending={resolve,reject};});decoder.decode(new EncodedVideoChunk({type:chunk.type,timestamp:i*100000,data:chunk.data}));await decoded;if(encodeError)throw new Error(encodeError);const data=chunk.data;const r=await fetch('http://127.0.0.1:9430/frame?timestamp='+i*9000,{method:'POST',body:data});if(!r.ok)throw new Error('Owned frame send failed: '+await r.text());};
-    const wait=async(test,what)=>{for(let n=0;n<200 && !test();n++)await new Promise(r=>setTimeout(r,50));if(!test()){const inbound=[];(await peer.getStats()).forEach(s=>{if(s.type==='inbound-rtp' && s.kind==='video')inbound.push({framesDecoded:s.framesDecoded,keyFramesDecoded:s.keyFramesDecoded,framesReceived:s.framesReceived,packetsReceived:s.packetsReceived,packetsLost:s.packetsLost,framesDropped:s.framesDropped});});throw new Error(what+' evidence='+JSON.stringify({mode,codec,...videoProof.snapshot(),inbound}));}};
-    await sendFrame(0,true);await wait(()=>frames.some(f=>f.width===320 && f.height===240 && f.old.every(x=>x<10) && f.fresh.every(x=>x>110 && x<150)),'Initial frame was not decoded');
+    const wait=async(test,what)=>{for(let n=0;n<200 && !test() && !videoProof.snapshot().receiverError;n++)await new Promise(r=>setTimeout(r,50));if(!test() || videoProof.snapshot().receiverError){const inbound=[];(await peer.getStats()).forEach(s=>{if(s.type==='inbound-rtp' && s.kind==='video')inbound.push({framesDecoded:s.framesDecoded,keyFramesDecoded:s.keyFramesDecoded,framesReceived:s.framesReceived,packetsReceived:s.packetsReceived,packetsLost:s.packetsLost,framesDropped:s.framesDropped});});throw new Error(what+' evidence='+JSON.stringify({mode,codec,...videoProof.snapshot(),inbound}));}};
+    await sendFrame(0,true);await wait(()=>[frames,videoProof.receiver].every(list=>list.some(f=>f.width===320 && f.height===240 && f.alpha===255 && f.old.every(x=>x<10) && f.fresh.every(x=>x>110 && x<150))),'Initial frame was not decoded');
     let priorPli=0;(await peer.getStats()).forEach(s=>{if(s.type==='inbound-rtp' && s.kind==='video')priorPli=s.pliCount;});
     const armed=await fetch('http://127.0.0.1:9430/loss');if(!armed.ok)throw new Error('Loss was not armed');await sendFrame(1,false);
     for(let i=2;i<6;i++){await sendFrame(i,false);await new Promise(r=>setTimeout(r,100));}
     let feedback;
     for(let n=0;n<200;n++){feedback=(await (await fetch('http://127.0.0.1:9430/feedback')).text()).split(',').map(Number);if(feedback[0]>0 && feedback[1]===1)break;await new Promise(r=>setTimeout(r,50));}
     if(feedback[0]<1 || feedback[1]!==1)throw new Error('No admitted PLI after real packet loss: '+feedback);
-    await sendFrame(6,true);await wait(()=>frames.some(f=>f.fresh.every(x=>x<10) && f.old.every(x=>x>110 && x<150)),'Fresh recovery frame was not decoded');
+    await sendFrame(6,true);await wait(()=>[frames,videoProof.receiver].every(list=>list.some(f=>f.alpha===255 && f.fresh.every(x=>x<10) && f.old.every(x=>x>110 && x<150))),'Fresh recovery frame was not decoded');
     for(let i=7;i<12;i++){await sendFrame(i,false);await new Promise(r=>setTimeout(r,100));}
-    await wait(()=>frames.some(f=>f.last.every(x=>x<10) && f.fresh.every(x=>x>110 && x<150)), 'Post-recovery delta progress absent');
+    await wait(()=>[frames,videoProof.receiver].every(list=>list.some(f=>f.alpha===255 && f.last.every(x=>x<10) && f.fresh.every(x=>x>110 && x<150))), 'Post-recovery delta progress absent');
     await decoder.flush();encoder.close();decoder.close();
     const stats=[];(await peer.getStats()).forEach(s=>{if(s.type==='transport' || s.type==='inbound-rtp' && s.kind==='video')stats.push({type:s.type,dtlsState:s.dtlsState,framesDecoded:s.framesDecoded,keyFramesDecoded:s.keyFramesDecoded,pliCount:s.pliCount,packetsLost:s.packetsLost,framesReceived:s.framesReceived,framesDropped:s.framesDropped,nackCount:s.nackCount});});
-    await audioProbe.close();await fetch('http://127.0.0.1:9430/close');peer.close();
+    await videoProof.close();await audioProbe.close();await fetch('http://127.0.0.1:9430/close');peer.close();
     if(!isSecureContext)throw new Error('Browser origin is not secure');
     const media=stats.find(s=>s.type==='inbound-rtp');if(!media || media.framesDecoded<3 || media.keyFramesDecoded<2 || media.pliCount<=priorPli || media.packetsLost!==1)throw new Error('Browser decode/recovery stats incomplete: '+JSON.stringify(stats));
-    return {videoEvidence:videoProof.snapshot(),mode,codec,priorPli,secure:isSecureContext,candidates,reply,channelEvidence,channelAccounting,audioProof,feedback,frames,stats};
+    return {videoEvidence:videoProof.snapshot(),mode,codec,priorPli,secure:isSecureContext,candidates,reply,channelEvidence,channelAccounting,audioProof,feedback,drawableFrames:frames,stats};
   })()` });
   if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
   console.log(JSON.stringify(result.result.value, null, 2));
