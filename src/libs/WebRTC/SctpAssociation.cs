@@ -29,7 +29,11 @@ public abstract record SctpReceiveEvent;
 public sealed record SctpMessage(ushort StreamId, uint PayloadProtocolIdentifier, bool Unordered, byte[] Data) : SctpReceiveEvent;
 public sealed record SctpDiagnostics(long Retransmissions, long RejectedPackets, int BufferedSendBytes,
     int BufferedReceiveBytes, int OutstandingChunks, int CongestionWindowBytes, uint PeerAdvertisedWindowBytes, TimeSpan RetransmissionTimeout,
-    long AbandonedMessages = 0);
+    long AbandonedMessages = 0)
+{
+    /// <summary>Timer maintenance iterations, retained after disposal. Not kernel wakeups.</summary>
+    public long MaintenanceTicks { get; init; }
+}
 
 /// <summary>One bounded, single-path SCTP/PR-SCTP association over authenticated DTLS datagrams.</summary>
 public sealed partial class SctpAssociation : IAsyncDisposable
@@ -67,7 +71,7 @@ public sealed partial class SctpAssociation : IAsyncDisposable
     private int _sendBytes, _receiveBytes, _retainedMessages, _deliveredMessages, _started, _disposed, _receiving, _cwnd, _threshold, _partialAcked, _flightRetries;
     private double _smoothedRtt, _rttVariance;
     private TimeSpan _rto, _flightRto;
-    private long _retransmissions, _rejected;
+    private long _retransmissions, _rejected, _maintenanceTicks;
     private bool _receiveEnded;
     private Exception? _receiveFailure;
     private bool _hasRemoteInit, _ready, _closing, _peerShutdown, _shutdownSent, _shutdownAckSent, _finishAfterFlush, _sackNeeded, _peerShutdownComplete;
@@ -128,7 +132,7 @@ public sealed partial class SctpAssociation : IAsyncDisposable
     public SctpDiagnostics GetDiagnostics()
     {
         lock (_gate) return new(Interlocked.Read(ref _retransmissions), Interlocked.Read(ref _rejected), _sendBytes,
-            _receiveBytes, _outbound.Count, _cwnd, _peerWindow, _rto, _abandonedMessages);
+            _receiveBytes, _outbound.Count, _cwnd, _peerWindow, _rto, _abandonedMessages) { MaintenanceTicks = _maintenanceTicks };
     }
 
     /// <summary>Queues one complete message with optional partial reliability. Timed lifetime starts at this call, including admission. Does not wait for acknowledgment.</summary>
@@ -279,6 +283,7 @@ public sealed partial class SctpAssociation : IAsyncDisposable
         {
             lock (_gate) if (_role == SctpRole.Initiator) SetFlight(Init(1));
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(10));
+            var timerActive = true;
             next = receive.MoveNextAsync().AsTask();
             var tick = timer.WaitForNextTickAsync(_lifetime.Token).AsTask();
             var wake = _wake.WaitAsync(_lifetime.Token);
@@ -305,13 +310,23 @@ public sealed partial class SctpAssociation : IAsyncDisposable
                     lock (_gate) { if (!_peerShutdownComplete) throw; finish = true; }
                 }
                 if (finish) break;
+                bool maintenance;
+                lock (_gate) maintenance = RequiresMaintenance();
+                if (maintenance != timerActive)
+                {
+                    // Preserve the existing cadence for every pending protocol
+                    // operation. Only a quiescent association can stop ticking;
+                    // incoming records and external API calls wake the pump.
+                    timer.Period = maintenance ? TimeSpan.FromMilliseconds(10) : Timeout.InfiniteTimeSpan;
+                    timerActive = maintenance;
+                }
                 await Task.WhenAny(next, tick, wake).ConfigureAwait(false);
                 await ProcessReadyIncomingAsync().ConfigureAwait(false);
                 lock (_gate) if (_finishAfterFlush) continue;
                 if (tick.IsCompleted)
                 {
                     if (!await tick.ConfigureAwait(false)) break;
-                    lock (_gate) Timers();
+                    lock (_gate) { _maintenanceTicks++; Timers(); }
                     tick = timer.WaitForNextTickAsync(_lifetime.Token).AsTask();
                 }
                 if (wake.IsCompleted) { await wake.ConfigureAwait(false); wake = _wake.WaitAsync(_lifetime.Token); }
@@ -338,6 +353,11 @@ public sealed partial class SctpAssociation : IAsyncDisposable
             }
         }
     }
+
+    private bool RequiresMaintenance() => !_ready || _closing || _peerShutdown ||
+        _flight is not null || _outbound.Count != 0 || _forwardFlight is not null ||
+        _outgoingReset is not null || _peerOutgoingReset is not null || _peerIncomingReset is not null ||
+        _controls.Count != 0 || _sackNeeded;
 
     private List<byte[]> PrepareOutgoing()
     {

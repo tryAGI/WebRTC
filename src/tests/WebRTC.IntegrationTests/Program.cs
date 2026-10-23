@@ -19,6 +19,7 @@ var cases = new List<(string Name, Func<Task> Run)>
     ("Wrong credentials cannot nominate a pair", WrongCredentials),
     ("Unknown UDP source cannot deliver data", UnknownSource),
     ("Selected ICE idle wait allows immediate data and disposal", IdleMaintenanceTests.SelectedDisposal),
+    ("Selected SCTP quiescence wakes for data, reset and disposal", IdleMaintenanceTests.SelectedSctpWake),
     ("Consent loss stops outbound traffic", ConsentLoss),
     ("Consent replies to previous transactions renew without extending expiry", IceConsentTests.PreviousTransactionResponse),
     ("Consent authenticated revocation stops outbound traffic immediately", IceConsentTests.RevocationStopsImmediately),
