@@ -46,6 +46,18 @@ jobs:
       - name: Bounded repeated peer lifetime and memory soak
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite soak > soak.csv
+      - name: Idle transport maintenance baseline
+        shell: bash
+        run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite idle > idle.csv
+      - name: Native identity construction attribution
+        shell: bash
+        run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite identity > identity.csv
+      - name: Process-isolated native identity retention controls
+        shell: bash
+        run: |
+          for mode in empty_control legacy_private_certificate public_only_certificate runtime_identity; do
+            TRYAGI_NATIVE_MODE="$mode" DOTNET_TieredCompilation=0 dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite native > "native-$mode.csv"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -59,5 +71,8 @@ jobs:
             cold.csv
             audio.csv
             soak.csv
+            idle.csv
+            identity.csv
+            native-*.csv
             hardware.txt
           retention-days: 30

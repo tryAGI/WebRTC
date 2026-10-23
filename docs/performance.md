@@ -176,3 +176,38 @@ which includes identity/certificate, socket and queue work. It does not isolate
 certificate cost or explain a remote/provider recovery. Follow-up
 [#16](https://github.com/tryAGI/WebRTC/issues/16) preserves matched phase/hardware
 metadata and requires native profiling before changes to identity lifetime.
+
+## Idle maintenance and native-construction attribution
+
+`--suite idle` records three two-second idle samples after authenticated connection
+and a short warmup, all profiles, tracing off/on and one/three peer pairs. A no-peer
+harness control is included. Process-wide managed allocation, CPU, GC counts,
+consent/retransmission counts and completed thread-pool work items are observed.
+Thread-pool completions are a scheduling proxy, not kernel wakeup counts. Packet
+integrity/queue checks remain active before/after the idle period.
+
+`--suite identity` separates key/public-key export, request construction, certificate
+creation, verification and certificate/key disposal for fresh identities. It compares
+framework CreateSelfSigned (private-key-associated certificate), framework Create
+with an explicit fresh-key signature generator (public-only certificate), and the
+actual runtime identity path. Public key equality and a synthetic signature prove
+certificate/key correspondence; private keys are never exported or shared.
+Samples include initial-use effects; compare later samples on matched machines.
+
+`--suite native` compares eight waves of 16 creations/disposals per method after
+32 warmups, with empty controls. CI uses fresh processes for each method and an
+explicit DOTNET_TieredCompilation=0 control to remove background re-tiering; this
+is a benchmark configuration, not production runtime acceptance. Local default
+interleaving remains available, with TRYAGI_NATIVE_MODE selecting a single method. It records post-collection managed heap, GC committed/fragmented
+bytes, process RSS/private memory/handles where available and CPU. The four-minute
+workload deadline is checked between native operations; a native framework call
+itself has no cancellation API. The workflow job deadline remains the outer bound.
+Interleaving reduces order bias but does not isolate each method's retained native
+bytes in a shared process. Managed committed bytes are not resident pages; never
+subtract them from RSS and label the remainder pure native allocation. A native
+allocator profile or process-isolated repetition is separate evidence.
+
+Initial local compilation was queued behind another owner's exclusive host request;
+no compiler bypass or source copy was used. The committed four-platform baseline
+is the validation/measurement gate before runtime timer or identity changes.
+CSV numeric formatting is invariant-culture for portable parsing.
