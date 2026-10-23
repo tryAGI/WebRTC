@@ -67,9 +67,15 @@ remain explicit unknowns. See [diagnostics and collection example](https://githu
 
 ## Measured hot paths
 
-Managed and NativeAOT builds now pass the same147 exact zero-allocation samples
+Empty-ciphertext GCM (GMAC) rejection now has exact zero managed-allocation
+contracts: empty RTP, header-only encrypted RTCP and authentication-only SRTCP,
+AES-128/256, bad tags/wrong keys/replays. Payload-bearing GCM authentication
+failures retain their measured framework exception costs. See
+[before/after results, timing warm-up and matched memory controls](https://github.com/tryAGI/WebRTC/blob/main/docs/gmac-timing-memory-20261024.md).
+
+Managed and NativeAOT builds now pass the same 147 exact zero-allocation samples
 on Linux x64/arm64, macOS arm64 and Windows x64. Separate reviewed NativeAOT
-ceilings protect all40 active media/audio/channel/video configurations; owned
+ceilings protect all 40 active media/audio/channel/video configurations; owned
 outputs remain measured allocations. Authentication failures have explicit
 rejection/state contracts and bounded framework exception costs. See
 [paired results, regression budgets and repeated native-memory controls](https://github.com/tryAGI/WebRTC/blob/main/docs/rejection-aot-memory-20261024.md).

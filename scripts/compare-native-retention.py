@@ -18,12 +18,13 @@ def compare(root, modes=MODES):
         # Recompute from all raw numeric captures; never trust an editable verdict.
         profile = next((directory / 'profiles').glob('*/profile.json'), None)
         if profile is None: raise ValueError('Missing memory process captures')
+        if profile.stat().st_size > 65536: raise ValueError('Profile summary exceeds bound')
         mode = json.loads(profile.read_text())['mode']
         if mode not in modes: raise ValueError('Unexpected memory workload')
         result = retention.summarize(directory / 'profiles', mode)
         cohort = result['cohort']; off = cohort.endswith('|tiered_compilation=0')
         base = cohort.removesuffix('|tiered_compilation=0')
-        identities.add((result['source'], base))
+        identities.add((result['source'], '|'.join(part for part in base.split('|') if not part.startswith('cpu='))))
         key = mode, 'off' if off else 'default'
         if key in records: raise ValueError('Duplicate memory control')
         records[key] = result
@@ -31,7 +32,9 @@ def compare(root, modes=MODES):
         raise ValueError('Incomplete or mismatched memory controls')
     comparisons = {}
     for mode in modes:
-        pair = {}
+        if records[mode, 'default']['cohort'] != records[mode, 'off']['cohort'].removesuffix('|tiered_compilation=0'):
+            raise ValueError('Mismatched within-workload memory controls')
+        pair = dict(cohort=records[mode, 'default']['cohort'])
         for control in ('default', 'off'):
             result = records[mode, control]
             names = result['delta_bytes']
@@ -41,7 +44,7 @@ def compare(root, modes=MODES):
         comparisons[mode] = pair
     source, cohort = next(iter(identities))
     return dict(source=source, cohort=cohort, workloads=comparisons, leak_freedom_verdict=False,
-                scope='three fresh processes per workload/control; matching source and disposed phases; tiering-off is diagnostic only; malloc rounding and hosted-runner variance remain; differences do not attribute native owners or justify production settings')
+                scope='three fresh processes per workload/control; same physical runner per workload; source/runtime/architecture/CPU-count strictly match within each pair; other workloads may use different CPU counts/models; host load/time are not controlled; tiering-off is diagnostic only; malloc rounding and hosted-runner variance remain; differences do not attribute native owners or justify production settings')
 
 
 if __name__ == '__main__':

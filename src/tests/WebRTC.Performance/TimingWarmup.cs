@@ -18,9 +18,13 @@ internal static class TimingWarmup
             exercise(count);
             recent[rounds % recent.Length] = Stopwatch.GetElapsedTime(batch).TotalNanoseconds / count;
             rounds++;
+            minimum = maximum = recent[0];
+            for (var i = 1; i < Math.Min(rounds, recent.Length); i++)
+            {
+                minimum = Math.Min(minimum, recent[i]); maximum = Math.Max(maximum, recent[i]);
+            }
             if (rounds >= recent.Length)
             {
-                minimum = recent.Min(); maximum = recent.Max();
                 stable = minimum > 0 && maximum / minimum <= 1.10 && Stopwatch.GetElapsedTime(started).TotalMilliseconds >= 500;
                 if (stable) break;
             }

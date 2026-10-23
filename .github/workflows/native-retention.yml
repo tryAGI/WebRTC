@@ -7,7 +7,7 @@ on:
         options: [all, empty_control, identity_only, crypto_only, peer_audio, peer_open]
         default: all
       tiering_off:
-        description: Owned-child diagnostic control, never ordinary runtime configuration
+        description: Used only without paired_tiering; owned-child diagnostic control
         type: boolean
         default: false
       paired_tiering:
@@ -21,10 +21,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tiering: ${{ inputs.paired_tiering && fromJSON('["default","off"]') || inputs.tiering_off && fromJSON('["off"]') || fromJSON('["default"]') }}
         mode: ${{ inputs.mode == 'all' && fromJSON('["empty_control","identity_only","crypto_only","peer_audio","peer_open"]') || fromJSON(format('["{0}"]', inputs.mode)) }}
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -34,25 +33,47 @@ jobs:
       - run: dotnet build src/tests/WebRTC.Performance -c Release
       - name: Verify missing-controller deadline
         run: python3 scripts/check-retention-timeout.py src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll
-      - name: Three fresh extended phase-matched cohorts
+      - name: Three fresh control pairs on the same runner
         shell: bash
         env:
-          TIERING_OFF: ${{ matrix.tiering == 'off' }}
+          PAIRED: ${{ inputs.paired_tiering }}
+          TIERING_OFF: ${{ inputs.tiering_off }}
+          SELECTED_MODE: ${{ matrix.mode }}
         run: |
-          options=()
-          if [ "$TIERING_OFF" = true ]; then options+=(--tiering-off); fi
+          controls=(default)
+          if [ "$PAIRED" = true ]; then controls=(default off)
+          elif [ "$TIERING_OFF" = true ]; then controls=(off); fi
           for repetition in 1 2 3; do
-            python3 scripts/profile-retention-macos.py src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll "profiles/process-$repetition" --mode "${{ matrix.mode }}" --trace 0 --waves 64 "${options[@]}"
+            # Alternate order while keeping every control a fresh child process.
+            if [ "$PAIRED" = true ] && [ "$repetition" = 2 ]; then controls=(off default)
+            elif [ "$PAIRED" = true ]; then controls=(default off); fi
+            for control in "${controls[@]}"; do
+              options=()
+              if [ "$control" = off ]; then options+=(--tiering-off); fi
+              python3 scripts/profile-retention-macos.py src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll "controls/$control/profiles/process-$repetition" --mode "$SELECTED_MODE" --trace 0 --waves 64 "${options[@]}"
+            done
           done
-          python3 scripts/summarize-native-retention.py profiles --mode "${{ matrix.mode }}" --output summary.json
+          for control in "${controls[@]}"; do
+            python3 scripts/summarize-native-retention.py "controls/$control/profiles" --mode "$SELECTED_MODE" --output "controls/$control/summary.json"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
+        if: always() && (inputs.paired_tiering || !inputs.tiering_off)
         with:
-          name: native-retention-${{ matrix.mode }}-${{ matrix.tiering }}-${{ github.sha }}
+          name: native-retention-${{ matrix.mode }}-default-${{ github.sha }}
           path: |
-            profiles/*/retention.csv
-            profiles/*/profile.json
-            summary.json
+            controls/default/profiles/*/retention.csv
+            controls/default/profiles/*/profile.json
+            controls/default/summary.json
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && (inputs.paired_tiering || inputs.tiering_off)
+        with:
+          name: native-retention-${{ matrix.mode }}-off-${{ github.sha }}
+          path: |
+            controls/off/profiles/*/retention.csv
+            controls/off/profiles/*/profile.json
+            controls/off/summary.json
           if-no-files-found: error
           retention-days: 30
   compare-controls:

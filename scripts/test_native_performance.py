@@ -2,6 +2,7 @@ import csv
 import importlib.util
 import itertools
 import json
+import shutil
 from pathlib import Path
 import tempfile
 import unittest
@@ -49,6 +50,20 @@ class ComparisonTests(unittest.TestCase):
         path.write_text(path.read_text().replace(',True\n', ',False\n'))
         result = compare.compare(self.root)
         self.assertTrue(all(result['timings'][key]['aot_over_jit'] is None for key in compare.core.OPERATIONS))
+
+    def test_deadline_before_five_batches_is_unstable_observation(self):
+        path = self.root / 'jit' / 'packets.csv'
+        path.write_text(path.read_text().replace(',50,520,99,101,True', ',3,3100,99,101,False'))
+        result = compare.compare(self.root)
+        self.assertTrue(all(result['timings'][key]['aot_over_jit'] is None for key in compare.core.OPERATIONS))
+
+    def test_measurement_drift_omits_ratio_after_stable_warmup(self):
+        path = self.root / 'jit' / 'packets.csv'
+        text = path.read_text(); text = text.replace('20000,0.00,10,0', '20000,0.00,1000,0', 1); path.write_text(text)
+        result = compare.compare(self.root)
+        row = result['timings'][compare.core.OPERATIONS[0]]
+        self.assertTrue(row['jit_warmup']['observed_stable'])
+        self.assertFalse(row['timing_comparable']); self.assertIsNone(row['aot_over_jit'])
 
     def test_missing_duplicate_and_false_stability_fail(self):
         path = self.root / 'jit' / 'packets.csv'; original = path.read_text()
@@ -101,7 +116,6 @@ class RetentionTests(unittest.TestCase):
         with self.assertRaises(ValueError): retention.size('private/path')
 
 
-if __name__ == '__main__': unittest.main()
 
 
 class MemoryComparisonTests(unittest.TestCase):
@@ -121,10 +135,31 @@ class MemoryComparisonTests(unittest.TestCase):
         self.assertFalse(result['leak_freedom_verdict'])
         self.assertEqual(result['workloads']['crypto_only']['off_minus_default_final_median_bytes']['malloc_resident'], 0)
 
+    def test_cpu_count_can_differ_between_workloads_but_not_within_pairs(self):
+        for control in ('default', 'off'):
+            other = self.root / ('identity-' + control)
+            shutil.copytree(self.root / control, other)
+            for path in other.glob('profiles/*/profile.json'):
+                data = json.loads(path.read_text()); data['mode'] = 'identity_only'; path.write_text(json.dumps(data))
+            for path in other.glob('profiles/*/retention.csv'):
+                path.write_text(path.read_text().replace('crypto_only', 'identity_only').replace('cpu_count=3', 'cpu_count=5'))
+        result = self.comparison.compare(self.root, ('crypto_only', 'identity_only'))
+        self.assertIn('cpu=3', result['workloads']['crypto_only']['cohort'])
+        self.assertIn('cpu=5', result['workloads']['identity_only']['cohort'])
+        for path in (self.root / 'off').glob('profiles/*/retention.csv'):
+            path.write_text(path.read_text().replace('cpu_count=3', 'cpu_count=5'))
+        with self.assertRaisesRegex(ValueError, 'within-workload'):
+            self.comparison.compare(self.root, ('crypto_only', 'identity_only'))
+
     def test_missing_duplicate_mixed_source_and_wrong_tiering_fail(self):
         path = self.root / 'off' / 'profiles' / '1' / 'retention.csv'; original = path.read_text()
-        for changed in (original.replace(SOURCE, 'b' * 40), original.replace('tiered_compilation=0', 'tiered_compilation=1')):
+        for changed in (original.replace(SOURCE, 'b' * 40), original.replace('tiered_compilation=0', 'tiered_compilation=1'), original.replace('cpu_count=3', 'cpu_count=5')):
             path.write_text(changed)
             with self.assertRaises(ValueError): self.comparison.compare(self.root, ('crypto_only',))
         path.write_text(original)
         with self.assertRaises(ValueError): self.comparison.compare(self.root)
+        shutil.copytree(self.root / 'default', self.root / 'duplicate')
+        with self.assertRaisesRegex(ValueError, 'Duplicate'): self.comparison.compare(self.root, ('crypto_only',))
+
+
+if __name__ == '__main__': unittest.main()

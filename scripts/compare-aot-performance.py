@@ -19,9 +19,9 @@ def read_warmups(path, expected):
         _, key, rounds, elapsed, minimum, maximum, stable = line.split(',')
         rounds = int(rounds); elapsed = core.number(elapsed)
         minimum = core.number(minimum); maximum = core.number(maximum)
-        if key not in expected or key in records or not 5 <= rounds <= 128 or elapsed <= 0 or maximum < minimum or stable not in ('True', 'False'):
+        if key not in expected or key in records or not 1 <= rounds <= 128 or elapsed <= 0 or maximum < minimum or stable not in ('True', 'False'):
             raise ValueError('Invalid timing warmup record')
-        if stable == 'True' and (elapsed < 500 or minimum <= 0 or maximum / minimum > 1.11):
+        if stable == 'True' and (rounds < 5 or elapsed < 500 or minimum <= 0 or maximum / minimum > 1.11):
             raise ValueError('Unsubstantiated timing stability')
         records[key] = dict(rounds=rounds, elapsed_ms=elapsed, minimum_ns=minimum, maximum_ns=maximum, observed_stable=stable == 'True')
     if set(records) != expected: raise ValueError('Missing timing warmup observations')
@@ -51,13 +51,14 @@ def compare(root):
     if len(identities) != 1:
         raise core.BudgetViolation('Paired compiler measurements differ in source or hardware/runtime cohort')
     for result in results.values():
-        comparable = result['jit_warmup']['observed_stable'] and result['aot_warmup']['observed_stable']
+        comparable = all(result[mode + '_warmup']['observed_stable'] and result[mode + '_sample_spread'] is not None and result[mode + '_sample_spread'] <= 1.20 for mode in ('jit', 'aot'))
+        result['timing_comparable'] = comparable
         ratio = result['aot_median_ns'] / result['jit_median_ns'] if comparable and result['jit_median_ns'] else None
         if ratio is not None and not math.isfinite(ratio): raise core.BudgetViolation('Nonfinite compiler comparison ratio')
         result['aot_over_jit'] = ratio
     cohort, source = next(iter(identities))
     return dict(source=source, cohort=cohort, timings=results, timing_gate=False,
-                scope='same runner, sequential fresh processes; bounded warmup observes stability, not JIT completion; no ratio for unstable warmup; hosted-runner noise remains; zero allocation checked separately')
+                scope='same runner, sequential fresh processes; bounded warmup observes stability, not JIT completion; no ratio for unstable warmup or measurement spread above 20%; hosted-runner noise remains; zero allocation checked separately')
 
 
 if __name__ == '__main__':
