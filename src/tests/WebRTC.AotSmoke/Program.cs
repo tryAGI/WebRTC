@@ -2,6 +2,11 @@ using tryAGI.WebRTC;
 using System.Net;
 using System.Net.Sockets;
 
+PacketAllocationChecks.AuthenticationBoundaries();
+PacketAllocationChecks.ZeroAllocation();
+SrtpTests.SteadyStateAllocations();
+RejectionAllocationChecks.Contracts();
+Console.WriteLine("NativeAOT packet/STUN/crypto zero allocation and authentication rejection state contracts passed");
 await BuildIdentityTests.Retained();
 await IceConsentTests.PreviousTransactionResponse();
 await IceConsentTests.RevocationStopsImmediately();

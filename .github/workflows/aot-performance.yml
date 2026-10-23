@@ -31,6 +31,8 @@ jobs:
         run: dotnet build src/tests/WebRTC.Performance -c Release
       - name: Publish native harness without diagnostic suppressions
         run: dotnet publish src/tests/WebRTC.Performance -c Release -r ${{ matrix.rid }} -p:PublishAot=true -o artifacts/native
+      - name: Native missing-controller cancellation contract
+        run: python3 scripts/check-retention-timeout.py artifacts/native/${{ matrix.exe }}
       - name: Paired managed and NativeAOT measurements
         shell: bash
         env:

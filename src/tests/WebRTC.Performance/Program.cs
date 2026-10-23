@@ -15,7 +15,13 @@ if (suite == "rejection") { RejectionBenchmarks.Run(); return; }
 if (suite == "idle-sctp") { await MaintenanceBenchmarks.Idle(true); return; }
 if (suite == "idle") { await MaintenanceBenchmarks.Idle(); return; }
 if (suite == "identity") { MaintenanceBenchmarks.Identity(); return; }
-if (suite == "retention") { await RetentionBenchmarks.Run(); return; }
+if (suite == "retention")
+{
+    try { await RetentionBenchmarks.Run(); }
+    catch (OperationCanceledException) { Console.Error.WriteLine("Retention deadline expired"); Environment.ExitCode = 1; }
+    catch (IOException error) { Console.Error.WriteLine($"Retention workload failed: {error.Message}"); Environment.ExitCode = 1; }
+    return;
+}
 if (suite == "native") { await MaintenanceBenchmarks.Retention(); return; }
 if (suite == "cold") { await LifecycleBenchmarks.Cold(); return; }
 if (suite == "soak") { await LifecycleBenchmarks.Soak(); return; }

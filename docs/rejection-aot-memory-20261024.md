@@ -35,6 +35,10 @@ cannot stand for accepted-media latency or full-network hostile-traffic capacity
 
 The native workflow publishes the same framework-only harness for Linux x64,
 Linux arm64, macOS arm64 and Windows x64, without suppressing trim/AOT diagnostics.
+Ordinary NativeAOT smoke also runs the shared packet/STUN/crypto zero-allocation
+and authentication-rejection state contracts, so basic allocation protection is
+not limited to manually dispatched performance jobs. Missing-controller deadlines
+are additionally exercised with the native harness on every performance platform.
 Sequential managed/native processes on each runner retain compiler-mode/source/
 runtime/hardware metadata. Each executes147 existing raw zero-byte samples and
 real escaping-allocation positive controls. Rejection cohorts use three separate

@@ -52,4 +52,9 @@
 <Compile Include="../WebRTC.IntegrationTests/BundleTrickleTests.cs" Link="BundleTrickleTests.cs" />
 <Compile Include="../WebRTC.IntegrationTests/BuildIdentityTests.cs" Link="BuildIdentityTests.cs" /></ItemGroup>
 <ItemGroup><Compile Include="../WebRTC.IntegrationTests/IceConsentTests.cs" Link="IceConsentTests.cs" /></ItemGroup>
+<ItemGroup>
+    <Compile Include="../WebRTC.ProtocolTests/PacketAllocationChecks.cs" Link="PacketAllocationChecks.cs" />
+    <Compile Include="../WebRTC.ProtocolTests/RejectionAllocationChecks.cs" Link="RejectionAllocationChecks.cs" />
+    <Compile Include="../WebRTC.ProtocolTests/SrtpTests.cs" Link="SrtpTests.cs" />
+</ItemGroup>
 </Project>
