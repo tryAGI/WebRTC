@@ -61,7 +61,7 @@ internal static class HandshakeDiagnosticTests
                 counters.ReceivedChangeCipherSpecs > 0 && counters.VerifiedFinishedMessages == 1,
                 "Successful handshake counters missing");
             await client.SendApplicationDatagramAsync("after-handshake-freeze"u8.ToArray(), ct);
-            Check((await DtlsTests.App(server ?? throw new IOException("Missing server"), ct)).AsSpan().SequenceEqual("after-handshake-freeze"u8),
+            Check((await ReadApplication(server ?? throw new IOException("Missing server"), ct)).AsSpan().SequenceEqual("after-handshake-freeze"u8),
                 "Application data failed after handshake freeze");
             Check(client.GetHandshakeCounters() == counters, "Application data mutated frozen handshake counters");
         }
@@ -94,4 +94,10 @@ internal static class HandshakeDiagnosticTests
         Check(sentCapture.GetSnapshot().RecordedEvents >= sent.Length && receivedCapture.GetSnapshot().RecordedEvents >= received.Length,
             "Trace sample exceeds aggregate record coverage");
     }
+    private static async Task<byte[]> ReadApplication(DtlsSrtpTransport transport, CancellationToken ct)
+    {
+        await foreach (var bytes in transport.ReceiveApplicationDatagramsAsync(ct)) return bytes;
+        throw new IOException("Application stream ended before test packet.");
+    }
+
 }
