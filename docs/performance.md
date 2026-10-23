@@ -73,3 +73,41 @@ caller cases measured ~1,033/~3,865 B. These include harness costs; use repeated
 same-runtime before/after cohorts for attribution. All 65 protocol cases, including
 new parser allocation contracts, passed locally. Suite compilation: zero warnings
 and errors. No claim about an allocation-free complete transport follows from this.
+
+## Bounded media-send optimization
+
+Source c3ac505 reuses a private framework ArrayPool for encrypted output: maximum
+retained array length 2 KiB and maximum 16 arrays per bucket. Larger configured
+packets can rent uncached arrays; the existing configured datagram bound still
+applies. Each peer holds at most one rental under the send gate. The exact protected
+length is sent; capacity padding is never transmitted. Host socket sends consume
+memory before completion; relay framing copies into its own packet before its await.
+The rental returns cleared in a finally block after completion/failure/cancellation.
+Public caller snapshots and received owned arrays keep their original lifetimes.
+Default caller cancellation uses the peer lifetime token directly; cancellable
+callers retain a linked source. This does not eliminate all transport allocations.
+
+Matched .NET 10.0.13 medians, AES-256-GCM, tracing off, default caller token:
+
+| Platform | 60-byte payload before → after (B/packet) | 1,000-byte payload before → after (B/packet) |
+| --- | ---: | ---: |
+| Linux x64 | 1,017.31 → 841.31 | 3,842.47 → 2,729.03 |
+| Linux arm64 | 1,017.31 → 836.44 | 3,849.48 → 2,729.41 |
+| macOS arm64 | 1,020.59 → 841.12 | 3,850.52 → 2,732.77 |
+| Windows x64 | 1,008.97 → 841.31 | 3,837.98 → 2,730.00 |
+
+All 96 profile/size/trace/token combinations had lower median allocation across
+these cohorts. Cancellable cases preserve their required linked-source cost;
+AES-256-GCM reductions were ~10–11% for 60 bytes and ~27% for 1,000 bytes.
+These are process-wide async pipeline observations, not isolated per-site counters.
+Pool and default-token changes were measured together, so do not attribute the
+whole reduction to either one alone. No timing improvement is claimed from noisy
+shared runners. Source/hardware/raw samples:
+[before 2562112](https://github.com/tryAGI/WebRTC/actions/runs/39967229913),
+[after c3ac505](https://github.com/tryAGI/WebRTC/actions/runs/39968888140).
+
+Local lifetime tests passed for every profile: variable-length RTP and SRTCP,
+already-cancelled/malformed/oversized rejection, retained received arrays,
+slow-reader eviction and disposal with a send burst. These do not deterministically
+force a socket send to remain pending; independent relay/interop validation and
+longer retained-memory stress remain separate evidence.

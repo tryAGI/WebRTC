@@ -79,10 +79,17 @@ This does **not** describe the entire asynchronous transport or owned frame outp
 Both crypto runs use .NET 10.0.13; zero warmed crypto allocation was measured on
 Linux x64/arm64, macOS arm64 and Windows x64. Shared-runner timings are observations,
 not controlled hardware or production latency guarantees. See
-[methodology, suites and reproduction](docs/performance.md),
+[methodology, suites and reproduction](https://github.com/tryAGI/WebRTC/blob/main/docs/performance.md),
 [before artifacts](https://github.com/tryAGI/WebRTC/actions/runs/39947901947) and
 [after artifacts](https://github.com/tryAGI/WebRTC/actions/runs/39950545862).
 The opt-in workflow also measures loopback media, SCTP and video reassembly costs.
+A bounded send-buffer pool and default-token fast path reduced measured loopback
+media allocation by ~17–18% (60-byte payload) and ~29% (1,000-byte payload) for
+AES-256-GCM with tracing off and default caller cancellation. These process-wide
+measurements include harness/receive costs and remain nonzero. See the matched
+.NET 10.0.13 [before](https://github.com/tryAGI/WebRTC/actions/runs/39967229913)
+and [after](https://github.com/tryAGI/WebRTC/actions/runs/39968888140) artifacts
+on all four native platforms; this is not a production latency or memory-leak claim.
 
 ## Supported scope
 
