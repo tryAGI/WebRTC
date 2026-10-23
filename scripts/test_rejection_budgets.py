@@ -58,6 +58,17 @@ class RejectionBudgets(unittest.TestCase):
         self.rows[0]['ns_per_op'] = 'NaN'; self.write(1)
         with self.assertRaisesRegex(ValueError, 'Nonfinite'): budget.check(self.root)
 
+    def test_framework_failure_cost_can_move_between_scenarios(self):
+        key = ('AeadAes256Gcm', 'rtp-video', 'bad-tag')
+        for row in self.rows:
+            if (row['profile'], row['packet'], row['mode']) == key: row['managed_total_bytes'] = '192000'
+        for i in (1, 2, 3): self.write(i)
+        limits = budget.calibrate([self.root], SOURCE)
+        for row in self.rows:
+            if (row['profile'], row['packet'], row['mode']) == key: row['managed_total_bytes'] = '600000'
+        self.write(3)
+        self.assertEqual(budget.check(self.root, limits)['verdict'], 'pass')
+
     def test_mixed_source_fails(self):
         self.write(3, source='b' * 40)
         with self.assertRaisesRegex(ValueError, 'Mixed'): budget.check(self.root)

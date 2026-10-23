@@ -90,3 +90,59 @@ Initial Python guard/controller checks:53 passed. Exact-source managed/native
 measurement, explicit budget registration and extended profiling results are
 recorded below after CI completes. Empty initial budget cohorts are deliberately
 unreviewed, not permissive fallback limits.
+
+## First exact-source captures and reviewed budgets
+
+Initial paired capture40035032182 (a36b472) and active-expanded capture40035520583
+(bbf75fb) both pass on all four platforms. Each compiler/platform runs147 raw-zero
+samples and rejects all42 deliberate allocation controls. All27 rejection
+workloads have seven samples in three fresh processes. Each active compiler mode
+also covers40 configurations in three fresh processes. Existing JIT active limits
+remain unchanged and passed every new capture.
+
+GCM failure allocations are not zero: native builds measure240B/rejection in
+these cohorts; managed values span192–464B depending on platform/workload/process
+phase. The change within some managed runs is observed, not isolated proof of a
+tiering cause. NativeAOT does not universally reduce allocation relative to every
+managed GCM path. AES-CM and replay guards remain exact zero.
+
+An initial per-workload proposal passed its own process3 holdouts but failed the
+earlier independent Windows capture: some later GCM paths moved296→464B while
+an earlier GCM path already measured464B in training. That proposal was NOT
+registered. The reviewed model pools the identical throwing GCM API's failure-path
+training maximum across packets/profiles/modes within each compiler/platform,
+while every AES-CM/replay zero stays exactly0. It does not raise established JIT
+active budgets or silently grow limits on a failed validation. The registered
+GCM ceilings are448B managed Linux,704B managed macOS/Windows,384B NativeAOT;
+all independent process3 holdouts and all eight earlier-capture compiler/platform
+cohorts pass. NativeAOT active ceilings separately cover40 workloads/platform;
+the two training-process medians and independent third-process holdout are kept
+in the JSON. A subsequent fresh validation must pass without changing these caps.
+
+## Repeated memory evidence and diagnostic control
+
+All15 fresh extended profiling processes pass in40034866643 at a36b472: five
+modes, three processes each,64 measured waves/process after four warmup waves,
+with2/16/32/63 native capture barriers and no rooted disposed peer in any record.
+Reported live malloc bytes DECREASE in every one of these processes. Resident
+malloc grows by similar amounts in empty/crypto/peer modes; this is not evidence
+that peer objects alone own the growth. RSS sometimes falls despite growing
+malloc resident, so neither RSS nor RSS minus GC committed is a native leak total.
+
+Median wave2→63 malloc resident/live-byte changes, vmmap-rounded:
+
+| Mode | Resident change (MiB) | Live allocated change (KiB) |
+|---|---:|---:|
+| Empty harness | +4.38 | -131 |
+| Crypto only | +4.48 | -119 |
+| Identity only | +0.20 | -610 |
+| Audio peers | +3.80 | -4170 |
+| Open-channel peers | +4.50 | -4028 |
+
+These are approximate binary-unit changes inherited from rounded vmmap sizes.
+Peer resident tail slopes between
+waves32/63 are small in these samples; empty-harness growth remains appreciable.
+A further empty-harness diagnostic disables tiered compilation ONLY in its owned
+benchmark child. Its metadata/cohort is explicit and ordinary budget readers
+reject it. It is an attribution experiment, not a production/runtime recommendation
+or a way to pass allocation budgets. Normal compiler configuration stays default.

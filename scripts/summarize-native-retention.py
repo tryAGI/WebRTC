@@ -27,7 +27,7 @@ def summarize(root, mode):
         data = json.loads(path.read_text())
         if data['mode'] != mode or data['trace'] != 0 or data['waves'] != 64 or data['child_exit'] != 0:
             raise ValueError('Unexpected memory cohort')
-        cohort, source, rows = core.read_csv(path.parent / 'retention.csv', 'mode')
+        cohort, source, rows = core.read_csv(path.parent / 'retention.csv', 'mode', allow_tiering_control=True)
         identities.add((cohort, source))
         if len(rows) != 64 or {int(r['wave']) for r in rows} != set(range(64)) or any(r['mode'] != mode or r['trace'] != 'False' or r['phase'] != 'disposed' or int(r['alive_disposed_peers']) != 0 for r in rows):
             raise ValueError('Incomplete or rooted disposed-peer cohort')

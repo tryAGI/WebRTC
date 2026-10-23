@@ -60,11 +60,12 @@ def native_summary(text):
     return result
 
 
-def run(binary, output, mode, trace, waves=24):
+def run(binary, output, mode, trace, waves=24, tiering_off=False):
     if sys.platform != 'darwin':
         raise ValueError('This controller requires macOS vmmap')
     output.mkdir(parents=True, exist_ok=False)
     settings = dict(os.environ, TRYAGI_RETENTION_MODE=mode, TRYAGI_RETENTION_TRACE=str(trace), TRYAGI_RETENTION_PROFILE='1', TRYAGI_RETENTION_WAVES=str(waves))
+    if tiering_off: settings['DOTNET_TieredCompilation'] = '0'
     expected = [-5, 2, 16, 32, 63] if waves == 64 else [-5, 2, 16]
     samples = []
     started = time.monotonic()
@@ -112,7 +113,7 @@ def run(binary, output, mode, trace, waves=24):
                         child.stdin.flush()
             if child.wait(timeout=10) != 0 or expected:
                 raise RuntimeError('Retention child failed or omitted a profiling barrier')
-        result = dict(mode=mode, trace=trace, waves=waves, samples=samples, child_exit=0,
+        result = dict(mode=mode, trace=trace, waves=waves, tiering_off=tiering_off, samples=samples, child_exit=0,
                       scope='phase-matched post-disposal snapshots; profiling perturbs timing; no leak-freedom verdict')
         (output / 'profile.json').write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps(result))
@@ -135,5 +136,6 @@ if __name__ == '__main__':
     parser.add_argument('--mode', choices=('empty_control', 'identity_only', 'crypto_only', 'peer_audio', 'peer_open'), default='peer_open')
     parser.add_argument('--trace', type=int, choices=(0, 1), default=0)
     parser.add_argument('--waves', type=int, choices=(24, 64), default=24)
+    parser.add_argument('--tiering-off', action='store_true', help='Owned-child diagnostic control only; ordinary budget readers reject this cohort')
     args = parser.parse_args()
-    run(args.binary, args.output, args.mode, args.trace, args.waves)
+    run(args.binary, args.output, args.mode, args.trace, args.waves, args.tiering_off)

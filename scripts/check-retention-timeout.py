@@ -18,7 +18,7 @@ def check(binary):
         code = child.wait(timeout=30)
         output = child.stdout.read(65537)
         elapsed = time.monotonic() - start
-        if code == 0 or len(output) > 65536 or b'# profile_barrier=ready;wave=-5;alive_disposed_peers=0' not in output or elapsed < 18:
+        if code != 1 or b'Retention deadline expired' not in output or len(output) > 65536 or b'# profile_barrier=ready;wave=-5;alive_disposed_peers=0' not in output or elapsed < 18:
             raise ValueError('Missing-ack test did not reach the expected bounded cancellation')
         print(f'Missing-ack cancellation verified in {elapsed:.2f}s; expected nonzero child exit')
     finally:

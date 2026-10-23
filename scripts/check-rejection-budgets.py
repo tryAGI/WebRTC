@@ -51,22 +51,24 @@ def calibrate(directories, source):
         cohort, actual, records = processes(directory)
         if actual != source or cohort in cohorts:
             raise base.BudgetViolation('Calibration source mismatch or duplicate cohort')
-        limits = {}
-        for key in records[0]:
-            values = records[0][key] + records[1][key]
-            maximum = max(values)
-            proposed = maximum * 1.25 + 64
-            if not math.isfinite(proposed):
-                raise base.BudgetViolation('Unrepresentable rejection ceiling')
-            limit = 0 if maximum == 0 else math.ceil(proposed / 64) * 64
+        # All GCM failure cases use the same throwing framework API. A JIT
+        # call path's stack cost can move between scenarios across processes;
+        # train a shared failure-path cap, never widen exact-zero guards.
+        failure_keys = [key for key in records[0] if not key.startswith(base.PROFILES[0] + '/') and not key.endswith('/replay')]
+        maximum = max(value for record in records[:2] for key in failure_keys for value in record[key])
+        proposed = maximum * 1.25 + 64
+        if not math.isfinite(proposed):
+            raise base.BudgetViolation('Unrepresentable rejection ceiling')
+        failure_limit = 0 if maximum == 0 else math.ceil(proposed / 64) * 64
+        limits = {key: failure_limit if key in failure_keys else 0 for key in records[0]}
+        for key, limit in limits.items():
             if max(records[2][key]) > limit:
                 raise base.BudgetViolation('Independent rejection holdout exceeds proposed budget')
-            limits[key] = limit
         cohorts[cohort] = dict(ceilings_bytes_per_op=limits,
                               training_maxima=[{k: max(v) for k, v in r.items()} for r in records[:2]],
                               holdout_maxima={k: max(v) for k, v in records[2].items()})
     return dict(schema_version=1, source_commit=source,
-                policy='maximum_sample; train_processes_1_2; independent_process_3; exact_zero_or_training_max_x1.25_plus64_roundup64; no_timing_gate',
+                policy='maximum_sample; shared_GCM_framework_failure_path_per_compiler_cohort; exact_zero_AES_CM_and_replay; train_1_2_holdout_3; failure_max_x1.25_plus64_roundup64; no_timing_gate',
                 cohorts=cohorts)
 
 

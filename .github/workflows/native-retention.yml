@@ -1,6 +1,15 @@
 name: Repeated native memory attribution
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [all, empty_control, identity_only, crypto_only, peer_audio, peer_open]
+        default: all
+      tiering_off:
+        description: Owned-child diagnostic control, never ordinary runtime configuration
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -8,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [empty_control, identity_only, crypto_only, peer_audio, peer_open]
+        mode: ${{ inputs.mode == 'all' && fromJSON('["empty_control","identity_only","crypto_only","peer_audio","peer_open"]') || fromJSON(format('["{0}"]', inputs.mode)) }}
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -22,9 +31,13 @@ jobs:
         run: python3 scripts/check-retention-timeout.py src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll
       - name: Three fresh extended phase-matched cohorts
         shell: bash
+        env:
+          TIERING_OFF: ${{ inputs.tiering_off }}
         run: |
+          options=()
+          if [ "$TIERING_OFF" = true ]; then options+=(--tiering-off); fi
           for repetition in 1 2 3; do
-            python3 scripts/profile-retention-macos.py src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll "profiles/process-$repetition" --mode "${{ matrix.mode }}" --trace 0 --waves 64
+            python3 scripts/profile-retention-macos.py src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll "profiles/process-$repetition" --mode "${{ matrix.mode }}" --trace 0 --waves 64 "${options[@]}"
           done
           python3 scripts/summarize-native-retention.py profiles --mode "${{ matrix.mode }}" --output summary.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

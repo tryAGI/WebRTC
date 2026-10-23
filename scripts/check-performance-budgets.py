@@ -24,7 +24,7 @@ class BudgetViolation(ValueError):
     pass
 
 
-def read_csv(path, header):
+def read_csv(path, header, allow_tiering_control=False):
     path = Path(path)
     if path.stat().st_size > 4 * 1024 * 1024:
         raise BudgetViolation('Result file exceeds four MiB bound')
@@ -43,6 +43,11 @@ def read_csv(path, header):
     cohort = '|'.join((runtime, os_family, architecture, 'cpu=' + settings['cpu_count'],
                        'server_gc=' + settings['server_gc'], 'dynamic_code=' + settings['dynamic_code']))
     lines = lines[:4] + [line for line in lines[4:] if not line.startswith('#')]
+    tiering = settings.get('tiered_compilation', 'default')
+    if tiering != 'default':
+        if not allow_tiering_control or tiering not in ('0', '1'):
+            raise BudgetViolation('Non-default tiering is a diagnostic cohort, not a reviewed budget cohort')
+        cohort += '|tiered_compilation=' + tiering
     if len(lines) < 5 or not lines[4].startswith(header + ','):
         raise BudgetViolation('Unexpected result schema')
     rows = list(csv.DictReader(line for line in lines[4:] if not line.startswith('#')))

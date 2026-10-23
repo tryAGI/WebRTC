@@ -19,7 +19,7 @@ internal static class RetentionBenchmarks
         if (wavesSetting is not ("24" or "64")) throw new ArgumentException("Unknown retention wave count");
         var waves = wavesSetting == "64" ? 64 : 24;
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(waves == 64 ? 8 : 3));
-        Console.WriteLine($"# process_id={Environment.ProcessId}; mode={mode}; trace={trace}; profile=AeadAes256Gcm; warmup_waves=4; waves={waves}; pairs=2; live_idle_ms=2000; normal_tiered_compilation");
+        Console.WriteLine($"# process_id={Environment.ProcessId}; mode={mode}; trace={trace}; profile=AeadAes256Gcm; warmup_waves=4; waves={waves}; pairs=2; live_idle_ms=2000; tiered_compilation={Environment.GetEnvironmentVariable("DOTNET_TieredCompilation") ?? Environment.GetEnvironmentVariable("COMPlus_TieredCompilation") ?? "default"}");
         Console.WriteLine("mode,trace,wave,phase,elapsed_ms,managed_heap,managed_committed,fragmented_bytes,rss,private_bytes,handles,alive_disposed_peers");
         // Warm the redirected-console handshake before creating or measuring peers.
         if (profiling) await ProfileBarrier("ready", -5, deadline.Token);

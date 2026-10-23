@@ -8,7 +8,7 @@ CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 var suite = args.Length == 0 ? "crypto" : args.Length == 2 && args[0] == "--suite" ? args[1] : throw new ArgumentException("Use --suite crypto|packets|media|video|channels|cold|soak|audio|idle|idle-sctp|identity|native|retention|rejection");
 Console.WriteLine($"{RuntimeInformation.FrameworkDescription}; {RuntimeInformation.OSDescription}; {RuntimeInformation.ProcessArchitecture}");
-Console.WriteLine($"cpu_count={Environment.ProcessorCount}; server_gc={System.Runtime.GCSettings.IsServerGC}; stopwatch_hz={Stopwatch.Frequency}; dynamic_code={System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeCompiled}");
+Console.WriteLine($"cpu_count={Environment.ProcessorCount}; server_gc={System.Runtime.GCSettings.IsServerGC}; stopwatch_hz={Stopwatch.Frequency}; dynamic_code={System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeCompiled}; tiered_compilation={Environment.GetEnvironmentVariable("DOTNET_TieredCompilation") ?? Environment.GetEnvironmentVariable("COMPlus_TieredCompilation") ?? "default"}");
 Console.WriteLine($"library_package={WebRtcBuildInfo.Current.PackageVersion}; library_source={WebRtcBuildInfo.Current.SourceRevisionId}");
 Console.WriteLine($"harness_source={Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "working_tree_unverified"}");
 if (suite == "rejection") { RejectionBenchmarks.Run(); return; }

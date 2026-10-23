@@ -71,6 +71,15 @@ class RetentionTests(unittest.TestCase):
             self.write(3, rooted, missing)
             with self.assertRaises(ValueError): retention.summarize(self.root, 'crypto_only')
 
+    def test_tiering_diagnostic_cannot_borrow_ordinary_budget_cohort(self):
+        for directory in self.root.iterdir():
+            path = directory / 'retention.csv'
+            path.write_text(path.read_text().replace('dynamic_code=True', 'dynamic_code=True; tiered_compilation=0'))
+        result = retention.summarize(self.root, 'crypto_only')
+        self.assertTrue(result['cohort'].endswith('tiered_compilation=0'))
+        with self.assertRaisesRegex(ValueError, 'Non-default tiering'):
+            retention.core.read_csv(self.root / '1' / 'retention.csv', 'mode')
+
     def test_native_size_precision_and_unknown_format(self):
         self.assertEqual(retention.size('1.5M'), 1572864)
         with self.assertRaises(ValueError): retention.size('private/path')
