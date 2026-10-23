@@ -116,6 +116,12 @@ training processes plus an independent holdout; exact-zero crypto/parser guards
 use raw total bytes and a real injected-allocation control. These gates do not
 assert whole-transport zero allocation, native leak freedom or physical energy.
 
+Allocation gates also cover 40 active media/audio/data-channel/video configurations
+per platform. Two runtime-equivalent process captures train fixed ceilings; a
+fresh four-platform holdout passed without changing limits. These contracts
+include owned async/frame outputs and remain nonzero. See
+[active budget scope and fresh proof](https://github.com/tryAGI/WebRTC/blob/main/docs/sctp-idle-20261023.md#active-allocation-budget-extension).
+
 ## Supported scope
 
 | Area | Implemented and tested | Current limits |
