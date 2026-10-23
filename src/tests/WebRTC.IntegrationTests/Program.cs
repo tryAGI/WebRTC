@@ -121,6 +121,8 @@ foreach (var bound in new[] { 1200, 2048 })
     cases.Add(($"DTLS receive boundary {bound} is independent of transmit MTU", () => DtlsReceiveBoundsTests.Exchange(bound)));
 foreach (var scenario in new[] { "canonical-unordered", "canonical-ordered", "padded-ordered", "ordered-reject", "padded-reject", "unknown-reject", "remote-reject", "open-reject" })
     cases.Add(($"DCEP canonical ACK compatibility {scenario}", () => DataChannelAckTests.Exchange(scenario)));
+foreach (var profile in Enum.GetValues<SrtpProfile>())
+    cases.Add(($"DTLS media pool cancellation, framing and retained payload lifetime {profile}", () => MediaSendLifetimeTests.Exercise(profile)));
 cases.Add(("DTLS cancellation cleans up a pending reader", DtlsTests.Cancel));
 cases.Add(("DTLS malformed fragment flood preserves handshake state", DtlsTests.MalformedFlood));
 cases.Add(("DTLS reordered server handshake messages", () => DtlsTests.Exchange(SrtpProfile.AeadAes128Gcm, fault: "reorder")));

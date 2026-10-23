@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -33,6 +34,9 @@ public sealed record DtlsSrtpDiagnostics(DtlsRole Role, SrtpProfile? Profile, Ti
 /// </summary>
 public sealed partial class DtlsSrtpTransport : IAsyncDisposable
 {
+    // Private bounded retention: at most 16 arrays per bucket, maximum 2 KiB.
+    // Each peer holds at most one rental under _sendGate; no queued/returned payload aliases it.
+    private static readonly ArrayPool<byte> MediaSendPackets = ArrayPool<byte>.Create(2048, 16);
     private const ushort EcdsaCipher = 0xC02B, RsaCipher = 0xC02F;
     private readonly IceUdpTransport _ice;
     private readonly DtlsIdentity _identity;
@@ -167,30 +171,43 @@ public sealed partial class DtlsSrtpTransport : IAsyncDisposable
             trace = Volatile.Read(ref _ice.Diagnostics)?.Begin(PacketDirection.Send, _ice.SelectedDiagnosticPath, _ice.DiagnosticGeneration, data.Length) ?? default;
             trace.Protocol(rtcp ? DiagnosticProtocol.Rtcp : DiagnosticProtocol.Rtp); trace.Mark(PacketStage.CallerSubmission);
         }
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-        try { await _sendGate.WaitAsync(linked.Token).ConfigureAwait(false); }
+        using var linked = cancellationToken.CanBeCanceled
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token) : null;
+        var sendToken = linked?.Token ?? _lifetime.Token;
+        try { await _sendGate.WaitAsync(sendToken).ConfigureAwait(false); }
         catch (OperationCanceledException) { trace.Mark(PacketStage.Dropped, PacketReason.Cancelled); throw; }
         trace.Mark(PacketStage.SecureSendLockAcquired);
+        byte[]? packet = null;
         try
         {
             RequireReady();
-            byte[] packet;
+            int length;
             lock (_cryptoGate)
             {
                 trace.Mark(PacketStage.ProtectionLockAcquired); trace.Mark(PacketStage.ProtectionStarted);
-                var overhead = rtcp ? _srtpSender!.RtcpOverhead : _srtpSender!.RtpOverhead;
+                var sender = _srtpSender ?? throw new InvalidOperationException("Missing authenticated SRTP sender.");
+                var overhead = rtcp ? sender.RtcpOverhead : sender.RtpOverhead;
                 if (data.Length > _options.MaximumDatagramSize - overhead || (!rtcp && data.Length >= 2 && (data.Span[1] & 127) is >= 64 and <= 95))
                     throw new ArgumentOutOfRangeException(nameof(data), "Invalid RTP/RTCP mux packet size or payload type.");
-                packet = new byte[data.Length + overhead];
-                var success = rtcp ? _srtpSender.TryProtectRtcp(data.Span, packet, out _) : _srtpSender.TryProtectRtp(data.Span, packet, out _);
-                if (!success) throw new InvalidOperationException("Media packet violates framing, replay or key bounds.");
+                length = data.Length + overhead;
+                packet = MediaSendPackets.Rent(length);
+                var output = packet.AsSpan(0, length);
+                int written;
+                var success = rtcp ? sender.TryProtectRtcp(data.Span, output, out written) : sender.TryProtectRtp(data.Span, output, out written);
+                if (!success || written != length) throw new InvalidOperationException("Media packet violates framing, replay or key bounds.");
             }
-            trace.Size(packet.Length); trace.Mark(PacketStage.Protected);
-            await _ice.SendDiagnosticDatagramAsync(packet, trace, linked.Token).ConfigureAwait(false);
+            trace.Size(length); trace.Mark(PacketStage.Protected);
+            // Host sends finish consuming this memory before returning; relay framing copies
+            // it into its own bounded packet before awaiting its network writer.
+            await _ice.SendDiagnosticDatagramAsync(packet.AsMemory(0, length), trace, sendToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { trace.Mark(PacketStage.Dropped, PacketReason.Cancelled); throw; }
         catch (Exception) { trace.Mark(PacketStage.Dropped, PacketReason.SendFailure); throw; }
-        finally { _sendGate.Release(); }
+        finally
+        {
+            if (packet is not null) MediaSendPackets.Return(packet, clearArray: true);
+            _sendGate.Release();
+        }
     }
 
     private void RequireReady()
