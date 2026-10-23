@@ -26,6 +26,18 @@ class BarrierTests(unittest.TestCase):
         self.assertEqual(result['total_columns'][-1], '12')
         self.assertNotIn('allocated', result)
 
+    def test_single_zone_without_total_is_retained_and_redacted(self):
+        text = 'MALLOC ZONE SIZE\nDefaultMallocZone_0x1234 50.0M 15.0M 15.0M 0K 20000 8000K 7000K 46% 17\n'
+        result = profile.native_summary(text)
+        self.assertEqual(result['total_source'], 'single_zone')
+        self.assertEqual(result['allocated'], '8000K')
+        self.assertNotIn('0x1234', str(result))
+        multiple = text + 'OtherZone_0x5678 20M 10M 10M 0K 2000 1000K 1000K 50% 1\n'
+        result = profile.native_summary(multiple)
+        self.assertEqual(result['total_source'], 'zone_rows_without_total')
+        self.assertEqual(len(result['zones']), 2)
+        self.assertNotIn('allocated', result)
+
     def test_native_aggregate_excludes_process_details(self):
         text = 'Process: private/path [123]\nMALLOC ZONE   SIZE\nTOTAL 50.0M 15.0M 15.0M 0K 20000 8000K 7000K 46% 17\n'
         result = profile.native_summary(text)

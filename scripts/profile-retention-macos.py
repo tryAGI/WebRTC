@@ -29,19 +29,35 @@ def native_summary(text):
         raise ValueError('Native malloc zone summary missing')
     names = ('virtual', 'resident', 'dirty', 'swapped', 'allocations', 'allocated', 'fragmentation', 'fragmentation_percent', 'regions')
     lines = zone[1].splitlines()
+    headings = [value.strip() for value in lines if value.strip() and re.fullmatch(r'[A-Z +%_/-]+', value.strip())]
+    rows = []
     for line in lines:
         fields = line.split()
-        if fields and fields[0] == 'TOTAL':
-            if not 5 <= len(fields) <= 16 or not all(re.fullmatch(r'[0-9][0-9,]*(?:\.[0-9]+)?[BKMGT%]?', value) for value in fields[1:]):
-                raise ValueError('Unexpected native malloc aggregate format')
-            # vmmap changes columns across macOS releases. Preserve their numeric
-            # order and safe uppercase headings instead of inventing missing fields.
-            result = dict(total_columns=fields[1:], headings=[value.strip() for value in lines
-                          if value.strip() and re.fullmatch(r'[A-Z +%_/-]+', value.strip())])
-            if len(fields) == 10 and fields[8].endswith('%'):
-                result.update(zip(names, fields[1:]))
-            return result
-    raise ValueError('Native malloc aggregate missing')
+        # Zone identifiers can contain native addresses. Keep only a bounded
+        # numeric suffix, never the identifier or an arbitrary raw line.
+        values = []
+        for value in reversed(fields):
+            if not re.fullmatch(r'[0-9][0-9,]*(?:\.[0-9]+)?[BKMGT%]?', value):
+                break
+            values.append(value)
+        values.reverse()
+        if 5 <= len(values) <= 15:
+            rows.append((fields[0] == 'TOTAL', values))
+    if not rows or len(rows) > 64:
+        raise ValueError('Native malloc numeric rows missing or excessive')
+    totals = [values for total, values in rows if total]
+    if len(totals) > 1:
+        raise ValueError('Duplicate native malloc totals')
+    result = dict(headings=headings, zones=[dict(ordinal=i, columns=values)
+                  for i, (total, values) in enumerate(rows) if not total])
+    values = totals[0] if totals else rows[0][1] if len(rows) == 1 else None
+    if values is not None:
+        result.update(total_columns=values, total_source='explicit_total' if totals else 'single_zone')
+        if len(values) == 9 and values[7].endswith('%'):
+            result.update(zip(names, values))
+    else:
+        result['total_source'] = 'zone_rows_without_total'
+    return result
 
 
 def run(binary, output, mode, trace):
