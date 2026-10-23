@@ -65,6 +65,29 @@ class ActiveBudgetTests(unittest.TestCase):
         with self.assertRaisesRegex(module.core.BudgetViolation, 'Two independent'):
             module.calibrate(self.directories[:1], self.sources, 'd' * 40)
 
+    def aot_repetitions(self):
+        for i, directory in enumerate(self.directories, 1):
+            for path in directory.glob('*.csv'):
+                text = path.read_text().replace('dynamic_code=True', 'dynamic_code=False')
+                for source in [*self.sources, 'c' * 40]: text = text.replace(source, 'a' * 40)
+                path.write_text(text)
+            directory.rename(self.root / f'active-{i}')
+
+    def test_aot_repetitions_use_independent_holdout_and_new_cohort(self):
+        self.aot_repetitions()
+        limits = module.calibrate_aot_repetitions([self.root], 'a' * 40, 'd' * 40)
+        self.assertEqual(module.check(self.root / 'active-3', limits)['workloads'], 40)
+        self.assertTrue(all(key.endswith('dynamic_code=False') for key in limits['cohorts']))
+        with self.assertRaisesRegex(ValueError, 'Unreviewed'):
+            module.check(self.root / 'active-3', self.budgets)
+
+    def test_aot_holdout_cannot_raise_the_ceiling(self):
+        self.aot_repetitions()
+        path = self.root / 'active-3' / 'channels.csv'
+        path.write_text(path.read_text().replace(',1000', ',100000'))
+        with self.assertRaisesRegex(ValueError, 'holdout'):
+            module.calibrate_aot_repetitions([self.root], 'a' * 40, 'd' * 40)
+
     def test_unreviewed_hardware_is_rejected(self):
         path = self.directories[2] / 'channels.csv'
         path.write_text(path.read_text().replace('cpu_count=4', 'cpu_count=8'))

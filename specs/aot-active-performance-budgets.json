@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "policy": "Unreviewed NativeAOT active cohorts fail closed until independent holdouts pass.",
+  "cohorts": {}
+}

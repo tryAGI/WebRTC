@@ -49,6 +49,12 @@ part of cohort identity, so JIT ceilings cannot be borrowed for NativeAOT.
 `calibration_capture=true` validates coverage/zero guards and retains data; it
 explicitly does not accept nonzero ceilings. Unknown cohorts fail closed.
 
+Active pipelines additionally cover all40 media/audio/channel/video workload
+configurations in three fresh processes/compiler mode. JIT checks retain their
+existing stricter reviewed ceilings. NativeAOT calibrates a separate file using
+two process medians for training and the third as holdout (max x1.5 +64B/op,
+rounded up to64). Unknown compiler cohorts fail; validation never grows limits.
+
 ## Extended native-memory controls
 
 The opt-in64-wave cohort preserves four warmup waves and captures disposed

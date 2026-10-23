@@ -70,6 +70,32 @@ def calibrate(directories, sources, runtime_tree):
             'cohorts': cohorts}
 
 
+def calibrate_aot_repetitions(directories, source, runtime_tree):
+    if not all(core.re.fullmatch('[0-9a-f]{40}', value) for value in (source, runtime_tree)):
+        raise core.BudgetViolation('Exact source and runtime tree required')
+    cohorts = {}
+    for directory in directories:
+        records = [measurements(Path(directory) / f'active-{i}') for i in (1, 2, 3)]
+        if len({(r[0], r[1]) for r in records}) != 1:
+            raise core.BudgetViolation('Mixed repeated active identities')
+        cohort, actual, _ = records[0]
+        if actual != source or not cohort.endswith('dynamic_code=False') or cohort in cohorts:
+            raise core.BudgetViolation('Expected unique NativeAOT calibration cohort')
+        process = [r[2] for r in records]
+        limits = {}
+        for key in process[0]:
+            proposed = max(process[0][key], process[1][key]) * 1.5 + 64
+            if not math.isfinite(proposed): raise core.BudgetViolation('Unrepresentable active ceiling')
+            limits[key] = math.ceil(proposed / 64) * 64
+            if process[2][key] > limits[key]:
+                raise core.BudgetViolation('Independent active holdout exceeds proposed budget')
+        cohorts[cohort] = dict(ceilings_bytes_per_operation=limits, training_processes=process[:2], holdout_process=process[2])
+    return dict(schema_version=1, calibration_sources=[source], equivalent_runtime_tree=runtime_tree,
+                policy='five_sample_medians; three_fresh_AOT_processes; train_1_2_holdout_3; max_x1.5_plus64_roundup64; no_timing_gate',
+                scopes={'media':'process/packet','audio':'process/delivered_packet','channels':'process/message','video':'current_thread/owned_frame'},
+                cohorts=cohorts)
+
+
 def check(directory, budgets):
     cohort, source, medians = measurements(directory)
     if budgets.get('schema_version') != 1 or cohort not in budgets['cohorts']:
@@ -88,12 +114,20 @@ def main():
     parser.add_argument('directory', nargs='?')
     parser.add_argument('--budgets', default='specs/active-performance-budgets.json')
     parser.add_argument('--calibrate', nargs='+')
+    parser.add_argument('--calibrate-aot-repetitions', nargs='+')
+    parser.add_argument('--capture-only', action='store_true')
+    parser.add_argument('--source')
     parser.add_argument('--sources', nargs=2)
     parser.add_argument('--runtime-tree')
     parser.add_argument('--output')
     args = parser.parse_args()
     try:
-        if args.calibrate:
+        if args.calibrate_aot_repetitions:
+            result = calibrate_aot_repetitions(args.calibrate_aot_repetitions, args.source or '', args.runtime_tree or '')
+        elif args.capture_only and args.directory:
+            cohort, source, medians = measurements(args.directory)
+            result = dict(verdict='capture_valid', cohort=cohort, source=source, workloads=len(medians), limits_auto_updated=False, medians=medians)
+        elif args.calibrate:
             result = calibrate(args.calibrate, args.sources or [], args.runtime_tree or '')
         elif args.directory:
             result = check(args.directory, json.loads(Path(args.budgets).read_text()))

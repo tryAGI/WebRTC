@@ -19,7 +19,7 @@ jobs:
           - {os: macos-latest, rid: osx-arm64, exe: WebRTC.Performance}
           - {os: windows-latest, rid: win-x64, exe: WebRTC.Performance.exe}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -49,6 +49,29 @@ jobs:
               "${command[@]}" --suite rejection > "$mode/rejection-$repetition.csv"
             done
           done
+      - name: Repeated active managed and NativeAOT pipelines
+        shell: bash
+        env:
+          NATIVE_EXE: artifacts/native/${{ matrix.exe }}
+          CAPTURE: ${{ inputs.calibration_capture }}
+        run: |
+          for mode in jit aot; do
+            if [ "$mode" = jit ]; then command=(dotnet src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll)
+            else command=("$NATIVE_EXE"); fi
+            for repetition in 1 2 3; do
+              directory="$mode/active-$repetition"
+              mkdir -p "$directory"
+              for suite in media audio channels video; do
+                "${command[@]}" --suite "$suite" > "$directory/$suite.csv"
+              done
+              options=()
+              if [ "$mode" = aot ]; then
+                if [ "$CAPTURE" = true ]; then options+=(--capture-only)
+                else options+=(--budgets specs/aot-active-performance-budgets.json); fi
+              fi
+              python3 scripts/check-active-performance-budgets.py "$directory" "${options[@]}" --output "$directory/proof.json"
+            done
+          done
       - name: Validate rejection captures or enforce reviewed ceilings
         shell: bash
         env:
@@ -69,6 +92,10 @@ jobs:
             jit/*.json
             aot/*.csv
             aot/*.json
+            jit/active-*/*.csv
+            jit/active-*/*.json
+            aot/active-*/*.csv
+            aot/active-*/*.json
             comparison.json
           if-no-files-found: error
           retention-days: 30
