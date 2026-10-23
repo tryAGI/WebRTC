@@ -61,6 +61,8 @@ foreach (var reason in new[] { IceDatagramRejectionReason.NoNominatedPair, IceDa
     cases.Add(($"Diagnostics ICE retained data rejection {reason}", () => IceAdmissionDiagnosticTests.Rejection(reason)));
 foreach (var silent in new[] { false, true })
     cases.Add(($"Diagnostics DTLS handshake socket boundaries silent={silent}", () => HandshakeDiagnosticTests.Exchange(silent)));
+cases.Add(("Diagnostics DTLS counters survive trace wrap and disposal", () => HandshakeDiagnosticTests.Exchange(false, "wrapped")));
+cases.Add(("Diagnostics DTLS counters survive trace expiry and timeout", () => HandshakeDiagnosticTests.Exchange(true, "expired")));
 cases.Add(("Diagnostics live lifecycle, queues, bounded drops and expiry", DiagnosticTests.QueueAndLifecycle));
 cases.Add(("Diagnostics throwing collector isolation", () => DiagnosticTests.CollectorIsolation(false)));
 cases.Add(("Diagnostics slow collector isolation and dispose", () => DiagnosticTests.CollectorIsolation(true)));
@@ -349,6 +351,11 @@ if (pionUri != null)
     foreach (var role in Enum.GetValues<DtlsRole>())
         foreach (var profile in Enum.GetValues<SrtpProfile>())
             cases.Add(($"Pion DTLS {role} and exporter/SRTP {profile}", () => DtlsTests.Pion(pionUri, role, profile)));
+    foreach (var profile in Enum.GetValues<SrtpProfile>())
+        cases.Add(($"Pion DTLS client-flight loss and reorder {profile}",
+            () => DtlsTests.Pion(pionUri, DtlsRole.Client, profile, 256, "client-flight-loss-reorder")));
+    cases.Add(("Pion DTLS missing client CertificateVerify retains zero-rejection timeout",
+        () => DtlsTests.Pion(pionUri, DtlsRole.Client, SrtpProfile.AeadAes128Gcm, 256, "client-verify-blackhole")));
     cases.Add(("Pion DTLS fragmented certificate interoperability", () => DtlsTests.Pion(pionUri, DtlsRole.Server, SrtpProfile.AeadAes128Gcm, 256)));
     cases.Add(("Pion controlled peer interoperability", () => Pion(pionUri, IceRole.Controlling)));
     cases.Add(("Pion controlling peer interoperability", () => Pion(pionUri, IceRole.Controlled)));

@@ -31,7 +31,7 @@ public sealed record DtlsSrtpDiagnostics(DtlsRole Role, SrtpProfile? Profile, Ti
 /// Owns its cryptographic state, consumes the ICE receive stream, and leaves ICE/identity disposal to their owners.
 /// This is not SDP, RTP codec assembly or SCTP/data-channel negotiation.
 /// </summary>
-public sealed class DtlsSrtpTransport : IAsyncDisposable
+public sealed partial class DtlsSrtpTransport : IAsyncDisposable
 {
     private const ushort EcdsaCipher = 0xC02B, RsaCipher = 0xC02F;
     private readonly IceUdpTransport _ice;
@@ -225,6 +225,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
                         ProcessDatagram(receive.Current.Data, receive.Current.Trace);
                         if (_sendPending) await SendFlightAsync(false).ConfigureAwait(false);
                         if (_finishAfterSend) { _finishAfterSend = false; Establish(); }
+                        if (_ready) FreezeHandshakeCounters();
                         next = receive.MoveNextAsync().AsTask();
                     }
                     if (tick.IsCompleted)
@@ -251,6 +252,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         catch (Exception error) { reason = error; }
         finally
         {
+            FreezeHandshakeCounters();
             Establishment?.End(EstablishmentPhase.Dtls, reason);
             _lifetime.Cancel();
             Volatile.Write(ref _ready, false);
@@ -290,6 +292,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
             }
             return;
         }
+        if (!_ready) Interlocked.Increment(ref _handshakeDatagrams);
         // Validate all concatenated record boundaries before processing any record.
         var offset = 0;
         while (offset < datagram.Length)
@@ -303,6 +306,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         for (offset = 0; offset < datagram.Length;)
         {
             var size = 13 + BinaryPrimitives.ReadUInt16BigEndian(datagram.AsSpan(offset + 11));
+            if (!_ready) Interlocked.Increment(ref _handshakeRecords);
             ProcessRecord(datagram.AsSpan(offset, size));
             offset += size;
         }
@@ -322,7 +326,12 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         {
             if (_receiveCipher == null || !_ccsSeen)
             {
-                if (!_ready && _pendingEncrypted.Count < 8) _pendingEncrypted.Add(record.ToArray());
+                if (!_ready && _pendingEncrypted.Count < 8)
+                {
+                    _pendingEncrypted.Add(record.ToArray());
+                    Interlocked.Increment(ref _handshakeBuffered);
+                    ObservePendingHandshakeState();
+                }
                 else Reject();
                 return;
             }
@@ -340,6 +349,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
             {
                 if (epoch != 0 || !body.SequenceEqual(new byte[] { 1 })) { Reject(); return; }
                 _ccsSeen = true;
+                if (!_ready) Interlocked.Increment(ref _handshakeCcs);
             }
             else if (type == 21)
             {
@@ -361,6 +371,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
     {
         if (_receiveCipher == null || !_ccsSeen || _pendingEncrypted.Count == 0) return;
         var records = _pendingEncrypted.ToArray(); _pendingEncrypted.Clear();
+        ObservePendingHandshakeState();
         foreach (var record in records) ProcessRecord(record);
     }
 
@@ -389,8 +400,10 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
             var offset = DtlsProtocol.Read24(cursor[6..]);
             if (total > 16384 || offset > total || size > total - offset || (total != 0 && size == 0) ||
                 ((type == 20) != (epoch == 1))) { Reject(); return; }
+            if (!_ready) Interlocked.Increment(ref _handshakeFragments);
             if (sequence < _expectedSequence)
             {
+                if (!_ready) Interlocked.Increment(ref _handshakeDuplicates);
                 if (_ready)
                 {
                     if (_role == DtlsRole.Server && type == 20 && epoch == 1 && offset == 0 && size == total &&
@@ -405,6 +418,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
                 {
                     if (_assemblyBytes + total > 32768) { Reject(); return; }
                     assembly = new(type, total, epoch); _assemblies.Add(sequence, assembly); _assemblyBytes += total;
+                    ObservePendingHandshakeState();
                 }
                 if (!assembly.Add(type, epoch, offset, cursor.Slice(12, size))) { Reject(); return; }
             }
@@ -414,7 +428,14 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         while (_assemblies.TryGetValue(_expectedSequence, out var complete) && complete.Complete)
         {
             _assemblies.Remove(_expectedSequence); _assemblyBytes -= complete.Body.Length;
-            try { ProcessHandshake(complete.Type, _expectedSequence, complete.Body); Establishment?.Progress(EstablishmentPhase.Dtls, DiagnosticStep()); }
+            ObservePendingHandshakeState();
+            Interlocked.Increment(ref _handshakeReassembled);
+            try
+            {
+                ProcessHandshake(complete.Type, _expectedSequence, complete.Body);
+                Interlocked.Increment(ref _handshakeAccepted);
+                Establishment?.Progress(EstablishmentPhase.Dtls, DiagnosticStep());
+            }
             catch (InvalidDataException) { Reject(); return; }
             if (_expectedSequence == ushort.MaxValue) throw new AuthenticationException("DTLS handshake sequence limit reached.");
             _expectedSequence++;
@@ -458,6 +479,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
                 if (!_ccsSeen || _master == null) throw new InvalidDataException("Unexpected DTLS Finished.");
                 var expected = DtlsProtocol.Prf(_master, _role == DtlsRole.Client ? "server finished"u8 : "client finished"u8, _transcript.GetCurrentHash(), 12);
                 if (!CryptographicOperations.FixedTimeEquals(expected, body)) throw new AuthenticationException("DTLS Finished authentication failed.");
+                Interlocked.Increment(ref _handshakeFinished);
                 _lastPeerFinished = body.ToArray(); AddTranscript(type, sequence, body);
                 if (_role == DtlsRole.Server)
                 {
@@ -717,6 +739,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
         Establishment?.Progress(EstablishmentPhase.Dtls, HandshakeStep.DtlsComplete);
         Establishment?.End(EstablishmentPhase.Dtls); _connected.TrySetResult();
         _assemblies.Clear(); _assemblyBytes = 0; _pendingEncrypted.Clear();
+        ObservePendingHandshakeState();
         if (_role == DtlsRole.Client) _flight.Clear();
     }
 
@@ -764,11 +787,17 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
                     var trace = Volatile.Read(ref _ice.Diagnostics)?.Begin(PacketDirection.Send,
                         _ice.SelectedDiagnosticPath, _ice.DiagnosticGeneration, packet.Length) ?? default;
                     trace.Protocol(DiagnosticProtocol.Dtls);
-                    try { await _ice.SendDiagnosticDatagramAsync(packet, trace, _lifetime.Token).ConfigureAwait(false); }
+                    if (!_ready) Interlocked.Increment(ref _handshakeSendAttempts);
+                    try
+                    {
+                        await _ice.SendDiagnosticDatagramAsync(packet, trace, _lifetime.Token).ConfigureAwait(false);
+                        if (!_ready) Interlocked.Increment(ref _handshakeSent);
+                    }
                     catch (OperationCanceledException) { trace.Mark(PacketStage.Dropped, PacketReason.Cancelled); throw; }
                     catch (Exception) { trace.Mark(PacketStage.Dropped, PacketReason.SendFailure); throw; }
                 }
             }
+            if (!_ready) Interlocked.Increment(ref _handshakeFlights);
             _sendPending = false; _lastFlightSentAt = Stopwatch.GetTimestamp();
             if (retry) { Interlocked.Increment(ref _retransmissions); Establishment?.Progress(EstablishmentPhase.Dtls, DiagnosticStep(), retransmission: true); }
         }
@@ -788,6 +817,7 @@ public sealed class DtlsSrtpTransport : IAsyncDisposable
             _connected.TrySetException(reason); _completion.TrySetResult(reason);
             _application.Writer.TryComplete(); _media.Writer.TryComplete();
         }
+        FreezeHandshakeCounters();
         await _sendGate.WaitAsync().ConfigureAwait(false);
         try
         {

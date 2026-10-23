@@ -92,12 +92,13 @@ internal static class DtlsTests
         if (fault == "signature") Check(proxy.Affected > 0);
     }
 
-    internal static async Task Pion(Uri uri, DtlsRole role, SrtpProfile profile, int mtu = 1200)
+    internal static async Task Pion(Uri uri, DtlsRole role, SrtpProfile profile, int mtu = 1200, string fault = "")
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(8));
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
         await using var ice = Ice(); using var identity = DtlsIdentity.Generate();
-        var endpoint = ice.LocalEndPoint;
+        await using var proxy = fault.Length == 0 ? null : new DtlsProxy(ice.LocalEndPoint, null, fault);
+        var endpoint = proxy?.EndPoint ?? ice.LocalEndPoint;
         var offer = new DtlsOffer(true, true, role == DtlsRole.Server,
             Convert.ToHexString(identity.GetFingerprintSha256()), (ushort)profile, mtu,
             ice.LocalCredentials.UsernameFragment, ice.LocalCredentials.Password,
@@ -106,9 +107,27 @@ internal static class DtlsTests
         response.EnsureSuccessStatusCode();
         var remote = await response.Content.ReadFromJsonAsync(InteropJson.Default.DtlsDescription, deadline.Token)
             ?? throw new IOException("Missing independent DTLS peer");
-        Check(IPAddress.TryParse(remote.Address, out var ip) && IPAddress.IsLoopback(ip));
-        await ice.ConnectAsync(new(remote.Fragment, remote.Password), IceRole.Controlled, [new(new(ip!, remote.Port), remote.Priority)], deadline.Token);
-        await using var secure = new DtlsSrtpTransport(ice, identity, role, Convert.FromHexString(remote.Fingerprint), Options(profile, false, mtu));
+        if (!IPAddress.TryParse(remote.Address, out var ip) || !IPAddress.IsLoopback(ip))
+            throw new IOException("Independent peer must use loopback");
+        var remoteEndpoint = new IPEndPoint(ip, remote.Port);
+        proxy?.BindRemote(remoteEndpoint);
+        await ice.ConnectAsync(new(remote.Fragment, remote.Password), IceRole.Controlled,
+            [new(proxy?.EndPoint ?? remoteEndpoint, remote.Priority)], deadline.Token);
+        var options = Options(profile, false, mtu);
+        if (fault == "client-verify-blackhole") options = options with { HandshakeTimeout = TimeSpan.FromMilliseconds(900) };
+        await using var secure = new DtlsSrtpTransport(ice, identity, role, Convert.FromHexString(remote.Fingerprint), options);
+        if (fault == "client-verify-blackhole")
+        {
+            try { await secure.ConnectAsync(deadline.Token); throw new IOException("Missing client authentication connected to Pion"); }
+            catch (TimeoutException) { }
+            Check(proxy is not null && proxy.DroppedClientVerifies > 1, "Independent peer fault was not repeated");
+            var frozen = secure.GetHandshakeCounters();
+            Check(frozen.Frozen && frozen.VerifiedFinishedMessages == 0 && frozen.CompletedFlights > 1 &&
+                secure.GetDiagnostics().RejectedRecords == 0, "Independent loss control misattributed failure");
+            await secure.DisposeAsync();
+            Check(secure.GetHandshakeCounters() == frozen, "Independent timeout counters did not survive disposal");
+            return;
+        }
         await secure.ConnectAsync(deadline.Token);
         Check(secure.GetDiagnostics().Profile == profile);
         await secure.SendApplicationDatagramAsync("dtls-independent"u8.ToArray(), deadline.Token);
@@ -121,7 +140,11 @@ internal static class DtlsTests
         await secure.SendRtcpAsync(rtcp, deadline.Token);
         received = await Media(secure, deadline.Token);
         Check(received.Kind == SecureMediaKind.Rtcp && received.Data.AsSpan().SequenceEqual(rtcp));
-        Console.WriteLine($"  Pion DTLS {role} authenticated handshake={secure.GetDiagnostics().HandshakeTime!.Value.TotalMilliseconds:F1} ms");
+        if (fault == "client-flight-loss-reorder")
+            Check(proxy is not null && proxy.DroppedClientCertificates == 1 && proxy.ReorderedClientKeys == 1 &&
+                proxy.ReorderedClientCcs == 1 && proxy.DroppedFinished == 1, "Independent peer did not exercise every flight fault");
+        var duration = secure.GetDiagnostics().HandshakeTime ?? throw new IOException("Missing authenticated handshake timing");
+        Console.WriteLine($"  Pion DTLS {role} authenticated handshake={duration.TotalMilliseconds:F1} ms");
     }
 
     internal static async Task Cancel()
@@ -204,6 +227,11 @@ internal static class DtlsTests
         Check(client.GetDiagnostics().Retransmissions > 0, "No client final-flight retransmission observed");
         Check(await client.Completion is TimeoutException && await server.Completion is TimeoutException,
             "Loss must retain timeout attribution after both receive loops end");
+        var counters = server.GetHandshakeCounters();
+        Check(counters.Frozen && counters.VerifiedFinishedMessages == 0 && counters.PendingHandshakeMessages > 0 &&
+            counters.PendingHandshakeBytes > 0, "Incomplete handshake assembly was not retained on timeout");
+        await server.DisposeAsync();
+        Check(server.GetHandshakeCounters() == counters, "Disposal erased incomplete-assembly evidence");
     }
 
     internal static async Task<byte[]> App(DtlsSrtpTransport transport, CancellationToken ct)
@@ -223,6 +251,12 @@ internal sealed class DtlsProxy : IAsyncDisposable
     private readonly Socket _socket = new(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _worker;
+    private readonly TaskCompletionSource<IPEndPoint> _remote = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal void BindRemote(IPEndPoint remote)
+    {
+        if (!IPAddress.IsLoopback(remote.Address) || !_remote.TrySetResult(remote))
+            throw new InvalidOperationException("Proxy remote must be bound once to loopback");
+    }
     private int _affected, _fragments, _droppedHellos, _droppedCertificates, _droppedFinished, _reorderedFlights;
     private int _droppedClientCertificates, _reorderedClientKeys, _reorderedClientCcs, _droppedClientVerifies;
     public int DroppedClientCertificates => Volatile.Read(ref _droppedClientCertificates);
@@ -236,22 +270,24 @@ internal sealed class DtlsProxy : IAsyncDisposable
     public int DroppedFinished => Volatile.Read(ref _droppedFinished);
     public int ReorderedFlights => Volatile.Read(ref _reorderedFlights);
     public IPEndPoint EndPoint => (IPEndPoint)_socket.LocalEndPoint!;
-    public DtlsProxy(IPEndPoint left, IPEndPoint right, string fault)
+    public DtlsProxy(IPEndPoint left, IPEndPoint? right, string fault)
     {
         _socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        if (right is not null) BindRemote(right);
         _worker = Task.Run(async () =>
         {
             var buffer = new byte[2048];
             byte[]? held = null, heldClientKey = null, heldClientCcs = null;
             try
             {
+                var remote = await _remote.Task.WaitAsync(_lifetime.Token);
                 while (true)
                 {
                     var result = await _socket.ReceiveFromAsync(buffer, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), _lifetime.Token);
                     var fromLeft = result.RemoteEndPoint.Equals(left);
-                    if (!fromLeft && !result.RemoteEndPoint.Equals(right)) continue;
+                    if (!fromLeft && !result.RemoteEndPoint.Equals(remote)) continue;
                     var bytes = buffer.AsMemory(0, result.ReceivedBytes).ToArray();
-                    var destination = fromLeft ? right : left;
+                    var destination = fromLeft ? remote : left;
                     var plainHandshake = bytes.Length >= 25 && bytes[0] == 22 && bytes[3] == 0 && bytes[4] == 0;
                     var fragment = plainHandshake && (bytes[19] != 0 || bytes[20] != 0 || bytes[21] != 0 ||
                         !bytes.AsSpan(14, 3).SequenceEqual(bytes.AsSpan(22, 3)));
@@ -278,7 +314,7 @@ internal sealed class DtlsProxy : IAsyncDisposable
                             await _socket.SendToAsync(heldClientCcs, SocketFlags.None, destination, _lifetime.Token);
                             heldClientCcs = null; Interlocked.Increment(ref _reorderedClientCcs); Interlocked.Increment(ref _affected); continue;
                         }
-                        if (!fromLeft && bytes.Length >= 13 && bytes[0] == 22 && bytes[4] == 1 && _droppedFinished == 0)
+                        if (!fromLeft && ContainsEncryptedHandshake(bytes) && _droppedFinished == 0)
                         { Interlocked.Increment(ref _droppedFinished); Interlocked.Increment(ref _affected); continue; }
                     }
                     if (fault == "combined-loss-reorder")
@@ -287,7 +323,7 @@ internal sealed class DtlsProxy : IAsyncDisposable
                         { Interlocked.Increment(ref _droppedHellos); Interlocked.Increment(ref _affected); continue; }
                         if (!fromLeft && fragment && bytes[13] == 11 && _droppedCertificates == 0)
                         { Interlocked.Increment(ref _droppedCertificates); Interlocked.Increment(ref _affected); continue; }
-                        if (!fromLeft && bytes.Length >= 13 && bytes[0] == 22 && bytes[4] == 1 && _droppedFinished == 0)
+                        if (!fromLeft && ContainsEncryptedHandshake(bytes) && _droppedFinished == 0)
                         { Interlocked.Increment(ref _droppedFinished); Interlocked.Increment(ref _affected); continue; }
                         if (!fromLeft && plainHandshake && _reorderedFlights == 0)
                         {
@@ -335,6 +371,17 @@ internal sealed class DtlsProxy : IAsyncDisposable
             }
             catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         });
+    }
+    private static bool ContainsEncryptedHandshake(ReadOnlySpan<byte> bytes)
+    {
+        for (var offset = 0; offset + 13 <= bytes.Length;)
+        {
+            var length = 13 + BinaryPrimitives.ReadUInt16BigEndian(bytes[(offset + 11)..]);
+            if (length > bytes.Length - offset) return false;
+            if (bytes[offset] == 22 && BinaryPrimitives.ReadUInt16BigEndian(bytes[(offset + 3)..]) == 1) return true;
+            offset += length;
+        }
+        return false;
     }
     public async ValueTask DisposeAsync()
     { _lifetime.Cancel(); await _worker; _socket.Dispose(); _lifetime.Dispose(); }
