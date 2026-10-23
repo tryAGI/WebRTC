@@ -12,8 +12,11 @@ import sys
 
 PROFILES = ('Aes128CmHmacSha1_80', 'AeadAes128Gcm', 'AeadAes256Gcm')
 ZERO_OPERATIONS = ('rtp-mid', 'rtp-truncated', 'rtcp-framing', 'stun-fingerprint',
-                   'stun-write', 'stun-write-sha1', 'stun-write-sha256')
-OPERATIONS = (*ZERO_OPERATIONS, 'stun-read-sha1', 'stun-read-sha256', 'stun-reject-sha1', 'stun-reject-sha256')
+                   'stun-write', 'stun-write-sha1', 'stun-write-sha256',
+                   'stun-read-sha1', 'stun-read-sha256', 'stun-reject-sha1', 'stun-reject-sha256',
+                   'stun-read-large-sha1', 'stun-read-large-sha256',
+                   'stun-reject-large-sha1', 'stun-reject-large-sha256')
+OPERATIONS = ZERO_OPERATIONS
 IDLE_GROUPS = tuple(itertools.product(('off', 'associated', 'open'), ('False', 'True'), (1, 3)))
 
 

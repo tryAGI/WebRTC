@@ -49,6 +49,7 @@ var tests = new (string Name, Action Run)[]
     ("STUN binding header and overlapping buffers", BindingHeader),
     ("STUN header and attribute boundaries", StunBoundaries),
     ("STUN independent authentication vector", AuthenticationVector),
+    ("STUN stack/pool boundaries preserve input and authentication", PacketAllocationChecks.AuthenticationBoundaries),
     ("STUN authentication rejects changed data and keys", AuthenticationTampering),
     ("STUN rejects duplicate and misplaced authentication attributes", AuthenticationDuplicates),
     ("STUN IPv4 and IPv6 XOR address decoding", MappedAddresses),

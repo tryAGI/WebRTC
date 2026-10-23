@@ -66,15 +66,14 @@ class PerformanceBudgetsTests(unittest.TestCase):
         with self.assertRaisesRegex(budget.BudgetViolation, 'exact total'):
             budget.check(self.directory, {}, True)
 
-    def test_measured_authentication_rows_are_required_but_not_claimed_zero(self):
-        for row in self.packets:
-            if row['operation'] not in budget.ZERO_OPERATIONS:
-                row['managed_total_bytes'] = '123456'
-        self.write('packets.csv', self.packets)
-        budget.check(self.directory, {}, True)
-        self.write('packets.csv', self.packets[:-1])
-        with self.assertRaisesRegex(budget.BudgetViolation, 'Missing zero-contract samples'):
-            budget.check(self.directory, {}, True)
+    def test_authentication_and_pool_rows_cannot_escape_zero_guard(self):
+        for operation in ('stun-read-sha1', 'stun-reject-sha256', 'stun-read-large-sha1', 'stun-reject-large-sha256'):
+            with self.subTest(operation=operation):
+                rows = [dict(row) for row in self.packets]
+                next(row for row in rows if row['operation'] == operation)['managed_total_bytes'] = '1'
+                self.write('packets.csv', rows)
+                with self.assertRaisesRegex(budget.BudgetViolation, 'Exact zero-allocation'):
+                    budget.check(self.directory, {}, True)
 
     def test_writer_single_byte_regression_fails(self):
         for row in self.packets:

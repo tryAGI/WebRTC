@@ -5,6 +5,14 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+- Remove the per-packet incremental HMAC object from STUN SHA-1/SHA-256
+  verification, using bounded stack input or cleared/returned pooled storage for
+  larger messages. Preserve strict authentication framing and fixed-time tags.
+  Extend exact warmed allocation contracts to STUN writes, successful and
+  wrong-key authentication, plus SRTP/SRTCP replay and invalid-buffer guards.
+- Add opt-in phase-matched post-disposal macOS memory profiling with an owned
+  child/controller handshake, fixed capture waves and bounded timeouts.
+
 - Stop outbound traffic immediately on a matched, authenticated STUN 403 consent
   revocation, rather than continuing until the freshness timeout. Exercise it
   with an independent ICE-lite responder in managed and NativeAOT tests.

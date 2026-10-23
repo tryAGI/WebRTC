@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Net;
 using System.Security.Cryptography;
@@ -128,17 +129,28 @@ public readonly ref struct StunMessage
             return false;
         }
 
-        Span<byte> header = stackalloc byte[HeaderLength];
-        _data[..HeaderLength].CopyTo(header);
-        // The header length covers the integrity attribute, but the HMAC input
-        // stops immediately before that attribute (RFC 8489 section 14.5).
-        BinaryPrimitives.WriteUInt16BigEndian(header[2..], (ushort)(offset + hashLength + 4 - HeaderLength));
-        using var hmac = IncrementalHash.CreateHMAC(sha256 ? HashAlgorithmName.SHA256 : HashAlgorithmName.SHA1, key);
-        hmac.AppendData(header);
-        hmac.AppendData(_data.Slice(HeaderLength, offset - HeaderLength));
-        Span<byte> actual = stackalloc byte[hashLength];
-        return hmac.TryGetHashAndReset(actual, out var written) && written == hashLength &&
-               CryptographicOperations.FixedTimeEquals(actual, expected);
+        // One-shot framework HMAC avoids allocating an incremental crypto object.
+        // Authentication needs a modified header, so never mutate the caller's view.
+        // Bound stack usage independently of the datagram's untrusted length; larger
+        // messages use the framework pool and return their buffer on every path.
+        byte[]? rented = null;
+        Span<byte> input = offset <= 2048 ? stackalloc byte[offset] :
+            (rented = ArrayPool<byte>.Shared.Rent(offset)).AsSpan(0, offset);
+        try
+        {
+            _data[..offset].CopyTo(input);
+            // RFC 8489 section 14.5: the header covers the integrity attribute;
+            // the HMAC input stops immediately before that attribute.
+            BinaryPrimitives.WriteUInt16BigEndian(input[2..], (ushort)(offset + hashLength + 4 - HeaderLength));
+            Span<byte> actual = stackalloc byte[32];
+            var written = sha256 ? HMACSHA256.HashData(key, input, actual) : HMACSHA1.HashData(key, input, actual);
+            return written == hashLength && CryptographicOperations.FixedTimeEquals(actual[..written], expected);
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<byte>.Shared.Return(rented, clearArray: true);
+            else CryptographicOperations.ZeroMemory(input);
+        }
     }
 
     /// <summary>Checks a unique final CRC fingerprint. A fingerprint is not authentication.</summary>

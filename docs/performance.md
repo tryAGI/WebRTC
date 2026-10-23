@@ -239,16 +239,16 @@ from RSS. Controls keep JIT/tiering defaults to match actual peer workloads.
 
 ### Reviewed allocation budgets
 
-The budget checker consumes raw total bytes for 42 crypto and 77 packet samples;
-49 packet samples guard parsing/framing and caller-buffer STUN writing (plain,
-SHA-1 and SHA-256). The remaining 28 samples measure valid and wrong-key STUN
-authentication; they are required for coverage but do not yet assert zero.
-Protocol contracts also check warmed replay, truncation and short-destination
-SRTP/SRTCP rejection across all three profiles, plus bad-tag AES-CM rejection.
-AES-GCM bad-tag exceptions are outside this zero contract. In every guarded
-rejection, caller output remains unchanged and later valid authentication succeeds.
-For the zero subset,
-its zero-byte contracts never use rounded bytes/operation. The benchmark-only
+The budget checker consumes raw total bytes for 42 crypto and 105 packet samples.
+The packet cases cover parsing/framing, caller-buffer STUN writing (plain, SHA-1
+and SHA-256), and valid/wrong-key authentication using small stack and warmed
+4-KiB pooled input buffers. Protocol contracts also check warmed replay,
+truncation and short-destination SRTP/SRTCP rejection across all three profiles,
+plus bad-tag AES-CM rejection. AES-GCM bad-tag exceptions are outside this zero
+contract. In every guarded rejection, caller output remains unchanged and later
+valid authentication succeeds. Cold pool misses or concurrent pool exhaustion
+can allocate; the large-message contract explicitly describes warmed reuse.
+For the zero subset, its zero-byte contracts never use rounded bytes/operation. The benchmark-only
 `TRYAGI_BENCHMARK_ALLOCATION_CONTROL=1` injects one escaping 256-byte array per
 crypto sample, and the positive-control verifier requires that the same exact-zero
 validator reject it. This option introduces allocation; it cannot disable a gate.
@@ -329,3 +329,11 @@ process identifiers, addresses and local paths. Repeat with `empty_control`,
 `identity_only` and `peer_audio` in fresh processes to attribute differences.
 Matched disposed-peer occupancy removes the earlier live/disposed phase ambiguity;
 finite samples still do not prove native leak freedom or precise native ownership.
+
+STUN verification uses the same one-shot framework HMAC APIs as the writer,
+replacing the previous per-call incremental HMAC object. It authenticates a copy
+with the RFC-adjusted header, never alters caller storage, and keeps fixed-time
+tag comparison and strict attribute-envelope checks. Stack input is capped at
+2 KiB; larger valid STUN datagrams use a cleared framework pool buffer returned
+on every path. Tests cover either side of that boundary and the maximum framed
+message size, plus existing independent SHA-1/SHA-256 vectors and tampering.

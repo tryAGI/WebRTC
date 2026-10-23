@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import selectors
 import subprocess
@@ -19,6 +20,21 @@ def barrier(line, expected):
     if wave != expected or fields['profile_barrier'] != phase or fields['alive_disposed_peers'] != '0':
         raise ValueError('Unexpected profiling phase, wave or live peer count')
     return wave
+
+
+def native_summary(text):
+    """Allowlist only aggregate numeric zone columns; retain no addresses/paths."""
+    zone = text.split('MALLOC ZONE', 1)
+    if len(zone) != 2:
+        raise ValueError('Native malloc zone summary missing')
+    names = ('virtual', 'resident', 'dirty', 'swapped', 'allocations', 'allocated', 'fragmentation', 'fragmentation_percent', 'regions')
+    for line in zone[1].splitlines():
+        fields = line.split()
+        if len(fields) == 10 and fields[0] == 'TOTAL':
+            if not all(re.fullmatch(r'[0-9]+(?:\.[0-9]+)?[BKMGT]?', value) for value in fields[1:8]) or not re.fullmatch(r'[0-9]+%', fields[8]) or not fields[9].isdigit():
+                raise ValueError('Unexpected native malloc aggregate format')
+            return dict(zip(names, fields[1:]))
+    raise ValueError('Native malloc aggregate missing')
 
 
 def run(binary, output, mode, trace):
@@ -66,6 +82,7 @@ def run(binary, output, mode, trace):
                             if capture.returncode:
                                 raise RuntimeError('Native memory capture failed')
                             samples.append(dict(wave=wave, phase='disposed', alive_disposed_peers=0,
+                                                malloc=native_summary(capture.stdout.decode('utf-8')),
                                                 elapsed_seconds=time.monotonic() - started))
                         child.stdin.write(f'continue:{wave}\n'.encode())
                         child.stdin.flush()

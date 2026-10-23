@@ -6,6 +6,10 @@ on:
         description: Verify active allocation gates for an unchanged runtime; omit previously accepted idle and retention diagnostics
         type: boolean
         default: false
+      native_profile:
+        description: Capture phase-matched macOS native memory controls in owned child processes
+        type: boolean
+        default: false
       long_retention:
         description: Run longer fresh-process memory controls (already required for before/after runtime changes)
         type: boolean
@@ -33,6 +37,15 @@ jobs:
           if command -v lscpu >/dev/null; then lscpu > hardware.txt
           elif command -v sysctl >/dev/null; then sysctl -n machdep.cpu.brand_string > hardware.txt
           else printenv PROCESSOR_IDENTIFIER > hardware.txt; fi
+      - name: Phase-matched macOS post-disposal native controls
+        if: ${{ inputs.native_profile && runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          for mode in empty_control identity_only peer_audio peer_open; do
+            python3 scripts/profile-retention-macos.py src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll "native-profile-$mode" --mode "$mode" --trace 0
+          done
+      - name: Retention profiling controller regression tests
+        run: python3 -m unittest discover -s scripts -p "test_retention_profile.py"
       - name: Authenticated SRTP roundtrip baseline
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build > performance.csv
@@ -122,6 +135,8 @@ jobs:
             retention-*.csv
             identity.csv
             native-*.csv
+            native-profile-*/profile.json
+            native-profile-*/retention.csv
             hardware.txt
             exact-zero-proof.json
             allocation-control.csv

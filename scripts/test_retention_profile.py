@@ -20,6 +20,17 @@ class BarrierTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 profile.barrier(line, 2)
 
+    def test_native_aggregate_excludes_process_details(self):
+        text = 'Process: private/path [123]\nMALLOC ZONE   SIZE\nTOTAL 50.0M 15.0M 15.0M 0K 20000 8000K 7000K 46% 17\n'
+        result = profile.native_summary(text)
+        self.assertEqual(result['allocated'], '8000K')
+        self.assertEqual(result['resident'], '15.0M')
+        self.assertNotIn('private', str(result))
+        with self.assertRaises(ValueError):
+            profile.native_summary(text.replace('8000K', 'private/path'))
+        with self.assertRaises(ValueError):
+            profile.native_summary('TOTAL 50.0M 15.0M')
+
 
 if __name__ == '__main__':
     unittest.main()
