@@ -38,3 +38,38 @@ A warmed allocation regression checks authenticated RTP/SRTCP roundtrips across 
 profiles; existing independent vectors, rollover, hostile inputs and lifetime tests
 remain required. Independent Pion and full platform validation are required before
 calling this an accepted optimization. No profile preference is changed.
+
+## Expanded suites
+
+Use `-- --suite packets`, `media`, `video`, or `channels` with the same project.
+The default remains `crypto`. The opt-in workflow retains separate CSVs and CPU
+hardware metadata on all four native platforms.
+
+- `packets`: warmed RTP+MID parsing, truncated RTP rejection, RTCP framing and
+  STUN fingerprint/attribute validation. Normal protocol CI enforces zero managed
+  allocation and includes an escaping-allocation positive measuring control.
+- `media`: authenticated DTLS/SRTP+ICE loopback delivery across all profiles,
+  60/1,000-byte payloads, tracing disabled/enabled and default/cancellable caller
+  tokens. One packet is outstanding; received bytes and zero queue drops/rejections
+  are checked. Five samples of 512 packets follow 128 warmups. Process-wide managed
+  allocation includes socket/queue/harness/maintenance work; p50/p95/p99 cover this
+  controlled single-hop workload, not production network latency or congestion.
+- `video`: bounded two-fragment H264/VP8 reassembly with preallocated input and
+  checked reconstructed bytes. Input is already trusted; this excludes SRTP and
+  decoding. Owned output allocations are expected and measured, not labeled zero.
+- `channels`: bounded reliable SCTP data-channel delivery, including fragmentation
+  for 4,096-byte messages. Process-wide allocation includes the owned peers and
+  harness after connection/channel setup and warmup.
+
+Media completion reports the managed heap after a forced collection and process
+working set/private bytes where available. These whole-process observations include
+runtime/native caches and do not isolate native allocations or prove leak freedom.
+Unavailable process-private memory is labeled unavailable, never zero.
+
+Initial local .NET 10.0.9/macOS arm64 media baseline (before transport changes):
+AEAD AES-256-GCM median process-wide allocation was ~1,017 B for a 60-byte payload
+and ~3,849 B for 1,000 bytes, default caller token and tracing disabled. Cancellable
+caller cases measured ~1,033/~3,865 B. These include harness costs; use repeated
+same-runtime before/after cohorts for attribution. All 65 protocol cases, including
+new parser allocation contracts, passed locally. Suite compilation: zero warnings
+and errors. No claim about an allocation-free complete transport follows from this.

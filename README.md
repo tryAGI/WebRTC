@@ -65,6 +65,25 @@ stages, bounded packet capture and .NET metrics. Collection runs in a consumer-o
 publication loop, separate from audio processing. Kernel arrival and physical playback
 remain explicit unknowns. See [diagnostics and collection example](https://github.com/tryAGI/WebRTC/blob/main/docs/diagnostics.md).
 
+## Measured hot paths
+
+Warmed SRTP/SRTCP crypto with preallocated caller buffers and selected span-based
+packet parsing/framing operations have zero managed-allocation regression contracts.
+This does **not** describe the entire asynchronous transport or owned frame outputs.
+
+| Authenticated RTP protect + unprotect, 1,200-byte payload | AES-CM/SHA1 managed bytes/pair | Linux arm64 time/pair |
+| --- | ---: | ---: |
+| Before reusable block transform | ~9,600 | ~186 µs |
+| After reusable block transform | 0 | ~27 µs |
+
+Both crypto runs use .NET 10.0.13; zero warmed crypto allocation was measured on
+Linux x64/arm64, macOS arm64 and Windows x64. Shared-runner timings are observations,
+not controlled hardware or production latency guarantees. See
+[methodology, suites and reproduction](docs/performance.md),
+[before artifacts](https://github.com/tryAGI/WebRTC/actions/runs/39947901947) and
+[after artifacts](https://github.com/tryAGI/WebRTC/actions/runs/39950545862).
+The opt-in workflow also measures loopback media, SCTP and video reassembly costs.
+
 ## Supported scope
 
 | Area | Implemented and tested | Current limits |

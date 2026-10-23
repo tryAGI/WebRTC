@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><IsPackable>false</IsPackable></PropertyGroup>
   <ItemGroup><ProjectReference Include="../../libs/WebRTC/WebRTC.csproj" /></ItemGroup>
+  <ItemGroup><Compile Include="../WebRTC.ProtocolTests/PacketAllocationChecks.cs" Link="PacketAllocationChecks.cs" /></ItemGroup>
 </Project>

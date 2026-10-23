@@ -16,11 +16,35 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet build src/tests/WebRTC.Performance -c Release
+      - name: Retain hardware metadata
+        shell: bash
+        run: |
+          if command -v lscpu >/dev/null; then lscpu > hardware.txt
+          elif command -v sysctl >/dev/null; then sysctl -n machdep.cpu.brand_string > hardware.txt
+          else printenv PROCESSOR_IDENTIFIER > hardware.txt; fi
       - name: Authenticated SRTP roundtrip baseline
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build > performance.csv
+      - name: Packet parsing and framing baseline
+        shell: bash
+        run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite packets > packets.csv
+      - name: Bounded loopback media pipeline
+        shell: bash
+        run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite media > media.csv
+      - name: Trusted-input video reassembly baseline
+        shell: bash
+        run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite video > video.csv
+      - name: SCTP data-channel pipeline baseline
+        shell: bash
+        run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite channels > channels.csv
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: srtp-${{ matrix.os }}-${{ github.sha }}
-          path: performance.csv
+          path: |
+            performance.csv
+            packets.csv
+            media.csv
+            video.csv
+            channels.csv
+            hardware.txt
           retention-days: 30

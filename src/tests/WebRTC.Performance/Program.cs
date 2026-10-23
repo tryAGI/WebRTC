@@ -3,8 +3,14 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using tryAGI.WebRTC;
 
-// Opt-in synchronous crypto baseline. No sockets, codecs, queues or provider traffic.
+var suite = args.Length == 0 ? "crypto" : args.Length == 2 && args[0] == "--suite" ? args[1] : throw new ArgumentException("Use --suite crypto|packets|media|video|channels");
 Console.WriteLine($"{RuntimeInformation.FrameworkDescription}; {RuntimeInformation.OSDescription}; {RuntimeInformation.ProcessArchitecture}");
+Console.WriteLine($"cpu_count={Environment.ProcessorCount}; server_gc={System.Runtime.GCSettings.IsServerGC}; stopwatch_hz={Stopwatch.Frequency}; dynamic_code={System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeCompiled}");
+if (suite == "packets") { PacketBenchmarks.Run(); return; }
+if (suite == "media") { await MediaBenchmarks.Run(); return; }
+if (suite == "video") { VideoBenchmarks.Run(); return; }
+if (suite == "channels") { await ChannelBenchmarks.Run(); return; }
+if (suite != "crypto") throw new ArgumentException("Unknown suite");
 Console.WriteLine("profile,payload_bytes,sample,roundtrips,managed_bytes_per_roundtrip,ns_per_roundtrip");
 foreach (var profile in Enum.GetValues<SrtpProfile>())
 foreach (var payload in new[] { 60, 1200 })
