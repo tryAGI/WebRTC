@@ -97,6 +97,15 @@ soaks. Memory reports distinguish collectible managed peers, heap and whole-proc
 RSS; they do not claim native leak freedom. See the
 [lifecycle methodology](https://github.com/tryAGI/WebRTC/blob/main/docs/performance.md#connection-lifecycle-and-retention-suites).
 
+Idle maintenance now waits on connected-state deadlines instead of polling the
+handshake/checklist clocks. Four-platform .NET 10.0.13 cohorts observed 43–48%
+fewer process-wide managed bytes/s and 73–82% less completed threadpool work for
+one idle audio pair without tracing. This is a scheduling proxy, not kernel
+wakeups or measured energy. Fresh public-only certificates retain a separately
+owned ephemeral key; on the CI Mac, whole-identity median fell 78.8 -> 0.67 ms.
+See [before/after evidence and native RSS controls](https://github.com/tryAGI/WebRTC/blob/main/docs/idle-identity-20261023.md).
+These hosted-runner observations are not production performance guarantees.
+
 ## Supported scope
 
 | Area | Implemented and tested | Current limits |

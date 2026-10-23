@@ -73,3 +73,41 @@ a new selected-state test checks prompt delivery/disposal while waiting.
 After-change measurements and exact-source independent CI acceptance must be
 recorded before a consumer package is adopted. Lower idle work is not a claim
 that the complete transport allocates zero bytes.
+
+## Matched after-change benchmark cohort
+
+[After artifacts](https://github.com/tryAGI/WebRTC/actions/runs/40006120745),
+source `5cb155d185a5de2b535769ba9f48e828112b95be`, passed on all four
+platforms. Same runtime/platform/runner classes, separate hosted jobs: timing
+variance and hardware noise remain. One-pair/no-trace medians:
+
+| CI platform | After bytes/s | After threadpool items/s | After whole identity ms |
+|---|---:|---:|---:|
+| macOS arm64 | 43,609.89 | 25.34 | 0.669 |
+| Linux arm64 | 55,027.80 | 41.99 | 0.407 |
+| Linux x64 | 59,369.42 | 46.49 | 0.380 |
+| Windows x64 | 50,279.52 | 30.99 | 1.032 |
+
+Observed idle managed allocation fell 43–48%, completed threadpool work 73–82%.
+This remains nonzero; no whole-transport zero-allocation or energy guarantee.
+Mac audio-only/AES-256-GCM median two-peer construction fell 94.5545 -> 1.9015 ms;
+complete setup fell 172.7335 -> 99.3445 ms. Different spans must not be summed.
+The optimized macOS runtime identity RSS rose 114,688 bytes across the measured
+wave range, with the last three waves equal. The Linux controls also plateaued
+in their last three waves, while Windows RSS decreased; no leak-freedom claim.
+
+A matched local Mac cohort showed 102,455.62 -> 46,086.89 managed bytes/s and
+178.44 -> 27.98 threadpool items/s. Local solution build had zero warnings/errors;
+66/66 protocol cases, three consent expiry/delayed-reply/revocation cases and the
+selected idle delivery/disposal case passed. Local full-solution admission first
+timed out behind another owner, then passed in 107.662 seconds. Focused test and
+benchmark admission completed in 107.041 seconds. The earlier benchmark-only
+build passed with zero warnings but its 235.165-second execution receipt breached
+the build SLO; that scheduling result is retained separately from correctness.
+
+The isolated local identity retention controls also reproduced the native-path
+difference: legacy RSS 60,424,192 -> 61,898,752 bytes, public-only 55,443,456 ->
+55,508,992, optimized runtime 55,001,088 -> 55,083,008, control 48,758,784 ->
+48,840,704; managed committed bytes were constant per process. The last three
+optimized runtime/public-only/control waves were flat. Longer whole-peer
+retention and allocator attribution remain in issue #10.
