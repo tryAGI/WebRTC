@@ -37,13 +37,6 @@ jobs:
           if command -v lscpu >/dev/null; then lscpu > hardware.txt
           elif command -v sysctl >/dev/null; then sysctl -n machdep.cpu.brand_string > hardware.txt
           else printenv PROCESSOR_IDENTIFIER > hardware.txt; fi
-      - name: Phase-matched macOS post-disposal native controls
-        if: ${{ inputs.native_profile && runner.os == 'macOS' }}
-        shell: bash
-        run: |
-          for mode in empty_control identity_only peer_audio peer_open; do
-            python3 scripts/profile-retention-macos.py src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll "native-profile-$mode" --mode "$mode" --trace 0
-          done
       - name: Retention profiling controller regression tests
         run: python3 -m unittest discover -s scripts -p "test_retention_profile.py"
       - name: Authenticated SRTP roundtrip baseline
@@ -77,6 +70,13 @@ jobs:
       - name: Reviewed active pipeline allocation budgets
         shell: bash
         run: python3 scripts/check-active-performance-budgets.py . --output active-budget-proof.json
+      - name: Phase-matched macOS post-disposal native controls
+        if: ${{ inputs.native_profile && runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          for mode in empty_control identity_only peer_audio peer_open; do
+            python3 scripts/profile-retention-macos.py src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll "native-profile-$mode" --mode "$mode" --trace 0
+          done
       - name: Bounded repeated peer lifetime and memory soak
         if: ${{ !inputs.active_only }}
         shell: bash

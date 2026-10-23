@@ -24,16 +24,23 @@ def barrier(line, expected):
 
 def native_summary(text):
     """Allowlist only aggregate numeric zone columns; retain no addresses/paths."""
-    zone = text.split('MALLOC ZONE', 1)
+    zone = text.rsplit('MALLOC ZONE', 1)
     if len(zone) != 2:
         raise ValueError('Native malloc zone summary missing')
     names = ('virtual', 'resident', 'dirty', 'swapped', 'allocations', 'allocated', 'fragmentation', 'fragmentation_percent', 'regions')
-    for line in zone[1].splitlines():
+    lines = zone[1].splitlines()
+    for line in lines:
         fields = line.split()
-        if len(fields) == 10 and fields[0] == 'TOTAL':
-            if not all(re.fullmatch(r'[0-9]+(?:\.[0-9]+)?[BKMGT]?', value) for value in fields[1:8]) or not re.fullmatch(r'[0-9]+%', fields[8]) or not fields[9].isdigit():
+        if fields and fields[0] == 'TOTAL':
+            if not 5 <= len(fields) <= 16 or not all(re.fullmatch(r'[0-9][0-9,]*(?:\.[0-9]+)?[BKMGT%]?', value) for value in fields[1:]):
                 raise ValueError('Unexpected native malloc aggregate format')
-            return dict(zip(names, fields[1:]))
+            # vmmap changes columns across macOS releases. Preserve their numeric
+            # order and safe uppercase headings instead of inventing missing fields.
+            result = dict(total_columns=fields[1:], headings=[value.strip() for value in lines
+                          if value.strip() and re.fullmatch(r'[A-Z +%_/-]+', value.strip())])
+            if len(fields) == 10 and fields[8].endswith('%'):
+                result.update(zip(names, fields[1:]))
+            return result
     raise ValueError('Native malloc aggregate missing')
 
 

@@ -20,6 +20,12 @@ class BarrierTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 profile.barrier(line, 2)
 
+    def test_alternate_zone_columns_are_retained_without_false_labels(self):
+        text = 'MALLOC ZONE SIZE\nTOTAL 40.0M 15.0M 15.0M 0K 20,000 8000K 7000K 12\n'
+        result = profile.native_summary(text)
+        self.assertEqual(result['total_columns'][-1], '12')
+        self.assertNotIn('allocated', result)
+
     def test_native_aggregate_excludes_process_details(self):
         text = 'Process: private/path [123]\nMALLOC ZONE   SIZE\nTOTAL 50.0M 15.0M 15.0M 0K 20000 8000K 7000K 46% 17\n'
         result = profile.native_summary(text)
