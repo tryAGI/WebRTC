@@ -216,3 +216,17 @@ nonce/index rules and no-output-before-authentication. This batch does not chang
 crypto runtime code or claim that those unmeasured GMAC cases are optimized.
 Mixed accepted/rejected traffic under bounded local network load remains a
 separate stress scenario from this synchronous crypto rejection workload.
+
+Final exact-source correctness validation at54603ea also passes all nine lanes
+in40037100978, including both independent Pion architectures, Chromium, managed
+protocol/network suites and native allocation/state smoke guards. Generic
+publication of later test/docs identities is not required to consume unchanged
+runtime code and is not treated as a new Advantage runtime delivery.
+
+Local validation limits remain visible: the initial harness build reported0
+warnings/0 errors (receipt20261023-fd8accc83162431db488b304fa592e84,33.074s wall).
+The subsequent scoped rebuild never entered compilation because host admission
+timed out after301.595s (receipt20261023-afd027cd3328475792d10ea9d0ae2358,
+native6a5aa8a29b0444d892438d86874cad20), an SLO breach. No admission/compiler
+bypass or warning suppression was used. The exact-source hosted validation and
+fresh managed/native matrices above verify the final harness independently.
