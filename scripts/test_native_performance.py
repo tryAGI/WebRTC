@@ -34,12 +34,28 @@ class ComparisonTests(unittest.TestCase):
                     for p, length, s in itertools.product(compare.core.PROFILES, (60, 1200), range(7))] if crypto else [dict(operation=p, sample=s, operations=20000, managed_bytes_per_op='0.00', ns_per_op=10 if mode == 'jit' else 20, managed_total_bytes=allocation)
                     for p, s in itertools.product(compare.core.OPERATIONS, range(7))]
             with (root / ('performance.csv' if crypto else 'packets.csv')).open('w') as stream:
-                metadata(stream, dynamic, source); writer = csv.DictWriter(stream, rows[0]); writer.writeheader(); writer.writerows(rows)
+                metadata(stream, dynamic, source)
+                keys = {r['profile'] + '/' + str(r['payload_bytes']) if crypto else r['operation'] for r in rows}
+                for key in sorted(keys): stream.write(f'#warmup,{key},50,520,99,101,True\n')
+                writer = csv.DictWriter(stream, rows[0]); writer.writeheader(); writer.writerows(rows)
 
     def test_same_runner_ratio_is_descriptive(self):
         result = compare.compare(self.root)
         self.assertFalse(result['timing_gate'])
         self.assertTrue(all(r['aot_over_jit'] == 2 for r in result['timings'].values()))
+
+    def test_unstable_warmup_omits_ratio(self):
+        path = self.root / 'jit' / 'packets.csv'
+        path.write_text(path.read_text().replace(',True\n', ',False\n'))
+        result = compare.compare(self.root)
+        self.assertTrue(all(result['timings'][key]['aot_over_jit'] is None for key in compare.core.OPERATIONS))
+
+    def test_missing_duplicate_and_false_stability_fail(self):
+        path = self.root / 'jit' / 'packets.csv'; original = path.read_text()
+        record = next(line for line in original.splitlines() if line.startswith('#warmup,'))
+        for changed in (original.replace(record + '\n', ''), original + record + '\n', original.replace(',520,99,101,True', ',20,99,101,True')):
+            path.write_text(changed)
+            with self.assertRaises(ValueError): compare.compare(self.root)
 
     def test_compiler_source_and_allocation_mismatches_fail(self):
         for args in (('True', SOURCE, '0'), ('False', 'b' * 40, '0'), ('False', SOURCE, '1')):
@@ -86,3 +102,29 @@ class RetentionTests(unittest.TestCase):
 
 
 if __name__ == '__main__': unittest.main()
+
+
+class MemoryComparisonTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup); self.root = Path(self.temp.name)
+        self.comparison = module('memory_comparison', 'compare-native-retention.py')
+        for control in ('default', 'off'):
+            builder = RetentionTests(); builder.temp = self.temp; builder.root = self.root / control / 'profiles'
+            builder.root.mkdir(parents=True)
+            for i in (1, 2, 3): builder.write(i)
+            if control == 'off':
+                for path in builder.root.glob('*/retention.csv'):
+                    path.write_text(path.read_text().replace('dynamic_code=True', 'dynamic_code=True; tiered_compilation=0'))
+
+    def test_same_source_controls_recomputed_without_owner_claim(self):
+        result = self.comparison.compare(self.root, ('crypto_only',))
+        self.assertFalse(result['leak_freedom_verdict'])
+        self.assertEqual(result['workloads']['crypto_only']['off_minus_default_final_median_bytes']['malloc_resident'], 0)
+
+    def test_missing_duplicate_mixed_source_and_wrong_tiering_fail(self):
+        path = self.root / 'off' / 'profiles' / '1' / 'retention.csv'; original = path.read_text()
+        for changed in (original.replace(SOURCE, 'b' * 40), original.replace('tiered_compilation=0', 'tiered_compilation=1')):
+            path.write_text(changed)
+            with self.assertRaises(ValueError): self.comparison.compare(self.root, ('crypto_only',))
+        path.write_text(original)
+        with self.assertRaises(ValueError): self.comparison.compare(self.root)

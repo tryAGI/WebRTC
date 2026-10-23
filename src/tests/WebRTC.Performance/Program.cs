@@ -6,11 +6,12 @@ using tryAGI.WebRTC;
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-var suite = args.Length == 0 ? "crypto" : args.Length == 2 && args[0] == "--suite" ? args[1] : throw new ArgumentException("Use --suite crypto|packets|media|video|channels|cold|soak|audio|idle|idle-sctp|identity|native|retention|rejection");
+var suite = args.Length == 0 ? "crypto" : args.Length == 2 && args[0] == "--suite" ? args[1] : throw new ArgumentException("Use --suite crypto|packets|media|video|channels|cold|soak|audio|idle|idle-sctp|identity|native|retention|rejection|gmac");
 Console.WriteLine($"{RuntimeInformation.FrameworkDescription}; {RuntimeInformation.OSDescription}; {RuntimeInformation.ProcessArchitecture}");
 Console.WriteLine($"cpu_count={Environment.ProcessorCount}; server_gc={System.Runtime.GCSettings.IsServerGC}; stopwatch_hz={Stopwatch.Frequency}; dynamic_code={System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeCompiled}; tiered_compilation={Environment.GetEnvironmentVariable("DOTNET_TieredCompilation") ?? Environment.GetEnvironmentVariable("COMPlus_TieredCompilation") ?? "default"}");
 Console.WriteLine($"library_package={WebRtcBuildInfo.Current.PackageVersion}; library_source={WebRtcBuildInfo.Current.SourceRevisionId}");
 Console.WriteLine($"harness_source={Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "working_tree_unverified"}");
+if (suite == "gmac") { RejectionBenchmarks.Run(true); return; }
 if (suite == "rejection") { RejectionBenchmarks.Run(); return; }
 if (suite == "idle-sctp") { await MaintenanceBenchmarks.Idle(true); return; }
 if (suite == "idle") { await MaintenanceBenchmarks.Idle(); return; }
@@ -47,7 +48,7 @@ foreach (var payload in new[] { 60, 1200 })
     var decrypted = new byte[plain.Length];
     var sequence = 0;
     var allocationControl = Environment.GetEnvironmentVariable("TRYAGI_BENCHMARK_ALLOCATION_CONTROL") == "1";
-    Roundtrips(1000);
+    TimingWarmup.Run($"{profile}/{payload}", Roundtrips, 1000);
     for (var sample = 0; sample < 7; sample++)
     {
         const int count = 5000;
@@ -63,7 +64,7 @@ foreach (var payload in new[] { 60, 1200 })
     {
         for (var i = 0; i < count; i++)
         {
-            BinaryPrimitives.WriteUInt16BigEndian(plain.AsSpan(2), checked((ushort)sequence++));
+            BinaryPrimitives.WriteUInt16BigEndian(plain.AsSpan(2), (ushort)(sequence++ & ushort.MaxValue));
             if (!sender.TryProtectRtp(plain, encrypted, out var protectedLength) ||
                 !receiver.TryUnprotectRtp(encrypted.AsSpan(0, protectedLength), decrypted, out var length) ||
                 length != plain.Length || !plain.AsSpan().SequenceEqual(decrypted))

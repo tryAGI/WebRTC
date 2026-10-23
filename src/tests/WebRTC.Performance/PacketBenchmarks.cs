@@ -9,7 +9,7 @@ internal static class PacketBenchmarks
         foreach (var operation in PacketAllocationChecks.Operations)
         {
             var fixture = PacketAllocationChecks.Fixture(operation);
-            PacketAllocationChecks.Exercise(operation, fixture, 1000);
+            TimingWarmup.Run(operation, count => PacketAllocationChecks.Exercise(operation, fixture, count), 20000);
             for (var sample = 0; sample < 7; sample++)
             {
                 const int count = 20000;

@@ -10,6 +10,10 @@ on:
         description: Owned-child diagnostic control, never ordinary runtime configuration
         type: boolean
         default: false
+      paired_tiering:
+        description: Same-source default/off controls for every selected workload
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
@@ -17,6 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        tiering: ${{ inputs.paired_tiering && fromJSON('["default","off"]') || inputs.tiering_off && fromJSON('["off"]') || fromJSON('["default"]') }}
         mode: ${{ inputs.mode == 'all' && fromJSON('["empty_control","identity_only","crypto_only","peer_audio","peer_open"]') || fromJSON(format('["{0}"]', inputs.mode)) }}
     runs-on: macos-latest
     timeout-minutes: 20
@@ -32,7 +37,7 @@ jobs:
       - name: Three fresh extended phase-matched cohorts
         shell: bash
         env:
-          TIERING_OFF: ${{ inputs.tiering_off }}
+          TIERING_OFF: ${{ matrix.tiering == 'off' }}
         run: |
           options=()
           if [ "$TIERING_OFF" = true ]; then options+=(--tiering-off); fi
@@ -43,10 +48,32 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: native-retention-${{ matrix.mode }}-${{ github.sha }}
+          name: native-retention-${{ matrix.mode }}-${{ matrix.tiering }}-${{ github.sha }}
           path: |
             profiles/*/retention.csv
             profiles/*/profile.json
             summary.json
+          if-no-files-found: error
+          retention-days: 30
+  compare-controls:
+    needs: attribution
+    if: inputs.paired_tiering
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Recompute matching phase controls from numeric captures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELECTED_MODE: ${{ inputs.mode }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'native-retention-*' --dir captures
+          python3 scripts/compare-native-retention.py captures --mode "$SELECTED_MODE" --output comparison.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-retention-comparison-${{ github.sha }}
+          path: comparison.json
           if-no-files-found: error
           retention-days: 30
