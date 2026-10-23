@@ -42,6 +42,39 @@ internal static class SrtpTests
         Check(length == 0 && output.All(b => b == 0xAB), "Rejected packet changed output");
     }
 
+    internal static void SteadyStateAllocations()
+    {
+        foreach (var profile in Profiles)
+        {
+            using var sender = Create(profile, SrtpDirection.Send);
+            using var receiver = Create(profile, SrtpDirection.Receive);
+            var rtp = new byte[1212]; rtp[0] = 0x80; rtp[1] = 111; rtp[11] = 42;
+            var rtcp = Rtcp();
+            var encryptedRtp = new byte[rtp.Length + sender.RtpOverhead];
+            var encryptedRtcp = new byte[rtcp.Length + sender.RtcpOverhead];
+            var plain = new byte[rtp.Length];
+            var sequence = 0;
+            Roundtrips(1024);
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            Roundtrips(2048);
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Check(allocated == 0, $"Warm {profile} RTP/SRTCP crypto allocated {allocated} managed bytes");
+            void Roundtrips(int count)
+            {
+                for (var i = 0; i < count; i++)
+                {
+                    BinaryPrimitives.WriteUInt16BigEndian(rtp.AsSpan(2), checked((ushort)sequence++));
+                    Check(sender.TryProtectRtp(rtp, encryptedRtp, out var length));
+                    Check(receiver.TryUnprotectRtp(encryptedRtp.AsSpan(0, length), plain, out var recovered));
+                    Check(rtp.AsSpan().SequenceEqual(plain.AsSpan(0, recovered)));
+                    Check(sender.TryProtectRtcp(rtcp, encryptedRtcp, out length));
+                    Check(receiver.TryUnprotectRtcp(encryptedRtcp.AsSpan(0, length), plain, out recovered));
+                    Check(rtcp.AsSpan().SequenceEqual(plain.AsSpan(0, recovered)));
+                }
+            }
+        }
+    }
+
     // Generated from our public synthetic inputs by Pion SRTP v3.1.3,
     // commit 508d3e9955121cfe30d7e15791d5810d1290c438. Reproduce with
     // pion-peer --srtp-vectors; no upstream fixture/source is copied.

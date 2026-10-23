@@ -296,6 +296,8 @@ public sealed class SrtpContext : IDisposable
     private sealed class Cipher : IDisposable
     {
         private readonly Aes? _aes;
+        private readonly ICryptoTransform? _counterTransform;
+        private readonly byte[] _counterInput = [], _counterOutput = [];
         private readonly AesGcm? _gcm;
         private readonly IncrementalHash? _hmac;
         private readonly byte[] _salt = [];
@@ -311,6 +313,11 @@ public sealed class SrtpContext : IDisposable
                 {
                     _aes = Aes.Create();
                     _aes.Key = key;
+                    _aes.Mode = CipherMode.ECB;
+                    _aes.Padding = PaddingMode.None;
+                    _counterTransform = _aes.CreateEncryptor();
+                    _counterInput = new byte[16];
+                    _counterOutput = new byte[16];
                     var authenticationKey = Derive(masterKey, masterSalt, (byte)(label + 1), 20);
                     try { _hmac = IncrementalHash.CreateHMAC(HashAlgorithmName.SHA1, authenticationKey); }
                     finally { CryptographicOperations.ZeroMemory(authenticationKey); }
@@ -389,19 +396,28 @@ public sealed class SrtpContext : IDisposable
 
         private void CounterTransform(ReadOnlySpan<byte> input, Span<byte> output, Span<byte> counter)
         {
-            Span<byte> block = stackalloc byte[16];
+            // SrtpContext serializes every operation and disposal with _gate. ECB has
+            // no chaining state: only its key schedule is reused across nonce blocks.
+            // Owned scratch never escapes the cipher or survives a packet operation.
+            var transform = _counterTransform ?? throw new CryptographicException("Missing AES-CM transform.");
             try
             {
                 for (var offset = 0; offset < input.Length; offset += 16)
                 {
-                    _aes!.EncryptEcb(counter, block, PaddingMode.None);
+                    counter.CopyTo(_counterInput);
+                    if (transform.TransformBlock(_counterInput, 0, 16, _counterOutput, 0) != 16)
+                        throw new CryptographicException("Invalid AES counter block length.");
                     var length = Math.Min(16, input.Length - offset);
-                    for (var i = 0; i < length; i++) output[offset + i] = (byte)(input[offset + i] ^ block[i]);
+                    for (var i = 0; i < length; i++) output[offset + i] = (byte)(input[offset + i] ^ _counterOutput[i]);
                     var next = (ushort)(BinaryPrimitives.ReadUInt16BigEndian(counter[14..]) + 1);
                     BinaryPrimitives.WriteUInt16BigEndian(counter[14..], next);
                 }
             }
-            finally { CryptographicOperations.ZeroMemory(block); }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(_counterInput);
+                CryptographicOperations.ZeroMemory(_counterOutput);
+            }
         }
 
         public void Authenticate(ReadOnlySpan<byte> packet, uint? roc, Span<byte> tag)
@@ -428,7 +444,9 @@ public sealed class SrtpContext : IDisposable
 
         public void Dispose()
         {
-            _aes?.Dispose(); _gcm?.Dispose(); _hmac?.Dispose();
+            _counterTransform?.Dispose(); _aes?.Dispose(); _gcm?.Dispose(); _hmac?.Dispose();
+            CryptographicOperations.ZeroMemory(_counterInput);
+            CryptographicOperations.ZeroMemory(_counterOutput);
             CryptographicOperations.ZeroMemory(_salt);
         }
     }

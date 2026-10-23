@@ -59,6 +59,7 @@ var tests = new (string Name, Action Run)[]
     ("STUN writer matches independently generated vector", WriterReference),
     ("STUN writer capacity and completion bounds", WriterBounds),
     ("ICE credentials and candidates reject unsafe input", IceInputBounds),
+    ("SRTP/SRTCP warm crypto roundtrips allocate zero managed bytes", SrtpTests.SteadyStateAllocations),
     ("SRTP/SRTCP independent Pion synthetic vectors and E=0 tampering", SrtpTests.IndependentVectors),
     ("SRTP/SRTCP profiles, padding, extensions and empty payload", SrtpTests.RoundTrips),
     ("SRTP/SRTCP every-byte tampering, truncation and wrong keys", SrtpTests.Tampering),
