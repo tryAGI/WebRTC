@@ -80,6 +80,13 @@ class PackageVerification(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         module.verify(path, SHA)
 
+    def test_repository_readme_is_valid_for_publication(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            path = Path(scratch)
+            readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+            self.package(path, mutations=lambda files: files.update({"README.md": readme}))
+            module.verify(path, SHA)
+
     def test_rejects_wrong_id_license_repository(self):
         for old, new in [("tryAGI.WebRTC</id>", "Other</id>"), (">MIT</license>", ">Unknown</license>"),
                          ("https://github.com/tryAGI/WebRTC", "https://example.invalid/other")]:

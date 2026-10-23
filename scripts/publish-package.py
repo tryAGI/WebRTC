@@ -23,6 +23,7 @@ def existing_matches(expected_sha: str, proof: dict) -> bool:
         with urllib.request.urlopen(url, timeout=30) as response:
             payload = response.read(20 * 1024 * 1024 + 1)
     except urllib.error.HTTPError as error:
+        error.close()
         if error.code == 404:
             return False
         raise

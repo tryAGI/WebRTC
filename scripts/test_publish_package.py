@@ -52,6 +52,18 @@ class PublishRetry(unittest.TestCase):
                     with self.assertRaises(urllib.error.HTTPError):
                         module.existing_matches(SHA, proof)
 
+    def test_registry_http_error_response_is_closed(self):
+        for status in [404, 500]:
+            response = io.BytesIO(b"synthetic response")
+            error = urllib.error.HTTPError("https://example.invalid", status, "synthetic", {}, response)
+            with patch.object(module.urllib.request, "urlopen", side_effect=error):
+                if status == 404:
+                    self.assertFalse(module.existing_matches(SHA, {"version": "0.1.0"}))
+                else:
+                    with self.assertRaises(urllib.error.HTTPError):
+                        module.existing_matches(SHA, {"version": "0.1.0"})
+            self.assertTrue(response.closed)
+
     def test_push_timeout_does_not_expose_key_in_exception(self):
         fake_key = "synthetic-secret-never-a-real-key"
         with tempfile.TemporaryDirectory() as scratch:
