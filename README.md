@@ -67,6 +67,13 @@ remain explicit unknowns. See [diagnostics and collection example](https://githu
 
 ## Measured hot paths
 
+Managed and NativeAOT builds now pass the same147 exact zero-allocation samples
+on Linux x64/arm64, macOS arm64 and Windows x64. Separate reviewed NativeAOT
+ceilings protect all40 active media/audio/channel/video configurations; owned
+outputs remain measured allocations. Authentication failures have explicit
+rejection/state contracts and bounded framework exception costs. See
+[paired results, regression budgets and repeated native-memory controls](https://github.com/tryAGI/WebRTC/blob/main/docs/rejection-aot-memory-20261024.md).
+
 Warmed SRTP/SRTCP crypto with preallocated caller buffers and selected span-based
 packet parsing/framing, STUN writing and STUN SHA-1/SHA-256 authentication operations
 have exact zero managed-allocation regression contracts. Small STUN authentication

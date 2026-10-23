@@ -146,3 +146,73 @@ A further empty-harness diagnostic disables tiered compilation ONLY in its owned
 benchmark child. Its metadata/cohort is explicit and ordinary budget readers
 reject it. It is an attribution experiment, not a production/runtime recommendation
 or a way to pass allocation budgets. Normal compiler configuration stays default.
+
+
+## Fresh fixed-budget verification
+
+[40037100667](https://github.com/tryAGI/WebRTC/actions/runs/40037100667) passes on
+all four platforms at54603ea0a76e282a0eb8dc4939d6c978791d1708 with calibration
+capture DISABLED. All eight managed/native compiler cohorts pass their registered
+GCM ceilings,147 existing exact-zero samples/compiler/platform and42 real
+allocation controls/compiler/platform. Every compiler/platform has three fresh
+active processes passing all40 allocation budgets. JIT active limits are unchanged;
+NativeAOT uses its independently reviewed file. All native missing-controller
+negative tests pass with graceful exit1 within30s, rather than an unhandled abort.
+All managed/native harness builds/publishes report zero compiler warnings/errors.
+
+The ordinary protocol/Pion/Chromium/NativeAOT validation lanes all pass atc1e7386
+in40036062021, including the newly shared zero-allocation/state guards in native
+smoke. Later54603ea changes diagnostic metadata/budget tooling, not runtime code.
+Fifty-seven Python checks pass. Runtime source remains32c3f2bb23f719d236281908c31f8f589bfb674d;
+new library adoption is unnecessary for this test/measurement batch.
+
+Timing ratios in the paired JSON are observations from default compiler/runtime
+process phases. Allocation warmup is not proof that every managed method has
+finished tiering; these data do not establish a universal AOT speedup and do not
+serve as absolute latency/throughput gates. The README promotes demonstrated
+allocation contracts, not a selected timing ratio.
+
+## Same-source warm-up attribution
+
+Both diagnostic cohorts use54603ea, .NET10.0.13/macOS26.6.2/arm64/3CPUs,
+three fresh processes each,64 measured waves and identical disposed-phase
+captures. [Default-tiering control40038330151](https://github.com/tryAGI/WebRTC/actions/runs/40038330151)
+and [tiering-disabled control40037104294](https://github.com/tryAGI/WebRTC/actions/runs/40037104294)
+both pass. The only intentional runtime-control difference is the owned child's
+[documented DOTNET_TieredCompilation setting](https://learn.microsoft.com/en-us/dotnet/core/runtime-config/compilation#tiered-compilation).
+
+| Empty harness, three-process medians | Default tiering | Diagnostic tiering off |
+|---|---:|---:|
+| Malloc resident at wave2 | 3.91MiB | 8.08MiB |
+| Malloc resident at wave63 | 8.28MiB | 8.08MiB |
+| Per-process resident delta, median | +4.34MiB | 0 |
+| Live malloc delta, median | -130KiB | 0 |
+| GC committed at either capture | 360448B | 360448B |
+
+Medians of endpoint values and medians of individual deltas need not subtract
+exactly. Tiering-off shifts memory earlier; it does not demonstrate a smaller
+final footprint. This comparison supports delayed compiler/runtime warm-up and
+allocator retention as contributors to empty-harness resident growth. It does
+not assign every native allocation owner or prove that all peer/process growth
+is harmless. No production compiler or runtime setting was changed; the
+diagnostic cohort cannot pass as an ordinary performance-budget cohort.
+
+The repeated controls together retain21 fresh profiling processes and1344
+measured lifecycle rows. All peer-bearing disposed records remain unrooted.
+Reports and rounded allocator aggregates are retained without native addresses.
+Exact ownership of the transport-specific residual and long-duration leak
+acceptance remain open in issue10.
+
+## Remaining narrow optimization candidates
+
+Payload-bearing GCM failures still use the framework's throwing decrypt API.
+Authentication-only SRTCP and empty-payload packets are a separate GMAC case:
+[RFC7714 section9.3](https://www.rfc-editor.org/rfc/rfc7714.html#section-9.3)
+uses empty plaintext, and [NIST SP800-38D](https://csrc.nist.gov/pubs/sp/800/38/d/final)
+defines the authentication-only specialization. A future, separately measured
+change could compute a framework GCM tag for empty ciphertext and compare it in
+fixed time. It must retain independent valid/bad-tag/wrong-key/replay vectors,
+nonce/index rules and no-output-before-authentication. This batch does not change
+crypto runtime code or claim that those unmeasured GMAC cases are optimized.
+Mixed accepted/rejected traffic under bounded local network load remains a
+separate stress scenario from this synchronous crypto rejection workload.
