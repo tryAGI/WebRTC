@@ -6,6 +6,7 @@ PacketAllocationChecks.AuthenticationBoundaries();
 PacketAllocationChecks.ZeroAllocation();
 SrtpTests.SteadyStateAllocations();
 RejectionAllocationChecks.Contracts();
+RejectionAllocationChecks.GmacContracts();
 Console.WriteLine("NativeAOT packet/STUN/crypto zero allocation and authentication rejection state contracts passed");
 await BuildIdentityTests.Retained();
 await IceConsentTests.PreviousTransactionResponse();

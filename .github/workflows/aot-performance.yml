@@ -84,7 +84,7 @@ jobs:
             options=()
             if [ "$CAPTURE" = true ]; then options+=(--capture-only); fi
             python3 scripts/check-rejection-budgets.py "$mode" "${options[@]}" --output "$mode/rejection-proof.json"
-            python3 scripts/check-gmac-budgets.py "$mode" --output "$mode/gmac-proof.json"
+            python3 scripts/check-gmac-budgets.py "$mode" --zero --output "$mode/gmac-proof.json"
           done
           python3 scripts/compare-aot-performance.py . --output comparison.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -390,6 +390,20 @@ public sealed class SrtpContext : IDisposable
             Span<byte> nonce = stackalloc byte[_gcm == null ? 16 : 12];
             Nonce(nonce, source, index, rtcp);
             if (_gcm == null) { CounterTransform(input, output, nonce); return true; }
+            if (input.IsEmpty && output.IsEmpty)
+            {
+                // Empty-ciphertext GCM is GMAC (NIST SP 800-38D, RFC 7714).
+                // Recompute only the authentication tag through framework crypto;
+                // it never escapes. This verifies a received nonce/AAD, creates no
+                // outbound message and releases no unauthenticated plaintext.
+                Span<byte> expected = stackalloc byte[16];
+                try
+                {
+                    _gcm.Encrypt(nonce, [], [], expected, aad);
+                    return CryptographicOperations.FixedTimeEquals(expected, tag);
+                }
+                finally { CryptographicOperations.ZeroMemory(expected); }
+            }
             try { _gcm.Decrypt(nonce, input, tag, output, aad); return true; }
             catch (AuthenticationTagMismatchException) { return false; }
         }

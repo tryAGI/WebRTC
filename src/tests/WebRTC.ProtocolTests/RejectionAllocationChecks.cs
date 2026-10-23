@@ -82,6 +82,37 @@ internal sealed class RejectionAllocationChecks : IDisposable
 
     public void Dispose() => _receiver.Dispose();
 
+    internal static void GmacContracts()
+    {
+        foreach (var profile in new[] { SrtpProfile.AeadAes128Gcm, SrtpProfile.AeadAes256Gcm })
+        foreach (var packet in new[] { "rtp-empty", "rtcp-empty", "rtcp-auth-only" })
+        foreach (var mode in Modes)
+        {
+            var rtcp = packet != "rtp-empty";
+            using var fixture = new RejectionAllocationChecks(profile, rtcp, packet == "rtcp-auth-only" ? 60 : 0, mode, packet == "rtcp-auth-only");
+            fixture.Exercise(128);
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            fixture.Exercise(256);
+            var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            if (bytes != 0) throw new IOException($"GMAC {profile}/{packet}/{mode} allocated {bytes}");
+            if (mode == "bad-tag")
+            {
+                // Exhaust all 128 tag bits without accepting/advancing this index.
+                // A valid packet after this corpus must still be admitted.
+                fixture._valid.CopyTo(fixture._ciphertext, 0);
+                var offset = fixture._ciphertext.Length - (rtcp ? 20 : 16);
+                for (var i = 0; i < 16; i++)
+                for (var bit = 0; bit < 8; bit++)
+                {
+                    fixture._ciphertext[offset + i] ^= (byte)(1 << bit);
+                    fixture.Exercise(1);
+                    fixture._ciphertext[offset + i] ^= (byte)(1 << bit);
+                }
+            }
+            fixture.VerifyAfterMeasurement();
+        }
+    }
+
     internal static void Contracts()
     {
         foreach (var profile in Enum.GetValues<SrtpProfile>())

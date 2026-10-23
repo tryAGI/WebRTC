@@ -65,6 +65,7 @@ var tests = new (string Name, Action Run)[]
     ("SRTP/SRTCP warm crypto roundtrips allocate zero managed bytes", SrtpTests.SteadyStateAllocations),
     ("SRTP/SRTCP replay, framing and output guards allocate zero", SrtpTests.RejectionAllocations),
     ("SRTP/SRTCP authentication rejection preserves buffers and replay state", RejectionAllocationChecks.Contracts),
+    ("GMAC zero allocation, every-tag-bit rejection and replay state", RejectionAllocationChecks.GmacContracts),
     ("SRTP/SRTCP independent Pion synthetic vectors and E=0 tampering", SrtpTests.IndependentVectors),
     ("SRTP/SRTCP profiles, padding, extensions and empty payload", SrtpTests.RoundTrips),
     ("SRTP/SRTCP every-byte tampering, truncation and wrong keys", SrtpTests.Tampering),
