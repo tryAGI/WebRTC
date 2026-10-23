@@ -24,6 +24,10 @@ docker run --platform "$browser_platform" -d --init --name "$browser" --network 
   mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e \
   -c 'sleep 600' >/dev/null
 address="$(docker inspect "$browser" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')"
+cohorts="${TRYAGI_CHROMIUM_COHORTS:-1}"
+case "$cohorts" in 1|2|3) ;; *) echo "Chromium cohort count must be 1..3" >&2; exit 1 ;; esac
+for ((cohort=1;cohort<=cohorts;cohort++)); do
+printf 'Independent Chromium cohort %s/%s\n' "$cohort" "$cohorts"
 for codec in vp8 h264; do
 for mode in answer-active answer-passive offer; do
   docker run -d --name "$peer" --network "container:$browser" "$image" "$address" "$mode" "$codec" >/dev/null
@@ -35,5 +39,6 @@ for mode in answer-active answer-passive offer; do
   docker logs "$peer"
   test "$peer_exit" = 0
   docker rm "$peer" >/dev/null
+done
 done
 done

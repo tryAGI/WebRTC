@@ -84,3 +84,21 @@ strict raw-peer negatives cover ordered channels, padding, unknown/incoming stre
 and unordered OPEN. This is a documented wire exception, not full RFC compliance
 by the browser. Browser PR loss/abandonment remains covered only by the separate
 Pion fault lane at this milestone; the browser's PR exchanges here have no forced loss.
+
+## First-frame stage evidence
+
+The probe validates the painted synthetic source and independently decodes every
+encoded chunk with WebCodecs before sending it over RTP. Bounded evidence retains
+only sampled RGBA values, dimensions, timestamps, encoded size/checksum and browser
+receive/decode counters; encoded bytes and frames are not exported. The original
+receive-side pixel assertions remain mandatory. A separate animation-frame sample
+records presentation after the video-frame callback without replacing that callback's
+evidence or retrying media delivery. This distinguishes a black encoded fixture,
+transport/decode failure and a callback/canvas presentation discrepancy.
+
+`node --test tests/interop/Chromium/video-proof.test.mjs` checks that stage samples
+remain separate, invalid source pixels fail, decoded frames close and records stay
+bounded. It does not emulate browser decoding. CI runs three independent cohorts
+of the six codec/role cases; every cohort must pass, and the first failure stops
+execution. `TRYAGI_CHROMIUM_COHORTS=1` retains the local default. Repetitions are
+explicit test cohorts, never retries that conceal a failed decode.

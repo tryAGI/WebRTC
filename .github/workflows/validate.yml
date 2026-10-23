@@ -123,9 +123,13 @@ jobs:
   independent-browser:
     name: Chromium decode and loss recovery
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Synthetic video evidence regression
+        run: node --test tests/interop/Chromium/video-proof.test.mjs
       - run: ./tests/interop/Chromium/run.sh
+        env:
+          TRYAGI_CHROMIUM_COHORTS: 3
