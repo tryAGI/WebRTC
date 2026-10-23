@@ -9,7 +9,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -37,7 +37,17 @@ jobs:
       - name: SCTP data-channel pipeline baseline
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite channels > channels.csv
+      - name: New-connection and fresh SRTP generation costs
+        shell: bash
+        run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite cold > cold.csv
+      - name: Bidirectional encoded-audio pipeline
+        shell: bash
+        run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite audio > audio.csv
+      - name: Bounded repeated peer lifetime and memory soak
+        shell: bash
+        run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite soak > soak.csv
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
         with:
           name: srtp-${{ matrix.os }}-${{ github.sha }}
           path: |
@@ -46,5 +56,8 @@ jobs:
             media.csv
             video.csv
             channels.csv
+            cold.csv
+            audio.csv
+            soak.csv
             hardware.txt
           retention-days: 30

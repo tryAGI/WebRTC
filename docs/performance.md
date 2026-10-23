@@ -111,3 +111,53 @@ already-cancelled/malformed/oversized rejection, retained received arrays,
 slow-reader eviction and disposal with a send burst. These do not deterministically
 force a socket send to remain pending; independent relay/interop validation and
 longer retained-memory stress remain separate evidence.
+
+## Connection lifecycle and retention suites
+
+`--suite cold` creates eight fresh connections for each profile with SCTP disabled
+and enabled, checks the first bidirectional encoded-audio delivery and separately
+times setup, delivery and disposal. It retains construction/SDP and per-peer
+ICE/DTLS/SCTP phase durations/retransmissions as numeric comment records. Those
+spans overlap; do not sum both peers' durations into an outage. These are new
+connections within one process, not independent cold-process launches. Early
+samples include first-use JIT/native caches.
+
+The same suite measures fresh SRTP directional key/context generations, including
+RNG, first authenticated packet, caller buffers and disposal. Every generation uses
+new random key/salt and clears external key material. This is **not** negotiated
+in-session DTLS rekey, which the library does not implement.
+
+`--suite audio` measures complete PeerConnection bidirectional encoded-audio
+routing/ownership for all profiles, diagnostics off/on and 60/1,000-byte payloads.
+Five samples follow warmup. Each sample has 64 batches of eight packets in each
+direction; latency percentiles are **batch** durations, not individual wire latency.
+Process-wide allocation includes both peers, socket/queue work and harness tasks.
+Synthetic payload equality/timestamps and zero unexpected drops/rejections are
+required; this does not decode or play Opus.
+
+`--suite soak` has a four-minute hard workload deadline. For every profile and
+tracing off/on, four lifecycle cycles each create three concurrent audio-peer pairs,
+exchange 256 packets per direction over eight epochs, reject already-cancelled
+sends, then exercise bounded slow-reader eviction and retained received buffers.
+The normal cohorts total 294,912 packet deliveries. Intentional eviction drops are
+reported separately; unexpected normal drops/authentication/routing errors fail.
+After each cohort, all six disposed peer objects must be collectible after at most
+three forced collections with bounded scheduling gaps. Peer creation failure also
+disposes any already-created sibling.
+
+Memory snapshots include live/disposed managed heap after collection, process RSS,
+private memory/handles where supported, and disposed-peer reachability. Unavailable
+private/handle observations are labeled unavailable. OS counters have different
+meanings across platforms. RSS can retain JIT, crypto, allocator and runtime caches;
+a short bounded cohort and collectible peers do not establish native leak freedom,
+long-duration stability or device energy. Forced-GC soak timings are not throughput
+benchmarks and no noisy absolute RSS threshold is a normal-CI acceptance gate.
+
+The opt-in workflow retains cold/audio/soak CSVs even on failure on the four native
+platforms. Runtime/library identity and CI harness source are recorded; local dirty
+harnesses explicitly report unverified working-tree provenance. Initial exploratory
+macOS .NET 10.0.9 execution passed the cold suite and all 24 soak cohorts with zero
+reachable disposed peers. Managed post-disposal heap was approximately 0.4–0.6 MB,
+while RSS grew across early cohorts and later approached a plateau: this warrants
+longer native-resource measurement, not a leak-free claim. Final exact-source CI
+results remain separate from those local observations.

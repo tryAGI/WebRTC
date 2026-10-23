@@ -3,9 +3,14 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using tryAGI.WebRTC;
 
-var suite = args.Length == 0 ? "crypto" : args.Length == 2 && args[0] == "--suite" ? args[1] : throw new ArgumentException("Use --suite crypto|packets|media|video|channels");
+var suite = args.Length == 0 ? "crypto" : args.Length == 2 && args[0] == "--suite" ? args[1] : throw new ArgumentException("Use --suite crypto|packets|media|video|channels|cold|soak|audio");
 Console.WriteLine($"{RuntimeInformation.FrameworkDescription}; {RuntimeInformation.OSDescription}; {RuntimeInformation.ProcessArchitecture}");
 Console.WriteLine($"cpu_count={Environment.ProcessorCount}; server_gc={System.Runtime.GCSettings.IsServerGC}; stopwatch_hz={Stopwatch.Frequency}; dynamic_code={System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeCompiled}");
+Console.WriteLine($"library_package={WebRtcBuildInfo.Current.PackageVersion}; library_source={WebRtcBuildInfo.Current.SourceRevisionId}");
+Console.WriteLine($"harness_source={Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "working_tree_unverified"}");
+if (suite == "cold") { await LifecycleBenchmarks.Cold(); return; }
+if (suite == "soak") { await LifecycleBenchmarks.Soak(); return; }
+if (suite == "audio") { await LifecycleBenchmarks.Audio(); return; }
 if (suite == "packets") { PacketBenchmarks.Run(); return; }
 if (suite == "media") { await MediaBenchmarks.Run(); return; }
 if (suite == "video") { VideoBenchmarks.Run(); return; }

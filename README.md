@@ -91,6 +91,12 @@ measurements include harness/receive costs and remain nonzero. See the matched
 and [after](https://github.com/tryAGI/WebRTC/actions/runs/39968888140) artifacts
 on all four native platforms; this is not a production latency or memory-leak claim.
 
+The opt-in suites also measure fresh connection/key-generation costs, complete
+bidirectional encoded-audio routing and bounded multi-peer retention/disposal
+soaks. Memory reports distinguish collectible managed peers, heap and whole-process
+RSS; they do not claim native leak freedom. See the
+[lifecycle methodology](https://github.com/tryAGI/WebRTC/blob/main/docs/performance.md#connection-lifecycle-and-retention-suites).
+
 ## Supported scope
 
 | Area | Implemented and tested | Current limits |
