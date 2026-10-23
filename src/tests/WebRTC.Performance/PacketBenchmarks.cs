@@ -5,7 +5,7 @@ internal static class PacketBenchmarks
 {
     internal static void Run()
     {
-        Console.WriteLine("operation,sample,operations,managed_bytes_per_op,ns_per_op");
+        Console.WriteLine("operation,sample,operations,managed_bytes_per_op,ns_per_op,managed_total_bytes");
         foreach (var operation in new[] { "rtp-mid", "rtp-truncated", "rtcp-framing", "stun-fingerprint" })
         {
             var fixture = PacketAllocationChecks.Fixture(operation);
@@ -18,7 +18,7 @@ internal static class PacketBenchmarks
                 PacketAllocationChecks.Exercise(operation, fixture, count);
                 var elapsed = Stopwatch.GetElapsedTime(started);
                 var bytes = GC.GetAllocatedBytesForCurrentThread() - allocated;
-                Console.WriteLine($"{operation},{sample},{count},{bytes / (double)count:F2},{elapsed.TotalNanoseconds / count:F1}");
+                Console.WriteLine($"{operation},{sample},{count},{bytes / (double)count:F2},{elapsed.TotalNanoseconds / count:F1},{bytes}");
             }
         }
     }

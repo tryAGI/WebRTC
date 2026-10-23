@@ -5,34 +5,37 @@ using tryAGI.WebRTC;
 
 internal static class MaintenanceBenchmarks
 {
-    internal static async Task Idle()
+    internal static async Task Idle(bool channels = false)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(4));
-        Console.WriteLine("profile,trace,pairs,sample,elapsed_ms,process_bytes_per_second,cpu_ms_per_second,threadpool_items_per_second,consent_checks,retransmissions,gen0,gen1,gen2");
-        await Measure("harness_only", false, [], deadline.Token);
-        foreach (var profile in Enum.GetValues<SrtpProfile>())
+        Console.WriteLine("profile,trace,pairs,channel_state,sample,elapsed_ms,process_bytes_per_second,cpu_ms_per_second,threadpool_items_per_second,consent_checks,retransmissions,sctp_retransmissions,sctp_outstanding,sctp_buffered_send,sctp_buffered_receive,gen0,gen1,gen2");
+        await Measure("harness_only", false, "off", [], deadline.Token);
+        foreach (var profile in channels ? [SrtpProfile.AeadAes256Gcm] : Enum.GetValues<SrtpProfile>())
+        foreach (var mode in channels ? new[] { "off", "associated", "open" } : ["off"])
         foreach (var trace in new[] { false, true })
         foreach (var count in new[] { 1, 3 })
         {
             var pairs = new List<AudioPeerPair>();
             try
             {
-                for (var i = 0; i < count; i++) pairs.Add(await AudioPeerPair.Create(profile, trace, false, 60, i, deadline.Token));
+                for (var i = 0; i < count; i++) pairs.Add(await AudioPeerPair.Create(profile, trace, mode != "off", 60, i, deadline.Token));
                 await Task.WhenAll(pairs.Select(p => p.Exchange(4)));
+                if (mode == "open") await Task.WhenAll(pairs.Select(p => p.WarmChannel()));
                 await Task.Delay(1000, deadline.Token);
-                await Measure(profile.ToString(), trace, pairs, deadline.Token);
+                await Measure(profile.ToString(), trace, mode, pairs, deadline.Token);
                 foreach (var pair in pairs) pair.Check();
             }
             finally { await Task.WhenAll(pairs.Select(p => p.DisposeAsync().AsTask())); }
         }
-        static async Task Measure(string profile, bool trace, IReadOnlyList<AudioPeerPair> pairs, CancellationToken ct)
+        static async Task Measure(string profile, bool trace, string mode, IReadOnlyList<AudioPeerPair> pairs, CancellationToken ct)
         {
             using var process = Process.GetCurrentProcess();
             for (var sample = 0; sample < 3; sample++)
             {
                 long Checks() => pairs.Sum(p => p.Left.GetDiagnostics().Ice.SentChecks + p.Right.GetDiagnostics().Ice.SentChecks);
                 long Retries() => pairs.Sum(p => p.Left.GetDiagnostics().Ice.Retransmissions + p.Right.GetDiagnostics().Ice.Retransmissions);
-                var checks = Checks(); var retries = Retries();
+                long SctpRetries() => pairs.Sum(p => (p.Left.GetDiagnostics().Sctp?.Retransmissions ?? 0) + (p.Right.GetDiagnostics().Sctp?.Retransmissions ?? 0));
+                var checks = Checks(); var retries = Retries(); var sctpRetries = SctpRetries();
                 var g0 = GC.CollectionCount(0); var g1 = GC.CollectionCount(1); var g2 = GC.CollectionCount(2);
                 process.Refresh();
                 var work = ThreadPool.CompletedWorkItemCount; var cpu = process.TotalProcessorTime;
@@ -43,7 +46,10 @@ internal static class MaintenanceBenchmarks
                 process.Refresh();
                 var cpuMs = (process.TotalProcessorTime - cpu).TotalMilliseconds;
                 var items = ThreadPool.CompletedWorkItemCount - work;
-                Console.WriteLine($"{profile},{trace},{pairs.Count},{sample},{seconds*1000:F3},{bytes/seconds:F2},{cpuMs/seconds:F3},{items/seconds:F2},{Checks()-checks},{Retries()-retries},{GC.CollectionCount(0)-g0},{GC.CollectionCount(1)-g1},{GC.CollectionCount(2)-g2}");
+                var snapshots = pairs.SelectMany(p => new[] { p.Left.GetDiagnostics().Sctp, p.Right.GetDiagnostics().Sctp }).OfType<SctpDiagnostics>().ToArray();
+                var outstanding = snapshots.Sum(p => p.OutstandingChunks); var send = snapshots.Sum(p => p.BufferedSendBytes); var receive = snapshots.Sum(p => p.BufferedReceiveBytes);
+                if (outstanding != 0 || send != 0 || receive != 0) throw new IOException("Idle SCTP fixture did not drain");
+                Console.WriteLine($"{profile},{trace},{pairs.Count},{mode},{sample},{seconds*1000:F3},{bytes/seconds:F2},{cpuMs/seconds:F3},{items/seconds:F2},{Checks()-checks},{Retries()-retries},{SctpRetries()-sctpRetries},{outstanding},{send},{receive},{GC.CollectionCount(0)-g0},{GC.CollectionCount(1)-g1},{GC.CollectionCount(2)-g2}");
             }
         }
     }

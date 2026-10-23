@@ -9,7 +9,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -49,6 +49,21 @@ jobs:
       - name: Idle transport maintenance baseline
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite idle > idle.csv
+      - name: Repeated data-channel idle cohorts
+        shell: bash
+        run: |
+          for repetition in 1 2 3; do
+            dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite idle-sctp > "idle-sctp-$repetition.csv"
+          done
+      - name: Isolated longer peer retention controls
+        shell: bash
+        run: |
+          for mode in empty_control identity_only peer_audio peer_open; do
+            for trace in 0 1; do
+              if [[ "$trace" == 1 && ( "$mode" == empty_control || "$mode" == identity_only ) ]]; then continue; fi
+              TRYAGI_RETENTION_MODE="$mode" TRYAGI_RETENTION_TRACE="$trace" dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite retention > "retention-$mode-$trace.csv"
+            done
+          done
       - name: Native identity construction attribution
         shell: bash
         run: dotnet run --project src/tests/WebRTC.Performance -c Release --no-build -- --suite identity > identity.csv
@@ -72,6 +87,8 @@ jobs:
             audio.csv
             soak.csv
             idle.csv
+            idle-sctp-*.csv
+            retention-*.csv
             identity.csv
             native-*.csv
             hardware.txt

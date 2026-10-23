@@ -6,13 +6,15 @@ using tryAGI.WebRTC;
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-var suite = args.Length == 0 ? "crypto" : args.Length == 2 && args[0] == "--suite" ? args[1] : throw new ArgumentException("Use --suite crypto|packets|media|video|channels|cold|soak|audio|idle|identity|native");
+var suite = args.Length == 0 ? "crypto" : args.Length == 2 && args[0] == "--suite" ? args[1] : throw new ArgumentException("Use --suite crypto|packets|media|video|channels|cold|soak|audio|idle|idle-sctp|identity|native|retention");
 Console.WriteLine($"{RuntimeInformation.FrameworkDescription}; {RuntimeInformation.OSDescription}; {RuntimeInformation.ProcessArchitecture}");
 Console.WriteLine($"cpu_count={Environment.ProcessorCount}; server_gc={System.Runtime.GCSettings.IsServerGC}; stopwatch_hz={Stopwatch.Frequency}; dynamic_code={System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeCompiled}");
 Console.WriteLine($"library_package={WebRtcBuildInfo.Current.PackageVersion}; library_source={WebRtcBuildInfo.Current.SourceRevisionId}");
 Console.WriteLine($"harness_source={Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "working_tree_unverified"}");
+if (suite == "idle-sctp") { await MaintenanceBenchmarks.Idle(true); return; }
 if (suite == "idle") { await MaintenanceBenchmarks.Idle(); return; }
 if (suite == "identity") { MaintenanceBenchmarks.Identity(); return; }
+if (suite == "retention") { await RetentionBenchmarks.Run(); return; }
 if (suite == "native") { await MaintenanceBenchmarks.Retention(); return; }
 if (suite == "cold") { await LifecycleBenchmarks.Cold(); return; }
 if (suite == "soak") { await LifecycleBenchmarks.Soak(); return; }
@@ -22,7 +24,7 @@ if (suite == "media") { await MediaBenchmarks.Run(); return; }
 if (suite == "video") { VideoBenchmarks.Run(); return; }
 if (suite == "channels") { await ChannelBenchmarks.Run(); return; }
 if (suite != "crypto") throw new ArgumentException("Unknown suite");
-Console.WriteLine("profile,payload_bytes,sample,roundtrips,managed_bytes_per_roundtrip,ns_per_roundtrip");
+Console.WriteLine("profile,payload_bytes,sample,roundtrips,managed_bytes_per_roundtrip,ns_per_roundtrip,managed_total_bytes");
 foreach (var profile in Enum.GetValues<SrtpProfile>())
 foreach (var payload in new[] { 60, 1200 })
 {
@@ -46,7 +48,7 @@ foreach (var payload in new[] { 60, 1200 })
         Roundtrips(count);
         var elapsed = Stopwatch.GetElapsedTime(start);
         var bytes = GC.GetAllocatedBytesForCurrentThread() - allocated;
-        Console.WriteLine($"{profile},{payload},{sample},{count},{bytes / (double)count:F2},{elapsed.TotalNanoseconds / count:F1}");
+        Console.WriteLine($"{profile},{payload},{sample},{count},{bytes / (double)count:F2},{elapsed.TotalNanoseconds / count:F1},{bytes}");
     }
     void Roundtrips(int count)
     {

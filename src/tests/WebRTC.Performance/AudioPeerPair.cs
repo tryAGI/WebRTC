@@ -71,6 +71,27 @@ internal sealed class AudioPeerPair : IAsyncDisposable
                 !reader.Current.Payload.AsSpan().SequenceEqual(payload)) throw new IOException("Bidirectional audio ownership/routing mismatch");
         }
     }
+    internal async Task WarmChannel()
+    {
+        var ct = lifetime.Token;
+        var channel = await Left.OpenDataChannelAsync(new("idle-proof", "", true, DataChannelReliability.Reliable, 0, 8192), ct);
+        await using var incoming = Right.AcceptDataChannelsAsync(ct).GetAsyncEnumerator(ct);
+        if (!await incoming.MoveNextAsync()) throw new IOException("No idle channel accepted");
+        var accepted = incoming.Current;
+        await using var forward = accepted.ReceiveMessagesAsync(ct).GetAsyncEnumerator(ct);
+        await using var reverse = channel.ReceiveMessagesAsync(ct).GetAsyncEnumerator(ct);
+        for (var i = 0; i < 4; i++)
+        {
+            await channel.SendBinaryAsync(leftPayload, ct);
+            if (!await forward.MoveNextAsync() || !forward.Current.Data.AsSpan().SequenceEqual(leftPayload))
+                throw new IOException("Idle channel forward ownership mismatch");
+            await accepted.SendBinaryAsync(rightPayload, ct);
+            if (!await reverse.MoveNextAsync() || !reverse.Current.Data.AsSpan().SequenceEqual(rightPayload))
+                throw new IOException("Idle channel reverse ownership mismatch");
+        }
+        // Peers retain both open channels; disposal of these read enumerators
+        // leaves the channels open for the idle cohort, without a hidden reset.
+    }
     internal void Check()
     {
         var left = Left.GetDiagnostics(); var right = Right.GetDiagnostics();

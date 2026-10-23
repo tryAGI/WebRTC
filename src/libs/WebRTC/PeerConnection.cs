@@ -32,7 +32,11 @@ public sealed record PeerConnectionOptions
 }
 public sealed record PeerConnectionDiagnostics(PeerConnectionState State, TimeSpan? MediaReadyTime, TimeSpan? ConnectedTime,
     long RejectedAudioPackets, long RejectedControlPackets, long DroppedAudioPackets, long DroppedControlPackets,
-    IceUdpTransportDiagnostics Ice, DtlsSrtpDiagnostics? Dtls);
+    IceUdpTransportDiagnostics Ice, DtlsSrtpDiagnostics? Dtls)
+{
+    /// <summary>Bounded SCTP counters, or null when data channels are not negotiated.</summary>
+    public SctpDiagnostics? Sctp { get; init; }
+}
 
 /// <summary>Owns initial Opus/video/data BUNDLE and bounded resolved STUN/TURN paths. Video codecs are externally supplied; no decoding or jitter buffer.</summary>
 public sealed partial class PeerConnection : IAsyncDisposable
@@ -584,7 +588,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     }
     public PeerConnectionDiagnostics GetDiagnostics() => new(State, Elapsed(_mediaAt), Elapsed(_connectedAt),
         Interlocked.Read(ref _rejectedAudio), Interlocked.Read(ref _rejectedControl), Interlocked.Read(ref _droppedAudio), Interlocked.Read(ref _droppedControl),
-        _ice.GetDiagnostics(), _dtls?.GetDiagnostics());
+        _ice.GetDiagnostics(), _dtls?.GetDiagnostics()) { Sctp = _sctp?.GetDiagnostics() };
     private TimeSpan? Elapsed(long at) => at == 0 ? null : Stopwatch.GetElapsedTime(_startedAt, at);
     private void RequireOpen() { ObjectDisposedException.ThrowIf(_disposed || _state == PeerConnectionState.Closed, this); if (_state == PeerConnectionState.Failed) throw new InvalidOperationException("Peer connection failed."); }
     private void RequireState(PeerConnectionState state) { RequireOpen(); if (_state != state) throw new InvalidOperationException("Invalid initial signaling state."); }

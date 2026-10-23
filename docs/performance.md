@@ -211,3 +211,28 @@ Initial local compilation was queued behind another owner's exclusive host reque
 no compiler bypass or source copy was used. The committed four-platform baseline
 is the validation/measurement gate before runtime timer or identity changes.
 CSV numeric formatting is invariant-culture for portable parsing.
+
+### SCTP idle and isolated longer retention
+
+`--suite idle-sctp` measures AES-256-GCM audio pairs with data channels off,
+associated without DCEP, and a warmed bidirectional open channel. Each has tracing
+off/on and one/three pairs, three two-second samples after a one-second settling
+period. SCTP retransmission deltas and outstanding/send/receive occupancy are
+retained; nonzero final occupancy fails the fixture. Open channels remain owned
+by the peers until disposal. Ordinary `idle` continues to cover all SRTP profiles
+without data channels. Completed threadpool work is not a kernel wakeup count.
+CI retains three separate-process repetitions per native platform before setting
+statistical budgets. The baseline must precede runtime timer changes.
+
+`--suite retention` uses an allowlisted `TRYAGI_RETENTION_MODE` (empty_control,
+identity_only, peer_audio, peer_open) and trace 0/1. Fresh-process cohorts use four
+warmup waves and 24 measured waves, two fresh peer pairs or four identities per
+wave, two seconds live idle and 512 bidirectional synthetic audio deliveries per
+peer wave. Open-channel waves also prove bidirectional binary routing before
+idling. Every peer is disposed and checked through weak references after bounded
+full collections. Records retain heap, GC committed/fragmented bytes, RSS,
+available private bytes/handles and elapsed time. The process deadline is three
+minutes, CI's outer job bound 25 minutes. No source copy or native dependency is
+introduced. These finite cohorts improve attribution; they do not prove prolonged
+leak freedom or identify precise native allocated bytes by subtracting GC memory
+from RSS. Controls keep JIT/tiering defaults to match actual peer workloads.
