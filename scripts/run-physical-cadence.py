@@ -33,6 +33,7 @@ proof=dict(source=source,canary_checkout_source=checkout_source,os=platform.plat
 try:
     for repetition in range(1,4):
         result=dict(repetition=repetition)
+        proof['repetitions'].append(result)
         for suite,name in (('timers','timers'),('auth-load','audio')):
             capture=output/f'{name}-{repetition}.csv';error=output/f'{name}-{repetition}.stderr'
             with capture.open('w') as out,error.open('w') as err:
@@ -45,6 +46,5 @@ try:
                 subprocess.run(['python3',str(Path(__file__).with_name('check-timer-control.py')),str(capture),str(output/f'timers-{repetition}-proof.json')],check=True,timeout=30)
         for name in ('audio','timers'):
             if json.loads((output/f'{name}-{repetition}-proof.json').read_text())['source']!=source:raise ValueError('Observed source identity differs from verified payload')
-        proof['repetitions'].append(result)
 finally:
     (output/'physical-proof.json').write_text(json.dumps(proof,indent=2)+'\n')

@@ -39,8 +39,11 @@ internal static class AuthenticationLoadBenchmarks
         await using var left = new IceUdpTransport(new(IPAddress.Loopback, 0));
         await using var right = new IceUdpTransport(new(IPAddress.Loopback, 0));
         await using var proxy = new CorruptingProxy(left.LocalEndPoint, right.LocalEndPoint, burst, control);
+        var scenarioStart = Stopwatch.GetTimestamp();
+        Stage("ice_connect");
         await Task.WhenAll(left.ConnectAsync(right.LocalCredentials, IceRole.Controlling, [new(proxy.EndPoint)], ct),
             right.ConnectAsync(left.LocalCredentials, IceRole.Controlled, [new(proxy.EndPoint)], ct));
+        Stage("dtls_connect");
         using var a = DtlsIdentity.Generate(); using var b = DtlsIdentity.Generate();
         var options = new DtlsSrtpOptions { Profiles = [profile] };
         await using var sender = new DtlsSrtpTransport(left, a, DtlsRole.Client, b.GetFingerprintSha256(), options);
@@ -52,6 +55,7 @@ internal static class AuthenticationLoadBenchmarks
         using var process = Process.GetCurrentProcess();
         try
         {
+            Stage("warm_up");
             for (var i = 0; i < 16; i++) await Send(i);
             await Drain(15);
             if (latencies.AsSpan(0, 16).Contains(0L)) throw new IOException("Authentication load warm-up lost valid traffic");
@@ -60,6 +64,7 @@ internal static class AuthenticationLoadBenchmarks
             Console.Out.Flush();
             for (var sample = 0; sample < 3; sample++)
             {
+                Stage($"sample_{sample}");
                 var first = 16 + sample * 100;
                 var rejects = receiver.GetDiagnostics().RejectedRecords; var iceDrops = right.GetDiagnostics().DroppedDatagrams;
                 var mediaDrops = receiver.GetDiagnostics().DroppedMediaDatagrams;
@@ -101,6 +106,13 @@ internal static class AuthenticationLoadBenchmarks
         }
         finally { reading.Cancel(); await collecting; }
 
+        void Stage(string name)
+        {
+            // Outside measured allocation windows; identify the last owner phase
+            // if the unchanged scenario deadline fires on a slow physical host.
+            Console.WriteLine($"# auth_load_stage={name};profile={profile};burst={burst};elapsed_ms={Stopwatch.GetElapsedTime(scenarioStart).TotalMilliseconds:F3}");
+            Console.Out.Flush();
+        }
         async Task Send(int sequence)
         {
             BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2), checked((ushort)sequence));
