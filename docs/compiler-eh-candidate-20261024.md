@@ -244,3 +244,13 @@ unchanged official-compiler baseline checks both entry and source locations with
 instruction offsets retained. The source-location check stays fail-closed even if
 entry behavior passes; these two results must not be conflated or attributed to
 the EH hierarchy candidate without the official control.
+
+
+The first explicit-entry retry40100444446/source7ea2b5e did not stop and therefore
+provides no entry semantic result. The checker had converted a module-relative
+SBAddress into an absolute pre-launch load address, losing relocation tracking.
+This is an authored harness bug, not evidence of a compiler/runtime defect.
+The correction uses LLDB's BreakpointCreateBySBAddress and retains process state
+on future missing-stop failures. A queued official-control run using the old
+checker is superseded rather than counted as semantic evidence; fresh candidate
+and official controls use the same corrected checker.
