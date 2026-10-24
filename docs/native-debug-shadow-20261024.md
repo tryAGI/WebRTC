@@ -93,3 +93,32 @@ belong to the managed NativeAOT debug stream, not the replaced Swift debug input
 An authored framework-only nested-exception fixture now isolates that compiler
 boundary without a WebRTC reference. Its strict build/execution and unfiltered
 verifier diagnostics are retained separately; failure is never converted to pass.
+
+
+## Final experiment and compiler boundary
+
+[Run40067547675](https://github.com/tryAGI/WebRTC/actions/runs/40067547675)
+at4a235ced5d1c712151474d52bc0857670093bfc9 confirms the same14-section,
+216-symbol equality and real mutation rejection. The official archive and native
+binary hashes remain unchanged. Nineteen archive debug-map entries were relocated;
+actual crypto and managed function-range queries both succeeded. Full DWARF
+verification still rejected762 overlapping managed exception ranges, so strict
+publication failed and rooted smoke execution was not reached in this experiment.
+A tool version probe is also intentionally rejected by the wrapper's one-binary
+argument restriction; that diagnostic is visible and is not quality acceptance.
+
+The framework-only AotDwarfRanges fixture compiled with-warnaserror and executed
+successfully, then failed unfiltered full DWARF verification with14 overlapping
+exception-range errors. This independently reproduces the managed compiler defect
+without WebRTC, Swift debug relocation or provider traffic. See
+[issue23](https://github.com/tryAGI/WebRTC/issues/23). Debug-range usability is
+strictly weaker evidence than valid complete DWARF; none of these failures is waived.
+
+The separate original-path exact-source probe
+[40067545494](https://github.com/tryAGI/WebRTC/actions/runs/40067545494) also failed
+its strict original module-signature guard. Debug-prefix mapping did not reproduce
+the original PCMs. No incompatible map, SDK cache edit or runtime replacement was
+accepted. This remains a partial diagnostic repair, not a canonical AOT repair.
+The original Swift bridge matching-Onone code is a separate optimization hypothesis
+tracked in [issue24](https://github.com/tryAGI/WebRTC/issues/24), not an attributed
+cause of audio loss. No Advantage dependency was changed in this batch.

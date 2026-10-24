@@ -55,7 +55,7 @@ class AuthenticationLoadTests(unittest.TestCase):
             path = Path(directory) / 'capture.csv'
             path.write_text('# auth_load_pacing=interval\n')
             self.assertEqual(load.producer_pacing(path), 'interval')
-            for text in ('', '# auth_load_pacing=unknown\n', '# auth_load_pacing=interval\n# auth_load_pacing=deadline\n'):
+            for text in ('', '# auth_load_pacing=unknown\n', '# auth_load_pacing=interval\n# auth_load_pacing=deadline\n', '# auth_load_pacing=interval\n# auth_load_failure=deadline;profile=AeadAes128Gcm;burst=256;pacing=interval\n'):
                 path.write_text(text)
                 with self.assertRaises(ValueError): load.producer_pacing(path)
 

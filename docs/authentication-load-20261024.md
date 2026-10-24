@@ -111,3 +111,23 @@ The first paired producer run40065231287 was correctly rejected on Windows:
 its minimum observed interval was18.8451ms. One Task.Delay completion did not
 establish elapsed20ms. The interval producer now rechecks the monotonic clock
 in a bounded cancellation-aware delay loop; the19.9ms guard stays unchanged.
+
+
+The corrected paired capture at649c027d6a30f9f0e7fff6e9a86466a2fcea41ad,
+[run40065846640](https://github.com/tryAGI/WebRTC/actions/runs/40065846640),
+completed both producer modes in three fresh processes on Linuxx64/arm64 and
+Windows:648 samples, no missing valid packets, with all six real-loss controls
+passing. macOS failed during its first interval process after23/36 rows and one
+observed missing valid packet. The next AES128GCM/burst256 scenario hit its30s
+deadline. Its last complete sample took9.585s, offered/received100/100 valid
+packets and observed a maximum180.7ms send gap. This is a producer/processing
+stall, not successful50Hz audio protection. No macOS deadline-mode comparison
+completed in this paired run. Its incomplete CSV cannot pass coverage checks.
+
+Expected workload deadline/integrity failures now retain a typed failure marker
+in the CSV, print the full exception to stderr and exit1, instead of an unhandled
+abort/core. Offline consumers reject that marker even if numeric coverage happens
+to be complete. The failure-marker guard passed with the full100-test Python
+suite; the changed performance project compiled with zero warnings/errors through
+host admission. This error-reporting branch has not yet been exercised by a new
+live timeout capture; no additional runtime change was made for it.

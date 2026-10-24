@@ -17,7 +17,20 @@ internal static class AuthenticationLoadBenchmarks
         Console.WriteLine("profile,burst,sample,offered,received,missing,injected,rejected,ice_drops,media_drops,fixture_drops,process_bytes,cpu_ms,elapsed_ms,p50_ns,p95_ns,p99_ns,gen0,gen1,gen2,min_send_gap_us,max_send_gap_us,max_injection_us");
         foreach (var profile in control ? new[] { SrtpProfile.AeadAes128Gcm } : Enum.GetValues<SrtpProfile>())
         foreach (var burst in control ? new[] { 0 } : new[] { 0, 16, 64, 256 })
-            await Scenario(profile, burst, control, pacing);
+        {
+            try { await Scenario(profile, burst, control, pacing); }
+            catch (OperationCanceledException error) { Fail("deadline", error, profile, burst, pacing); return; }
+            catch (IOException error) { Fail("integrity", error, profile, burst, pacing); return; }
+        }
+    }
+
+    private static void Fail(string reason, Exception error, SrtpProfile profile, int burst, string pacing)
+    {
+        // Keep failure visible to both CI and offline CSV consumers. Expected
+        // workload failures exit1 rather than producing an unhandled abort/core.
+        Console.WriteLine($"# auth_load_failure={reason};profile={profile};burst={burst};pacing={pacing}");
+        Console.Error.WriteLine(error);
+        Environment.ExitCode = 1;
     }
 
     private static async Task Scenario(SrtpProfile profile, int burst, bool control, string pacing)

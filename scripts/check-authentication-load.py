@@ -51,7 +51,9 @@ def validate(rows, control=False, pacing=None):
 
 
 def producer_pacing(path):
-    markers = [line for line in Path(path).read_text().splitlines() if line.startswith('# auth_load_pacing=')]
+    lines = Path(path).read_text().splitlines()
+    if any(line.startswith('# auth_load_failure=') for line in lines): raise ValueError('Captured authentication workload failure')
+    markers = [line for line in lines if line.startswith('# auth_load_pacing=')]
     if len(markers) != 1: raise ValueError('Exactly one explicit producer pacing marker required')
     pacing = markers[0].split('=', 1)[1]
     if pacing not in ('interval', 'deadline'): raise ValueError('Unknown producer pacing control')
