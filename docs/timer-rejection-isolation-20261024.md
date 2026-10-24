@@ -95,3 +95,14 @@ This process-owned class change did not normalize20ms cadence and is not a
 runtime fix. Differing runner state/hardware prevents treating the lower default
 medians relative to the earlier cohort as an improvement caused by any code.
 The remaining process activity/coalescing/host scheduling cause is unproven.
+
+
+The follow-on native activity control uses the same Objective-C/ARC binary in
+all arms (default, native thread QoS, process-owned latency-critical/user-initiated
+activity), with rotated3-process order per Mac cohort. NSProcessInfo's activity
+token stays owned until endActivity after100 wakes, then the child exits. This
+finite diagnostic may inhibit idle sleep/coalescing for its own process; it does
+not set a global policy or add a power/priority assertion to the library. It
+isolates an activity-policy hypothesis, not authorization to adopt it in product
+code or an energy/thermal conclusion. Metadata retains actual thread class and
+activity state with every raw/wall/monotonic capture.

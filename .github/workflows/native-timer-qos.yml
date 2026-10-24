@@ -15,16 +15,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: |
           mkdir -p artifacts/native-qos
-          clang -std=c11 -O2 -Wall -Wextra -Werror tests/diagnostics/NativeTimers/timers.c -o artifacts/native-qos/timers
+          clang -O2 -Wall -Wextra -Werror -fobjc-arc -framework Foundation tests/diagnostics/NativeTimers/activity.m -o artifacts/native-qos/timers
           for repetition in 1 2 3; do
-            if [ "$repetition" = 2 ]; then
-              TRYAGI_NATIVE_QOS=user-initiated artifacts/native-qos/timers > "artifacts/native-qos/initiated-$repetition.csv"
-              artifacts/native-qos/timers > "artifacts/native-qos/default-$repetition.csv"
-            else
-              artifacts/native-qos/timers > "artifacts/native-qos/default-$repetition.csv"
-              TRYAGI_NATIVE_QOS=user-initiated artifacts/native-qos/timers > "artifacts/native-qos/initiated-$repetition.csv"
-            fi
-            python3 scripts/check-native-qos.py "artifacts/native-qos/default-$repetition.csv" "artifacts/native-qos/initiated-$repetition.csv" "artifacts/native-qos/proof-$repetition.json"
+            modes=(default initiated activity)
+            if [ "$repetition" = 2 ]; then modes=(activity default initiated); fi
+            if [ "$repetition" = 3 ]; then modes=(initiated activity default); fi
+            for mode in "${modes[@]}"; do
+              if [ "$mode" = activity ]; then
+                TRYAGI_NATIVE_ACTIVITY=latency-critical artifacts/native-qos/timers > "artifacts/native-qos/$mode-$repetition.csv"
+              elif [ "$mode" = initiated ]; then
+                TRYAGI_NATIVE_QOS=user-initiated artifacts/native-qos/timers > "artifacts/native-qos/$mode-$repetition.csv"
+              else
+                artifacts/native-qos/timers > "artifacts/native-qos/$mode-$repetition.csv"
+              fi
+            done
+            python3 scripts/check-native-qos.py "artifacts/native-qos/default-$repetition.csv" "artifacts/native-qos/initiated-$repetition.csv" "artifacts/native-qos/proof-$repetition.json" --activity "artifacts/native-qos/activity-$repetition.csv"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

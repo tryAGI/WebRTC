@@ -24,8 +24,13 @@ def read(path,mode):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('baseline');p.add_argument('initiated');p.add_argument('output');args=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('baseline');p.add_argument('initiated');p.add_argument('output');p.add_argument('--activity');args=p.parse_args()
     a,baseline=read(args.baseline,'default');b,initiated=read(args.initiated,'user-initiated')
     if a!=b or 'working_tree_unverified' in a: raise ValueError('Same committed source required')
-    Path(args.output).write_text(json.dumps(dict(source=a,baseline=baseline,user_initiated=initiated,
-        scope='native main thread only; process exits after100 wakes; no global/process-wide/managed-thread priority or power setting changed'),indent=2)+'\n')
+    result=dict(source=a,baseline=baseline,user_initiated=initiated,
+        scope='synthetic process/thread only;100 wakes then exit; no global/permanent/managed/production policy change')
+    if args.activity:
+        c,activity=read(args.activity,'default')
+        if c!=a or Path(args.activity).read_text().splitlines().count('# native_activity=latency-critical')!=1: raise ValueError('Missing matching activity control')
+        result['latency_critical_activity']=activity
+    Path(args.output).write_text(json.dumps(result,indent=2)+'\n')
