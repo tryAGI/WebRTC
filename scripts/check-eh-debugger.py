@@ -37,7 +37,9 @@ def run_debugger(debugger):
         def integer(frame,name):
             value=frame.FindVariable(name);error=lldb.SBError()
             result=value.GetValueAsSigned(error,-999999)
-            if not value.IsValid() or error.Fail():raise ValueError('Unavailable debugger variable: '+name)
+            if not value.IsValid() or error.Fail():
+                proof['unavailable_variable']=dict(name=name,function=frame.GetFunctionName(),line=frame.GetLineEntry().GetLine())
+                raise ValueError('Unavailable debugger variable: '+name)
             return result
         for stage,value,outer,local,marker in expected:
             if process.GetState()!=lldb.eStateStopped:

@@ -15,6 +15,7 @@ internal static class EhDebugProbe
         {
             int tryOnly = outer + 10;
             Checkpoint(1, tryOnly); // DEBUG_TRY
+            Sink(outer);
             Sink(tryOnly);
             if (input == 0) throw new InvalidOperationException("Authored debugger fixture");
             return tryOnly;
@@ -23,6 +24,7 @@ internal static class EhDebugProbe
         {
             int catchOnly = outer + 20;
             Checkpoint(2, catchOnly); // DEBUG_CATCH
+            Sink(outer);
             Sink(catchOnly);
             return catchOnly;
         }
@@ -30,6 +32,7 @@ internal static class EhDebugProbe
         {
             int finallyOnly = outer + 30;
             Checkpoint(3, finallyOnly); // DEBUG_FINALLY
+            Sink(outer);
             Sink(finallyOnly);
         }
     }
@@ -38,7 +41,12 @@ internal static class EhDebugProbe
     internal static void Checkpoint(int stage, int value)
     {
         Volatile.Write(ref Last, stage + value);
+        HoldArguments(stage, value);
     }
+
+    // Keep both checkpoint arguments live at its source/prologue breakpoint.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void HoldArguments(int stage, int value) => Volatile.Write(ref Last, stage ^ value);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void Sink(int value) => Volatile.Write(ref Last, value);
