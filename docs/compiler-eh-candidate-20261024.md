@@ -254,3 +254,30 @@ The correction uses LLDB's BreakpointCreateBySBAddress and retains process state
 on future missing-stop failures. A queued official-control run using the old
 checker is superseded rather than counted as semantic evidence; fresh candidate
 and official controls use the same corrected checker.
+
+
+### Corrected live-value fixture and official control
+
+The unchanged official compiler run40101116790, using module-relative entry
+breakpoints, correctly reads entry arguments1/111 and caller outer101/tryOnly111
+at the first stop, then fails because outer is unavailable in finally. The fixture
+had asserted an optimized value after its last actual use. The corrected authored
+fixture keeps outer and each asserted scope local live after its checkpoint with
+no-inline sink calls, and keeps checkpoint arguments live at its source location.
+These changes clarify the test's liveness precondition; they do not patch compiler
+metadata or relax the expected values. Earlier failures remain retained.
+
+[Official control40101493182](https://github.com/tryAGI/WebRTC/actions/runs/40101493182),
+source959f51b2a83be80b2144db7ab63a43410476eb75, passes both entry and source
+checks:five stops each, exact caller source/scoped values, normal native exit0.
+Expected stage/value/outer tuples are(1,111,101),(3,131,101),(1,110,100),
+(2,120,100),(3,130,100). Source breakpoints resolve at instruction offset24;
+entry breakpoints at0. Instruction evidence is retained. The complete official
+job log is independently scanned for diagnostics; this is debugger control
+acceptance, not full stock-SDK DWARF or canonical publication acceptance.
+
+The earlier official run40101045558 completed as failure with the old relocation
+checker before cancellation was attempted; it was not canceled and supplies no
+valid entry control. No earlier failure is reclassified as passing. The corrected
+candidate must independently pass this live-value entry/caller-scope fixture and
+its original full rooted verification before broader semantic acceptance is stated.
