@@ -10,6 +10,10 @@ on:
         description: Test implicit unoptimized mode identified in the original object
         type: boolean
         default: true
+      original_prefix:
+        description: Reproduce original debug paths in job-owned actual module data
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
@@ -36,7 +40,8 @@ jobs:
         env:
           SOURCE_OPTION: ${{ inputs.upstream_source && '--upstream-source' || '' }}
           OPTIMIZATION_OPTION: ${{ inputs.unoptimized && '--unoptimized' || '' }}
-        run: python3 scripts/prepare-native-symbols.py "$HOME/.nuget/packages/microsoft.netcore.app.runtime.nativeaot.osx-arm64/10.0.13/runtimes/osx-arm64/native/libSystem.Security.Cryptography.Native.Apple.a" "$GITHUB_WORKSPACE/artifacts/native-symbols" $SOURCE_OPTION $OPTIMIZATION_OPTION
+          PREFIX_OPTION: ${{ inputs.original_prefix && '--original-prefix' || '' }}
+        run: python3 scripts/prepare-native-symbols.py "$HOME/.nuget/packages/microsoft.netcore.app.runtime.nativeaot.osx-arm64/10.0.13/runtimes/osx-arm64/native/libSystem.Security.Cryptography.Native.Apple.a" "$GITHUB_WORKSPACE/artifacts/native-symbols" $SOURCE_OPTION $OPTIMIZATION_OPTION $PREFIX_OPTION
       - name: Publish strict native smoke with explicit module path maps
         run: |
           options="$(cat artifacts/native-symbols/dsym-options.txt)"

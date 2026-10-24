@@ -40,6 +40,9 @@ def main(arguments):
     # preserved verbatim. A warning/error still fails the wrapper and MSBuild.
     dump = subprocess.run([real_tool, '--dump-debug-map', str(binary)], capture_output=True, text=True, timeout=60)
     sys.stderr.write(dump.stderr)
+    diagnostics = [line for line in dump.stdout.splitlines() if re.match(r'^\s*(?:warning|error):', line, re.I)]
+    if diagnostics:
+        print('\n'.join(diagnostics)); raise RuntimeError('Debug-map extraction emitted diagnostics')
     if dump.returncode or re.search(r'\b(?:warning|error):', dump.stderr, re.I): raise RuntimeError('Debug-map extraction failed or emitted a diagnostic')
     if len(dump.stdout) > 64 * 1024 * 1024: raise ValueError('Debug map exceeds bound')
     mapped, count = relocate(dump.stdout, str(original), str(replacement))

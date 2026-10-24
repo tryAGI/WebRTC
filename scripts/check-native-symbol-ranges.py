@@ -14,6 +14,9 @@ proof = dict(scope='function-range usability only; full DWARF verification remai
 for key, name in (('crypto', 'AesGcmDecrypt'), ('managed', 'ProcessDatagram')):
     result = subprocess.run(['xcrun', 'dwarfdump', '--debug-info', '--regex', '--name', name, str(existing[0])], capture_output=True, text=True, timeout=30)
     if result.stderr: print(result.stderr, end='')
+    diagnostics = [line for line in result.stdout.splitlines() if re.match(r'^\s*(?:warning|error):', line, re.I)]
+    if diagnostics:
+        print('\n'.join(diagnostics)); raise RuntimeError('Function range query emitted diagnostics')
     if result.returncode or re.search(r'\b(?:warning|error):', result.stderr, re.I): raise RuntimeError('Function range query failed or emitted a diagnostic')
     if len(result.stdout) > 4 * 1024 * 1024: raise ValueError('Range query exceeds bound')
     if name not in result.stdout or 'DW_TAG_subprogram' not in result.stdout or not any(attr in result.stdout for attr in ('DW_AT_low_pc', 'DW_AT_ranges')):
