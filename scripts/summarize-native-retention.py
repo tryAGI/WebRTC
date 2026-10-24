@@ -4,6 +4,7 @@ import argparse
 import csv
 import importlib.util
 import json
+import math
 from pathlib import Path
 import re
 import statistics
@@ -15,7 +16,9 @@ core = importlib.util.module_from_spec(spec); spec.loader.exec_module(core)
 def size(value):
     found = re.fullmatch(r'([0-9]+(?:\.[0-9]+)?)([BKMGT]?)', value)
     if not found: raise ValueError('Unknown native size notation')
-    return float(found[1]) * (1024 ** ('BKMGT'.index(found[2]) if found[2] else 0))
+    result = float(found[1]) * (1024 ** ('BKMGT'.index(found[2]) if found[2] else 0))
+    if not math.isfinite(result): raise ValueError('Nonfinite native size')
+    return result
 
 
 def summarize(root, mode):

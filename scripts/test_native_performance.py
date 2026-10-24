@@ -114,6 +114,7 @@ class RetentionTests(unittest.TestCase):
     def test_native_size_precision_and_unknown_format(self):
         self.assertEqual(retention.size('1.5M'), 1572864)
         with self.assertRaises(ValueError): retention.size('private/path')
+        with self.assertRaisesRegex(ValueError, 'Nonfinite'): retention.size('9' * 400 + 'T')
 
 
 
