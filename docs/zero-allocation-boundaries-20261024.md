@@ -47,3 +47,16 @@ run-physical-cadence.py before execution. It is a small precompiled test payload
 not a source copy, CLI replacement or installed package. Runtime/performance input
 diffs against its committed source must be empty; raw canary metadata must agree.
 Physical execution remains admitted even when compilation occurred in CI.
+
+
+A second owned physical-artifact lane may use
+`~/.cache/tryagi-webrtc/physical-cadence-20261024/<source>` on an owned arm64 Mac.
+Only the hash-verified CI DLL/config payload and exact committed diagnostic/checker
+scripts are transferred, never repository sources. The consumer is this task's
+admitted synthetic canary, using its recorded installed .NET runtime without
+upgrading it. Refuse existing output paths; keep raw captures and their runtime,
+source and physical-host metadata. The same diagnostic owner may remove these
+artifacts after30days only after confirming no active consumer. The standalone
+runner requires a source manifest, validates every payload hash and checks observed
+CSV source identity. This permits physical measurements without cloning a repo or
+compiling on another host; it does not make unlike runtimes a matched cohort.
