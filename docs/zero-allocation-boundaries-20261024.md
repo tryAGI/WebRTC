@@ -38,3 +38,12 @@ The private runtime download uses the macOS system CA bundle with full TLS and
 hostname verification. Initial Python-default trust-store failure was corrected
 by selecting that trust bundle, never by disabling certificate checks. The
 published runtime SHA512 must still match the official release metadata.
+
+
+If source compilation cannot enter the busy local queue, physical-canary-build
+creates an exact-source, warning-as-error CI test artifact with per-file SHA256.
+It is downloaded into the same owned physical diagnostic family and verified by
+run-physical-cadence.py before execution. It is a small precompiled test payload,
+not a source copy, CLI replacement or installed package. Runtime/performance input
+diffs against its committed source must be empty; raw canary metadata must agree.
+Physical execution remains admitted even when compilation occurred in CI.

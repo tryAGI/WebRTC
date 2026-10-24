@@ -1,0 +1,36 @@
+name: Exact-source physical canary artifact
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet build src/tests/WebRTC.Performance -c Release -warnaserror
+      - name: Record immutable test payload identities
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,shutil
+          from pathlib import Path
+          source=Path('src/tests/WebRTC.Performance/bin/Release/net10.0');out=Path('artifacts/physical-canary');out.mkdir(parents=True)
+          hashes={}
+          for p in source.iterdir():
+              if p.is_file() and (p.suffix=='.dll' or p.name.endswith(('.deps.json','.runtimeconfig.json'))):
+                  shutil.copyfile(p,out/p.name);hashes[p.name]=hashlib.sha256(p.read_bytes()).hexdigest()
+          if 'WebRTC.Performance.dll' not in hashes or 'tryAGI.WebRTC.dll' not in hashes:raise ValueError('Missing canary payload')
+          (out/'canary-build.json').write_text(json.dumps(dict(source=os.environ['GITHUB_SHA'],sha256=hashes,scope='test artifact only; no global CLI/runtime installation'),indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: physical-canary-${{ github.sha }}
+          path: artifacts/physical-canary
+          if-no-files-found: error
+          retention-days: 30

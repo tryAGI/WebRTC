@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """Run under host admission; synthetic loopback only, no devices/providers/playback."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 import platform
 import subprocess
 
-p=argparse.ArgumentParser(description=__doc__);p.add_argument('assembly',type=Path);p.add_argument('--source');args=p.parse_args()
+p=argparse.ArgumentParser(description=__doc__);p.add_argument('assembly',type=Path);p.add_argument('--source');p.add_argument('--manifest',type=Path);args=p.parse_args()
 root=Path('artifacts/physical-cadence-20261024');runtime=root/'runtime/dotnet';output=root/'canary'
 output.mkdir(exist_ok=False)
 checkout_source=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
 source=args.source or checkout_source
+if args.manifest:
+    manifest=json.loads(args.manifest.read_text())
+    if manifest['source']!=source:raise ValueError('Canary source manifest mismatch')
+    for name,digest in manifest['sha256'].items():
+        if Path(name).name!=name or hashlib.sha256((args.assembly.parent/name).read_bytes()).hexdigest()!=digest:raise ValueError('Canary binary manifest mismatch')
 inputs=['src/libs/WebRTC','src/tests/WebRTC.Performance','src/tests/WebRTC.ProtocolTests/PacketAllocationChecks.cs','src/tests/WebRTC.ProtocolTests/RejectionAllocationChecks.cs','Directory.Build.props','Directory.Build.targets','global.json','NuGet.Config']
 if subprocess.check_output(['git','diff',source,checkout_source,'--',*inputs],text=True).strip():raise ValueError('Compiled canary inputs differ from the current checkout')
 if subprocess.check_output(['git','status','--porcelain'],text=True).strip():raise ValueError('Record a clean committed source before physical measurement')
