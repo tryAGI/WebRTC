@@ -46,7 +46,9 @@ jobs:
       - name: Build actual pinned compiler from source without modifying installed SDK
         working-directory: artifacts/upstream-runtime
         shell: bash
-        run: ./build.sh clr.aot -rc Release -lc Release -arch arm64 -os osx -p:TreatWarningsAsErrors=true 2>&1 | tee ../compiler-evidence/build.log
+        run: ./build.sh clr.alljits+clr.tools -rc Release -lc Release -arch arm64 -os osx -p:TreatWarningsAsErrors=true --cmakeargs "-DCMAKE_POLICY_DEFAULT_CMP0156=NEW -DCMAKE_POLICY_DEFAULT_CMP0179=NEW" 2>&1 | tee ../compiler-evidence/build.log
+      - name: Require clean raw native diagnostics and retain compiler identity
+        run: python3 scripts/check-compiler-build.py artifacts/upstream-runtime artifacts/compiler-evidence/build.log artifacts/compiler-evidence/build-proof.json
       - name: Strict minimal repro using candidate compiler and official framework
         run: |
           tools="$GITHUB_WORKSPACE/artifacts/upstream-runtime/artifacts/bin/coreclr/osx.arm64.Release/ilc/"
