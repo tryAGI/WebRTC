@@ -34,3 +34,39 @@ CSV and numeric proof JSON are job-owned artifacts retained30days for issue19
 analysis. There is no persistent cache and no raw packet/payload capture. Timing
 results are observations of the recorded source/runtime/hardware cohort, not a
 security audit, Internet DoS resistance claim or physical audible acceptance.
+
+## Measured result
+
+[Run40060836414](https://github.com/tryAGI/WebRTC/actions/runs/40060836414)
+(source`b53e3860867cae99490896b456b1940c9890d347`) completed all four
+managed lanes with zero compiler warnings:432 normal samples, three fresh
+processes per platform,3,628,800 completed corrupted sends. Every platform's
+real packet-drop control detected exactly the intended missing baseline packet.
+No observed corrupted plaintext or duplicate reached the accepted collector.
+Raw CSV was downloaded and all normal/control checks independently recomputed.
+
+| Cohort | Valid packets missing /10800 offered | ICE queue drops | Observed rejections /907200 injected |
+|---|---:|---:|---:|
+| Linuxx64 |0|10755|896445|
+| Linuxarm64 |0|1124|906076|
+| Windowsx64 |0|884|906316|
+| macOSarm64 |1601|333806|574995|
+
+The macOS loss occurred only under treatment. Its baseline and burst16 had no
+valid loss. Burst64 lost20/284/309 valid packets for AES-CM/AES128GCM/AES256GCM;
+burst256 lost86/460/442 respectively (900 offered per cell). At256, median
+received-only p99 was21.105/25.753/24.369ms. No secure-media queue drops occurred.
+These are recorded hosted-runner cohorts, not a matched cross-OS speed ranking.
+
+The workflow's coverage/integrity pass does **not** establish hostile-load
+reliability on macOS. [Issue22](https://github.com/tryAGI/WebRTC/issues/22)
+tracks that defect and the pre-authentication plaintext-array allocation
+candidate. Process allocations were nonzero across all platforms; AES-CM's
+crypto-only zero contract does not imply a zero-allocation UDP/DTLS pipeline.
+The existing supported framework API still throws for nonempty AES-GCM tag
+failure; no crypto, authentication or replay policy was changed in this batch.
+
+A separate admitted local macOS27/.NET10.0.9 control also observed99/100 then
+100/100 and100/100 valid packets with exactly one intentional drop. Its harness
+source metadata is `working_tree_unverified`, so it is only local semantic
+confirmation and is excluded from the committed-source CI cohort/proof.

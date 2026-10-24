@@ -1,4 +1,7 @@
 import copy
+import csv
+import json
+import tempfile
 import importlib.util
 from pathlib import Path
 import unittest
@@ -50,6 +53,39 @@ class NativeOwnersTests(unittest.TestCase):
             with self.assertRaises(ValueError): owners.analyze(data, rows, 'peer_open')
         data, rows = fixture(); rows[2]['threadpool_threads'] = '-1'
         with self.assertRaises(ValueError): owners.analyze(data, rows, 'peer_open')
+
+
+class NativeCohortTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup); self.root = Path(self.temp.name)
+        source = 'a' * 40
+        for mode in ('empty_control', 'peer_open'):
+            for repetition in (1, 2, 3):
+                directory = self.root / mode / str(repetition); directory.mkdir(parents=True)
+                data, rows = fixture(); data['mode'] = mode
+                for row in rows: row['mode'] = mode
+                (directory / 'profile.json').write_text(json.dumps(data))
+                with (directory / 'retention.csv').open('w') as stream:
+                    stream.write(f'.NET 10.0.13; macOS 26.6.2; Arm64\ncpu_count=3; server_gc=False; dynamic_code=True; tiered_compilation=0\nlibrary_package=0.2.10-dev.43; library_source={source}\nharness_source={source}\n')
+                    writer = csv.DictWriter(stream, ['mode'] + [key for key in rows[0] if key != 'mode']); writer.writeheader(); writer.writerows(rows)
+
+    def test_complete_control_pair_is_descriptive(self):
+        result = owners.summarize(self.root)
+        self.assertFalse(result['leak_freedom_verdict'])
+        self.assertEqual(result['workloads']['peer_open']['median_quiet_change']['rss'], 0)
+
+    def test_missing_repetition_and_hardware_or_source_mismatch_fail(self):
+        path = self.root / 'peer_open' / '3' / 'retention.csv'; original = path.read_text()
+        for changed in (original.replace('cpu_count=3', 'cpu_count=5'), original.replace('a' * 40, 'b' * 40)):
+            path.write_text(changed)
+            with self.assertRaisesRegex(ValueError, 'Mixed instrumented'): owners.summarize(self.root)
+        path.write_text(original)
+        (path.parent / 'profile.json').unlink()
+        with self.assertRaisesRegex(ValueError, 'Exactly three'): owners.summarize(self.root)
+
+    def test_instrumented_quiescence_cannot_borrow_ordinary_memory_cohort(self):
+        with self.assertRaisesRegex(ValueError, 'Incomplete'):
+            owners.retention.summarize(self.root / 'peer_open', 'peer_open')
 
 
 if __name__ == '__main__': unittest.main()
