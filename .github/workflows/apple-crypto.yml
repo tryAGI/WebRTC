@@ -31,11 +31,19 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet build src/tests/WebRTC.Performance -c Release -warnaserror
+      - name: Framework-only timer control before profiling
+        run: |
+          mkdir -p artifacts/timers
+          for repetition in 1 2 3; do
+            dotnet src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll --suite timers > "artifacts/timers/control-$repetition.csv"
+          done
       - run: python3 scripts/profile-authentication-macos.py src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll artifacts/auth-stacks
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: auth-stacks-${{ github.sha }}
-          path: artifacts/auth-stacks
+          path: |
+            artifacts/auth-stacks
+            artifacts/timers
           if-no-files-found: error
           retention-days: 30
