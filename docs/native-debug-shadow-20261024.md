@@ -58,3 +58,21 @@ Their bytes, alignments, flags and normalized relocations remain exact; all code
 and data addresses remain exact. Tests accept a moved unwind base and reject a
 changed symbol offset within the same section. This corrects the comparison
 model; it does not authorize different loaded crypto code/data.
+
+
+Run40065103651 passed the complete nondebug equality check and real code-byte
+mutation control:14 sections,216 symbols, signature
+cfa607327bfe734d32ed49572d11e2c6af6cf73db4a0eda90204c1518efe53ec.
+Strict publication still reported both original missing modules: the initial
+object-prefix map did not relocate the archive's debug-map entries.
+
+The next probe uses LLVM's documented YAML debug-map input. A job-local dsymutil
+wrapper dumps the real binary's map, changes only verified archive filename
+entries, and invokes the real tool with-y and--verify. All diagnostic stderr and
+final tool output/status remain visible; no warning is filtered or disabled.
+The binary and official archive hashes must remain unchanged. Only the owned
+NativeBinary is accepted, with no quiet/ignore/debug-disabling options. The
+wrapper lives only in this publish step's PATH and uses the exact verified
+archive identities. Native-link proof records the unchanged binary hash and
+relocated-member count. A successful strict publish/full DWARF/smoke is still
+required before claiming repair. No archive or PCM is uploaded.

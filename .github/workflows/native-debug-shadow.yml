@@ -22,8 +22,9 @@ jobs:
         run: python3 scripts/prepare-native-debug-shadow.py "$HOME/.nuget/packages/microsoft.netcore.app.runtime.nativeaot.osx-arm64/10.0.13/runtimes/osx-arm64/native/libSystem.Security.Cryptography.Native.Apple.a" "$GITHUB_WORKSPACE/artifacts/debug-input"
       - name: Strict publish using original framework and verified debug input
         run: |
-          options="$(cat artifacts/debug-input/dsym-options.txt)"
-          dotnet publish src/tests/WebRTC.AotSmoke -c Release -r osx-arm64 -p:PublishAot=true -p:RuntimeFrameworkVersion=10.0.13 -warnaserror "-p:DsymUtilOptions=$options" -o artifacts/smoke
+          export TRYAGI_NATIVE_DEBUG_INPUT="$GITHUB_WORKSPACE/artifacts/debug-input/manifest.json"
+          export PATH="$GITHUB_WORKSPACE/artifacts/debug-input/tool-bin:$PATH"
+          dotnet publish src/tests/WebRTC.AotSmoke -c Release -r osx-arm64 -p:PublishAot=true -p:RuntimeFrameworkVersion=10.0.13 -warnaserror -o artifacts/smoke
       - name: Verify usable native DWARF
         run: |
           xcrun dwarfdump --verify artifacts/smoke/WebRTC.AotSmoke.dSYM

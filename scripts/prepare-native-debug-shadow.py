@@ -6,6 +6,7 @@ import importlib.util
 import json
 from pathlib import Path
 import struct
+import shlex
 import subprocess
 
 
@@ -98,6 +99,14 @@ def prepare(archive, output):
                  scope='dsymutil debug-object relocation only; no linker/runtime archive substitution')
     (output / 'dsym-options.txt').write_text(options)
     (output / 'proof.json').write_text(json.dumps(proof, indent=2) + '\n')
+    real_tool = original.checked(['xcrun', '--find', 'dsymutil']).strip()
+    manifest = dict(official_archive=str(archive.resolve()), debug_archive=str(shadow.resolve()), official_sha256=original.ARCHIVE_SHA,
+                    debug_sha256=proof['shadow_archive_sha256'], real_dsymutil=real_tool)
+    (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    tool_directory = output / 'tool-bin'; tool_directory.mkdir()
+    script = Path(__file__).with_name('link-verified-native-debug.py').resolve()
+    shim = tool_directory / 'dsymutil'
+    shim.write_text('#!/bin/sh\nexec python3 ' + shlex.quote(str(script)) + ' "$@"\n'); shim.chmod(0o755)
 
 
 if __name__ == '__main__':

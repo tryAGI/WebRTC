@@ -78,4 +78,21 @@ class ShadowArchiveTests(unittest.TestCase):
             with self.assertRaises(ValueError): shadow.replace_last_member(value, b'new')
 
 
+link_spec = importlib.util.spec_from_file_location('debug_link', Path(__file__).with_name('link-verified-native-debug.py'))
+link = importlib.util.module_from_spec(link_spec); link_spec.loader.exec_module(link)
+
+
+class DebugMapRelocationTests(unittest.TestCase):
+    def test_only_archive_filenames_move(self):
+        text = '  - filename: "/official.a(pal_swiftbindings.o)"\n  filename: "/official.a(other.o)"\n  sym: /official.a(symbol)\n'
+        result,count=link.relocate(text,'/official.a','/debug.a')
+        self.assertEqual(count,2); self.assertIn('filename: "/debug.a(pal_swiftbindings.o)"',result)
+        self.assertIn('sym: /official.a(symbol)',result)
+
+    def test_missing_duplicate_and_ambiguous_swift_member_fail(self):
+        row='  filename: "/official.a(pal_swiftbindings.o)"\n'
+        for text in ('',row+row,row.replace('pal_swiftbindings.o','other.o')):
+            with self.assertRaises(ValueError): link.relocate(text,'/official.a','/debug.a')
+
+
 if __name__ == '__main__': unittest.main()
