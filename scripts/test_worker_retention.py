@@ -14,7 +14,7 @@ def fixture(minimum, traced):
                  rss='1000', managed_committed='100', threadpool_threads=str(minimum or 2), threadpool_pending='0')
             for p, w in [('disposed', i) for i in range(24)] + workers.PHASES[-2:]]
     samples = [dict(phase=p, wave=w, alive_disposed_peers=0,
-                   malloc=dict(total_source='single_zone', resident='10M', allocated='1M', fragmentation='9M')) for p,w in workers.PHASES]
+                   malloc=dict(total_source='single_zone', resident='10M', dirty='10M', allocated='1M', fragmentation='9M')) for p,w in workers.PHASES]
     if traced:
         for sample in samples: sample['native_owners'] = dict(groups={'unknown_request/dotnet_runtime': dict(calls=2, requested_bytes=1000)})
     return dict(mode='peer_open', trace=0, waves=24, child_exit=0, owners=traced, quiescence=True, worker_minimum=minimum, tiering_off=True, samples=samples), rows

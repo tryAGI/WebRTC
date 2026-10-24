@@ -27,7 +27,7 @@ def phases(data, rows, minimum, traced, default_minimum=3):
         heap = sample['malloc']
         if heap['total_source'] not in ('single_zone', 'explicit_total'): raise ValueError('Missing allocator total')
         entry = dict(phase=sample['phase'], wave=sample['wave'], **values,
-            malloc_resident=native.size(heap['resident']), malloc_allocated=native.size(heap['allocated']), malloc_fragmentation=native.size(heap['fragmentation']))
+            malloc_dirty=native.size(heap['dirty']), malloc_resident=native.size(heap['resident']), malloc_allocated=native.size(heap['allocated']), malloc_fragmentation=native.size(heap['fragmentation']))
         if traced:
             owners = sample['native_owners']['groups']
             for key in ('unknown_request/dotnet_runtime', 'malloc_request/dotnet_runtime', 'malloc_request/crypto_sdk'):
@@ -55,14 +55,14 @@ def summarize(root):
                 if not 0 < cpu < 24 or 'tiered_compilation=0' not in parts or ('native_stack_logging=1' in parts) != traced or ('worker_minimum=24' in parts) != bool(minimum): raise ValueError('Worker runtime/cohort identity mismatch')
                 identity.add(('|'.join(p for p in parts if not p.startswith(('worker_minimum=', 'native_stack_logging='))), source))
                 reps.append(phases(json.loads(path.read_text()), rows, minimum, traced, cpu))
-            names = METRICS + ('malloc_resident', 'malloc_allocated', 'malloc_fragmentation')
+            names = METRICS + ('malloc_dirty', 'malloc_resident', 'malloc_allocated', 'malloc_fragmentation')
             controls[name] = dict(repetitions=reps,
                 median_wave2_to23={k: statistics.median(rep[2][k] - rep[0][k] for rep in reps) for k in names},
                 median_final_quiet_change={k: statistics.median(rep[4][k] - rep[2][k] for rep in reps) for k in names},
                 median_quiet30={k: statistics.median(rep[4][k] for rep in reps) for k in names})
     if len(identity) != 1: raise ValueError('Mixed worker source/runtime/hardware cohort')
     cohort, source = next(iter(identity))
-    names = METRICS + ('malloc_resident', 'malloc_allocated', 'malloc_fragmentation')
+    names = METRICS + ('malloc_dirty', 'malloc_resident', 'malloc_allocated', 'malloc_fragmentation')
     differences = {kind: {k: controls[kind + '-24']['median_quiet30'][k] - controls[kind + '-0']['median_quiet30'][k] for k in names} for kind in ('plain', 'traced')}
     return dict(source=source, cohort=cohort, controls=controls, minimum24_minus_default_quiet30=differences,
         leak_freedom_verdict=False, scope='owned diagnostic child; minimum-worker and stack-logging interventions are separate; nearest native frame is not allocator identity; malloc values inherit vmmap rounding')
