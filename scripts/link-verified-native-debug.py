@@ -48,12 +48,14 @@ def main(arguments):
     # No flags remove debug data or silence warnings. --verify validates the
     # linked DWARF; supported -y changes only the source of the input debug map.
     result = subprocess.run([real_tool, '-y', str(map_path), '-o', str(binary) + '.dSYM', '--verify'], timeout=180)
-    if result.returncode: return result.returncode
-    if digest(binary) != before or digest(original) != data['official_sha256']: raise ValueError('Runtime binary/archive was modified by debug linking')
+    binary_unchanged = digest(binary) == before
+    archive_unchanged = digest(original) == data['official_sha256']
     (manifest_path.parent / 'native-link-proof.json').write_text(json.dumps(dict(native_binary_sha256=before,
-        binary_unchanged_by_debug_link=True, official_archive_unchanged=True, relocated_archive_members=count,
+        binary_unchanged_by_debug_link=binary_unchanged, official_archive_unchanged=archive_unchanged, relocated_archive_members=count,
+        debug_link_exit_code=result.returncode, dwarf_verified=result.returncode == 0,
         debug_map='LLVM supported YAML input; only verified archive filenames relocated', diagnostics_suppressed=False), indent=2) + '\n')
-    return 0
+    if not binary_unchanged or not archive_unchanged: raise ValueError('Runtime binary/archive was modified by debug linking')
+    return result.returncode
 
 
 if __name__ == '__main__':

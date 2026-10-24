@@ -40,6 +40,9 @@ jobs:
           PY
       - name: Execute full rooted native smoke
         run: artifacts/smoke/WebRTC.AotSmoke
+      - name: Check crypto and managed symbol ranges even after verifier rejection
+        if: always() && (steps.native_publish.outcome == 'success' || steps.native_publish.outcome == 'failure')
+        run: python3 scripts/check-native-symbol-ranges.py artifacts/debug-input/native-range-proof.json
       - name: Isolate managed compiler DWARF without WebRTC
         if: failure() && steps.native_publish.outcome == 'failure'
         run: |
