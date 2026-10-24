@@ -41,3 +41,57 @@ Default/user-initiated processes interleave3 times on the same Mac. Each exits;
 no global policy, power setting, production process or managed thread is changed.
 This tests a scheduling/coalescing hypothesis, not authorization to raise runtime
 priorities or adopt the control as a fix. All raw/wall/monotonic clocks are retained.
+
+
+## Exact-source results
+
+[Run40090661802](https://github.com/tryAGI/WebRTC/actions/runs/40090661802)
+atd41c4cf0428fa4d4a6f8c114e12b9b549bad6b98 completed all four jobs, with
+zero compiler warnings/errors. Three pairs per OS give900 native and2700 managed
+wake observations overall. Both wall and raw clocks show the large hosted Mac
+wake gaps; native CLOCK_MONOTONIC agrees too. This excludes a large Stopwatch-only
+scaling error as the explanation in this cohort.
+
+| Cohort | Native sleep median across process medians, ms | .NET Delay median across process medians, ms | Wall/raw ratio |
+| --- | ---: | ---: | ---: |
+| macOS15 |89.063|91.763|~1.0000|
+| macOS26 |118.003|115.829|~1.0005|
+| Linux |20.072|20.114|~1.0000|
+
+These are same-runner native/managed controls per cohort, not matched hardware
+across OSes, a provider result or device audio acceptance. MacOS26's~0.05% clock
+difference cannot explain fivefold wake delays. PeriodicTimer still coalesces;
+its lower medians do not prove uninterrupted cadence.
+
+The uninstrumented60byte AES128GCM/managed throw measurements (21 samples/mode/OS)
+retain exact counters and checked success/rejection output. Median ns/op and
+thread bytes/op are summarized below; CPU/process and raw sample data are retained.
+
+| Cohort | Valid us / B | Bad-tag us / B | Synthetic throw us / B |
+| --- | ---: | ---: | ---: |
+| macOS15 |3.606 /0|9.150 /192|3.709 /296|
+| macOS26 |3.223 /0|7.046 /192|3.136 /296|
+| Linux |0.550 /0|1.907 /192|1.479 /296|
+
+The independently instrumented Mac job passed all three child workloads. Its
+thread-time report assigns37.65% exclusive sampled weight to EH.DispatchEx
+in bad-tag mode, with42.8% unresolved symbols and15.91% in the Apple decrypt
+interop boundary. Synthetic throw assigns81.79% to EH.DispatchEx; valid mode
+has92.55% unresolved symbols. These report percentages include startup/rundown
+and safepoint/native-symbol limitations; they are not exclusive kernel CPU or a
+causal subtraction of framework/native costs. They support exception handling as
+a real cost while the timer-only controls independently explain a major pacing
+confounder. No supported payload-bearing-GCM nonthrowing decrypt API was substituted.
+
+## Native QoS control
+
+[Run40091205202](https://github.com/tryAGI/WebRTC/actions/runs/40091205202)
+at85d14a7156a3880a85e1239c5bcbc3d9e0658e51 passed both Mac lanes with
+600 native wake observations each. Effective native thread class changed17→25.
+On macOS15 the three default/initiated process medians were73.891/57.247,
+70.857/58.291 and62.968/53.163ms. On macOS26 they were47.966/72.157,
+50.698/59.115 and53.320/57.636ms. Both wall/monotonic clocks retain the delays.
+This process-owned class change did not normalize20ms cadence and is not a
+runtime fix. Differing runner state/hardware prevents treating the lower default
+medians relative to the earlier cohort as an improvement caused by any code.
+The remaining process activity/coalescing/host scheduling cause is unproven.
