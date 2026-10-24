@@ -29,3 +29,11 @@ All generated objects, binaries and stack captures are job-owned artifacts used
 only by these diagnostics; jobs destroy compilation outputs after completion.
 CSV/proof and synthetic stacks are retained30days for issues22/24. This introduces
 no runtime dependency, persistent cache, SDK edit, provider call or device action.
+
+
+The first stack run40075886152 obtained both requested captures, but its observer
+240s bound terminated the otherwise-running workload after35/36 rows. That is an
+observer deadline, not a transport/integrity exception. The observer now allows
+420s for the whole12-scenario campaign (each scenario still has its unchanged30s
+workload deadline), records observer failures explicitly, and retains a finite
+job bound. No load, delivery, coverage or per-scenario limit was weakened.
