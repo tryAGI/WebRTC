@@ -218,3 +218,29 @@ Final rooted native binary SHA256:
 Pinned upstream source/runtime and all experimental/canonical SDK acceptance
 boundaries above remain unchanged. This supersedes the leaf-warning limitation
 of the previous structural run, not its retained failure history.
+
+
+## Debugger semantics: independent execution fixture
+
+A new authored framework-only NativeAOT fixture exercises try/catch/finally with
+five no-inline checkpoints. LLDB must launch it, resolve one native breakpoint,
+read each caller's source line and active outer/scope-local values, observe exact
+checkpoint arguments and reach normal exit0. Full DWARF verification remains a
+separate mandatory gate. A real debugger error leaves a failed proof and complete
+log; an exit0 LLDB process alone cannot manufacture semantic acceptance.
+
+The first candidate run40099785218/source22360150e2507a12484dc293bce763157be1054f
+passes source compilation and full fixture DWARF verification, but fails LLDB
+semantics. At the automatic source/prologue breakpoint, caller line17 and locals
+outer101/tryOnly111 are correct; checkpoint arguments are112 and an unexpected
+pointer-sized value instead of1/111. This is a real failed observation, not a clean
+semantics pass. Register reuse after optimized arguments' final use is a hypothesis
+until entry/source controls and instruction evidence are compared.
+
+The next checker explicitly selects the native function entry for argument reads,
+while checking caller locals/source mapping at the call site. It does not claim
+that optimized source breakpoints show expired parameters correctly. A separate
+unchanged official-compiler baseline checks both entry and source locations with
+instruction offsets retained. The source-location check stays fail-closed even if
+entry behavior passes; these two results must not be conflated or attributed to
+the EH hierarchy candidate without the official control.
