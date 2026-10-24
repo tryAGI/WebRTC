@@ -80,3 +80,37 @@ Raw CSV, exact policy stderr and both artifact manifests remain with the owned
 physical consumer; a digest-checked full proof is retained locally. Its existing
 30-day review lifecycle is unchanged. The earlier failed audio canary is not
 reclassified as passing by these timer-only controls.
+
+
+## Physical thread-QoS follow-up with background cleared
+
+The same hash-verified native artifact ran six additional fresh processes on the
+same owned physical Mac: three rotated default/user-initiated pairs,100 requested
+20ms sleeps each (600 wakes). The process wrapper observes background0→0 in all
+six cases. Default payloads report actual qos_class_self()17; user-initiated
+payloads report25 and the native program refuses success if that promotion fails.
+This changes only each diagnostic child's own thread. Controller source is
+c56babb; the original native artifact source remains b056f6d, not conflated.
+
+| Repetition | Class17 median ms | Class25 median ms |
+| --- | ---: | ---: |
+| 1 | 167.802 | 166.368 |
+| 2, reversed order | 164.094 | 166.300 |
+| 3 | 166.758 | 166.655 |
+
+All processes complete and the admitted consumer exits0 in94.281s. This is again
+successful collection of poor timing. Requested main-thread QoS promotion alone
+is insufficient on this physical cohort, consistent with the earlier hosted
+controls. It does not prove that effective task clamps, application roles or all
+managed worker threads actually run at the requested class. No production
+scheduling, timer resolution, power setting or worker priority changed.
+A later read-only active power snapshot reports lowpowermode0, but was not matched
+to every wake; it is not a whole-cohort power attribution experiment.
+
+Proof SHA256 d3ba3dc56d4431560d2bdcee7873125e041c96154ca404b7a5bf2e9f35cb6945;
+controller-transfer SHA256
+41a76c4d6c2b51a9de40550fdd712d193344aef363c7645588d52e3d5d6c382b.
+Raw files remain in the same owned physical diagnostic family under qos-captures,
+with its existing30-day review lifecycle. A digest-checked complete proof is
+retained locally. Across both physical controls there are24 fresh processes and
+4200 timer wakes; there is no new audio/provider/device acceptance claim.
