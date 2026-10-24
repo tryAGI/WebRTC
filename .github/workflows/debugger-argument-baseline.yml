@@ -1,0 +1,28 @@
+name: Official compiler debugger argument baseline
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet publish tests/diagnostics/AotDebuggerSemantics -c Release -r osx-arm64 -p:PublishAot=true -p:RuntimeFrameworkVersion=10.0.13 -warnaserror -o artifacts/official-debugger
+      - name: Check actual entry arguments and EH caller locals
+        run: python3 scripts/check-eh-debugger.py artifacts/official-debugger/AotDebuggerSemantics tests/diagnostics/AotDebuggerSemantics/Program.cs artifacts/official-debugger/entry/proof.json
+      - name: Independently check optimized source breakpoint parameter fidelity
+        run: python3 scripts/check-eh-debugger.py artifacts/official-debugger/AotDebuggerSemantics tests/diagnostics/AotDebuggerSemantics/Program.cs artifacts/official-debugger/source/proof.json --checkpoint source
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: official-debugger-${{ github.sha }}
+          path: |
+            artifacts/official-debugger/entry
+            artifacts/official-debugger/source
+          retention-days: 30
+          if-no-files-found: error

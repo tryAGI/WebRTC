@@ -18,15 +18,16 @@ def run_debugger(debugger):
         if not target.IsValid():raise ValueError('LLDB could not create the native target')
         bp=target.BreakpointCreateByRegex('EhDebugProbe.*Checkpoint')
         if bp.GetNumLocations()!=1:raise ValueError('Checkpoint must resolve to exactly one native location')
-        # A source breakpoint may skip past the final use of optimized arguments.
-        # Check arguments at actual function entry, and caller locals at the call.
-        address=bp.GetLocationAtIndex(0).GetAddress().GetFunction().GetStartAddress()
-        if not address.IsValid():raise ValueError('Checkpoint entry address unavailable')
-        bp.SetEnabled(False)
-        entry=target.BreakpointCreateByAddress(address.GetLoadAddress(target))
-        if entry.GetNumLocations()!=1:raise ValueError('Entry breakpoint did not resolve')
-        proof['checkpoint']='native function entry; no prologue skip'
-
+        checkpoint=os.environ.get('TRYAGI_EH_DEBUG_CHECKPOINT','entry')
+        if checkpoint=='entry':
+            # Check arguments before optimized code can reuse their registers.
+            address=bp.GetLocationAtIndex(0).GetAddress().GetFunction().GetStartAddress()
+            if not address.IsValid():raise ValueError('Checkpoint entry address unavailable')
+            bp.SetEnabled(False)
+            entry=target.BreakpointCreateByAddress(address.GetLoadAddress(target))
+            if entry.GetNumLocations()!=1:raise ValueError('Entry breakpoint did not resolve')
+        elif checkpoint!='source':raise ValueError('Unknown checkpoint mode')
+        proof['checkpoint']=checkpoint
         launch=lldb.SBLaunchInfo([]);launch.SetWorkingDirectory(str(Path(os.environ['TRYAGI_EH_DEBUG_TARGET']).parent))
         error=lldb.SBError();process=target.Launch(launch,error)
         if error.Fail():raise ValueError('LLDB launch failed: '+str(error.GetCString()))
@@ -47,6 +48,10 @@ def run_debugger(debugger):
             item=dict(stage=integer(top,'stage'),value=integer(top,'value'),outer=integer(parent,'outer'),
                       local=local,local_value=integer(parent,local),function=parent.GetFunctionName(),
                       source_file=entry.GetFileSpec().GetFilename(),line=line,marker_line=marker_line)
+            instructions=top.GetFunction().GetInstructions(target)
+            item['checkpoint_offset']=top.GetPC()-top.GetFunction().GetStartAddress().GetLoadAddress(target)
+            item['instructions']=[dict(offset=instructions.GetInstructionAtIndex(i).GetAddress().GetLoadAddress(target)-top.GetFunction().GetStartAddress().GetLoadAddress(target),
+                                       mnemonic=instructions.GetInstructionAtIndex(i).GetMnemonic(target),operands=instructions.GetInstructionAtIndex(i).GetOperands(target)) for i in range(min(16,instructions.GetSize()))]
             proof['stops'].append(item)
             if (item['stage'],item['value'],item['outer'],item['local_value'])!=(stage,value,outer,value):raise ValueError('Debugger values differ from independent expected EH state')
             if not item['function'] or 'EhDebugProbe' not in item['function'] or 'Probe' not in item['function']:raise ValueError('Wrong caller frame')
@@ -62,10 +67,10 @@ def run_debugger(debugger):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('binary',type=Path);p.add_argument('source',type=Path);p.add_argument('output',type=Path);args=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('binary',type=Path);p.add_argument('source',type=Path);p.add_argument('output',type=Path);p.add_argument('--checkpoint',choices=('entry','source'),default='entry');args=p.parse_args()
     args.output.parent.mkdir(parents=True,exist_ok=True)
     if args.output.exists():raise ValueError('Preserve an existing debugger result')
-    env=dict(os.environ,TRYAGI_EH_DEBUG_TARGET=str(args.binary.resolve()),TRYAGI_EH_DEBUG_SOURCE=str(args.source.resolve()),TRYAGI_EH_DEBUG_PROOF=str(args.output.resolve()))
+    env=dict(os.environ,TRYAGI_EH_DEBUG_TARGET=str(args.binary.resolve()),TRYAGI_EH_DEBUG_SOURCE=str(args.source.resolve()),TRYAGI_EH_DEBUG_PROOF=str(args.output.resolve()),TRYAGI_EH_DEBUG_CHECKPOINT=args.checkpoint)
     command="import runpy; runpy.run_path("+repr(str(Path(__file__).resolve()))+",run_name='lldb_fixture')['run_debugger'](lldb.debugger)"
     with (args.output.parent/'lldb.log').open('w') as log:
         child=subprocess.Popen(['xcrun','lldb','--batch','--no-lldbinit','-o','script '+command],env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
