@@ -127,6 +127,6 @@ requires a physical matched-runtime control or host-level evidence.
 Terminal batch checks:113 Python guard tests pass. The planner and performance
 projects compile with0warnings/errors locally; planner execution and corrected
 LLVM positive/negative control pass through host admission. Busy-host admission
-SLO breaches and the earlier corrected harness/nullable-AOT errors remain recorded
+SLO breaches and the earlier corrected harness and dynamic-serialization/AOT errors remain recorded
 in compiler-eh-candidate-20261024.md. No Advantage dependency/deployment or runtime
 transport policy was changed in this diagnostic/compiler-candidate batch.
