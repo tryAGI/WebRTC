@@ -21,6 +21,7 @@ jobs:
       - name: Require byte-equivalent loaded code, relocations and symbols
         run: python3 scripts/prepare-native-debug-shadow.py "$HOME/.nuget/packages/microsoft.netcore.app.runtime.nativeaot.osx-arm64/10.0.13/runtimes/osx-arm64/native/libSystem.Security.Cryptography.Native.Apple.a" "$GITHUB_WORKSPACE/artifacts/debug-input"
       - name: Strict publish using original framework and verified debug input
+        id: native_publish
         run: |
           export TRYAGI_NATIVE_DEBUG_INPUT="$GITHUB_WORKSPACE/artifacts/debug-input/manifest.json"
           export PATH="$GITHUB_WORKSPACE/artifacts/debug-input/tool-bin:$PATH"
@@ -39,6 +40,12 @@ jobs:
           PY
       - name: Execute full rooted native smoke
         run: artifacts/smoke/WebRTC.AotSmoke
+      - name: Isolate managed compiler DWARF without WebRTC
+        if: failure() && steps.native_publish.outcome == 'failure'
+        run: |
+          dotnet publish tests/diagnostics/AotDwarfRanges/AotDwarfRanges.csproj -c Release -r osx-arm64 -p:PublishAot=true -p:RuntimeFrameworkVersion=10.0.13 -warnaserror --artifacts-path artifacts/compiler-repro -o artifacts/compiler-repro-publish
+          artifacts/compiler-repro-publish/AotDwarfRanges
+          python3 scripts/check-native-dwarf-repro.py artifacts/compiler-repro-publish/AotDwarfRanges.dSYM artifacts/debug-input/compiler-repro-proof.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

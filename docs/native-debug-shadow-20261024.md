@@ -84,3 +84,12 @@ could still emit the two native-tool warnings; green status was not clean
 quality evidence. New publication must fail closed on those diagnostics until
 verified debug linking is integrated, rather than continue producing packages
 through the known external blocker. Compiler warning settings are not weakened.
+
+The first YAML-map run40065467451 removed both original missing-module
+failures and reached full verification. Verification rejected762 overlapping
+managed exception ranges in the generated il.cpp compilation unit. The job
+remains failed; no verifier option or diagnostic was disabled. Those entries
+belong to the managed NativeAOT debug stream, not the replaced Swift debug input.
+An authored framework-only nested-exception fixture now isolates that compiler
+boundary without a WebRTC reference. Its strict build/execution and unfiltered
+verifier diagnostics are retained separately; failure is never converted to pass.
