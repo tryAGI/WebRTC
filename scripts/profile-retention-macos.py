@@ -91,6 +91,13 @@ def owner_summary(text):
     return dict(records=records, groups=groups, basis='nearest recognized native nonallocator frame; managed callers may be unsymbolicated; requested sizes are not residency; VM/malloc can overlap; no causal leak verdict')
 
 
+def owner_diagnostic(text):
+    # A symbol such as mach_o::Error is stack data, not a tool warning.
+    # Inspect every nonrecord line; malformed records still fail owner_summary.
+    messages = '\n'.join(line for line in text.splitlines() if not re.match(r'\d+ calls? for ', line.strip()))
+    return bool(re.search(r'\b(?:warning|error|cannot|unable)\b', messages, re.I))
+
+
 def capture_owners(pid, path):
     # Bound both time and bytes while draining; terminate only this owned tool.
     command = ['/usr/bin/malloc_history', str(pid), '-allBySize']
@@ -108,7 +115,7 @@ def capture_owners(pid, path):
                     if len(data) > 16 * 1024 * 1024: raise ValueError('Native owner capture exceeds bound')
         if tool.wait(timeout=5) != 0: raise RuntimeError('Native owner tool failed')
         text = data.decode('utf-8')
-        if re.search(r'\b(?:warning|error|cannot|unable)\b', text, re.I): raise RuntimeError('Native owner tool emitted a diagnostic')
+        if owner_diagnostic(text): raise RuntimeError('Native owner tool emitted a diagnostic')
         return owner_summary(text)
     finally:
         path.write_bytes(data)

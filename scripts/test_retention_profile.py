@@ -54,6 +54,11 @@ class BarrierTests(unittest.TestCase):
         self.assertEqual(profile.barrier(line, 63, 'quiescent_10'), 63)
         with self.assertRaises(ValueError): profile.barrier(line, 63)
 
+    def test_native_symbol_error_type_is_data_but_tool_warning_fails(self):
+        self.assertFalse(profile.owner_diagnostic('1 call for 16 bytes: 0x1 (dyld) parse(mach_o::Error*) | 0x2 malloc'))
+        for text in ('malloc_history: warning: missing stacks', 'error: inaccessible task', 'unable to read process'):
+            self.assertTrue(profile.owner_diagnostic(text))
+
     def test_native_owners_separate_vm_and_malloc_and_redact(self):
         text = ('Private /Users/private/path\n'
                 '2 calls for 80 bytes: 0x123 (libcoreclr.dylib) Threadpool | 0x234 (libsystem_malloc.dylib) malloc\n'
