@@ -99,3 +99,33 @@ archives are removed from link lines based on linker capability and first-use
 order. This changes the actual link graph, not warning severity/output. A fresh
 source build plus strict minimal/rooted verification must pass the raw-log gate
 before clean acceptance; the earlier seven-warning experiment stays recorded.
+
+
+## Clean final source-built result
+
+[Run40092561235](https://github.com/tryAGI/WebRTC/actions/runs/40092561235)
+at9be784893b6b9cdd883433000542ef7384f7b330 completed both jobs successfully.
+The raw source-build diagnostic gate records **0 diagnostics**; an independent
+scan of the entire compiler job's untruncated log also finds0 native/managed
+warning/error diagnostic records. Structural flat/nested control passes again.
+The compiler-only target/de-duplicated links remove the seven earlier warnings
+without suppressing them. Minimal repro compilation/execution/fullverification
+passes with errors{} and warnings{}. Complete rooted smoke compilation,
+execution and full DWARF verification all pass. No verifier check was disabled.
+
+Compiler identity: pinned runtime6aa72daa24f66c01c3d7b6a32519e9d21396deec;
+complete source-diff SHA256a60411c7d75a85ff97031b20d4964436302f4096bfdaab36382ec554241ee45e;
+17 compiler payload hashes retained, ilc executable SHA256
+2663a1454d166dbf8fa6bca2ff17b50e550a244a5ab24af72a53d8f074527584.
+The clean rooted native binary SHA256 is
+dd1fa827ca2ed216b58449f2e64e6e69f8eee7cda77d107d07255e307f649a62.
+Debug-only linking preserves that binary and the official framework crypto
+archive, relocates19 debug archive entries and records dwarf_verified=true.
+The14-section/216-symbol nondebug equality and real code mutation rejection hold.
+
+This is a validated experimental source-level/debug-input repair for these
+fixtures, with exact provenance. It is not an upstream released SDK, a replacement
+for installed compilers, universal optimized-EH layout support or a production
+voice/device acceptance result. Unsupported non-laminar layouts still fail closed.
+The canonical publisher/consumer toolchain remains unchanged; promoting this
+candidate requires upstream review/general compiler regression coverage.

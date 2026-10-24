@@ -122,3 +122,11 @@ Neither scoped QoS nor this activity assertion restored20ms cadence consistently
 The data does not prove App Nap is the cause, and does not justify adding either
 assertion to runtime code. The remaining hosted scheduling/coalescing environment
 requires a physical matched-runtime control or host-level evidence.
+
+
+Terminal batch checks:113 Python guard tests pass. The planner and performance
+projects compile with0warnings/errors locally; planner execution and corrected
+LLVM positive/negative control pass through host admission. Busy-host admission
+SLO breaches and the earlier corrected harness/nullable-AOT errors remain recorded
+in compiler-eh-candidate-20261024.md. No Advantage dependency/deployment or runtime
+transport policy was changed in this diagnostic/compiler-candidate batch.
