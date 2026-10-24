@@ -55,6 +55,9 @@ internal static class AuthenticationLoadBenchmarks
             for (var i = 0; i < 16; i++) await Send(i);
             await Drain(15);
             if (latencies.AsSpan(0, 16).Contains(0L)) throw new IOException("Authentication load warm-up lost valid traffic");
+            // Marker follows completed handshake/warmup; contains no packet data.
+            Console.WriteLine($"# auth_load_phase={profile};burst={burst}");
+            Console.Out.Flush();
             for (var sample = 0; sample < 3; sample++)
             {
                 var first = 16 + sample * 100;

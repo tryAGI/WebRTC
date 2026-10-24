@@ -1,0 +1,41 @@
+name: Apple crypto bridge and hostile-load attribution
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bridge:
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 -m unittest discover -s scripts -p "test_*.py"
+      - run: python3 scripts/benchmark-apple-crypto.py artifacts/apple-crypto
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: apple-crypto-${{ github.sha }}
+          path: |
+            artifacts/apple-crypto/*.csv
+            artifacts/apple-crypto/proof.json
+          if-no-files-found: error
+          retention-days: 30
+  stacks:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet build src/tests/WebRTC.Performance -c Release -warnaserror
+      - run: python3 scripts/profile-authentication-macos.py src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll artifacts/auth-stacks
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: auth-stacks-${{ github.sha }}
+          path: artifacts/auth-stacks
+          if-no-files-found: error
+          retention-days: 30
