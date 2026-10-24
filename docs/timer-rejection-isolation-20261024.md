@@ -33,3 +33,11 @@ ignored, never installed globally or used by Advantage. Job tools/build outputs
 are destroyed with the job; checked CSV/proof and synthetic traces are retained
 30days. No runtime NuGet/native dependency, SDK modification, live voice session,
 provider/device probe, infrastructure change or paid AWS/S3 operation is added.
+
+
+A separate native-timer-qos control changes only the synthetic child's main
+thread to QOS_CLASS_USER_INITIATED for100 wakes and confirms the effective class.
+Default/user-initiated processes interleave3 times on the same Mac. Each exits;
+no global policy, power setting, production process or managed thread is changed.
+This tests a scheduling/coalescing hypothesis, not authorization to raise runtime
+priorities or adopt the control as a fix. All raw/wall/monotonic clocks are retained.

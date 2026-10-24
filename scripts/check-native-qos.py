@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""Check complete same-source native QoS controls; never change production priority."""
+import argparse
+import csv
+import json
+import math
+from pathlib import Path
+import statistics
+
+
+def read(path,mode):
+    lines=Path(path).read_text().splitlines();source=[s for s in lines if s.startswith('# native_source=')]
+    qos=[s for s in lines if s.startswith('# native_qos_requested=')]
+    if len(source)!=1 or len(qos)!=1 or not qos[0].startswith('# native_qos_requested='+mode+';observed='): raise ValueError('Missing/wrong native source/QoS identity')
+    rows=list(csv.DictReader(s for s in lines if not s.startswith('#')));seen=set()
+    for r in rows:
+        i=int(r['sample']);values=[float(r[k]) for k in ('elapsed_us','wall_elapsed_us','monotonic_elapsed_us')]
+        if r['timer']!='native-sleep' or i not in range(100) or i in seen or float(r['requested_us'])!=20000: raise ValueError('Native QoS coverage/request mismatch')
+        if not all(math.isfinite(x) for x in values) or values[0]<=0 or values[2]<=0: raise ValueError('Invalid native QoS clocks')
+        seen.add(i)
+    if len(seen)!=100: raise ValueError('Incomplete native QoS capture')
+    return source[0],dict(qos_identity=qos[0],median_raw_us=statistics.median(float(r['elapsed_us']) for r in rows),max_raw_us=max(float(r['elapsed_us']) for r in rows),
+                          median_wall_us=statistics.median(float(r['wall_elapsed_us']) for r in rows))
+
+
+if __name__=='__main__':
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('baseline');p.add_argument('initiated');p.add_argument('output');args=p.parse_args()
+    a,baseline=read(args.baseline,'default');b,initiated=read(args.initiated,'user-initiated')
+    if a!=b or 'working_tree_unverified' in a: raise ValueError('Same committed source required')
+    Path(args.output).write_text(json.dumps(dict(source=a,baseline=baseline,user_initiated=initiated,
+        scope='native main thread only; process exits after100 wakes; no global/process-wide/managed-thread priority or power setting changed'),indent=2)+'\n')

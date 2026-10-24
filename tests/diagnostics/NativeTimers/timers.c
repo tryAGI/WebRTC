@@ -8,6 +8,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
+#ifdef __APPLE__
+#include <pthread/qos.h>
+#include <sys/qos.h>
+#endif
 
 static double microseconds(struct timespec end, struct timespec start)
 {
@@ -19,6 +24,16 @@ int main(void)
 {
     const char *source = getenv("GITHUB_SHA");
     printf("# native_source=%s\n", source ? source : "working_tree_unverified");
+    const char *requested_qos = getenv("TRYAGI_NATIVE_QOS");
+    if (requested_qos && strcmp(requested_qos, "user-initiated")) return 4;
+#ifdef __APPLE__
+    if (requested_qos && pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0)) return 5;
+    if (requested_qos && qos_class_self() != QOS_CLASS_USER_INITIATED) return 6;
+    printf("# native_qos_requested=%s;observed=%u\n", requested_qos ? requested_qos : "default", (unsigned)qos_class_self());
+#else
+    if (requested_qos) return 4;
+    puts("# native_qos_requested=default;observed=not_darwin");
+#endif
     puts("timer,sample,requested_us,elapsed_us,wall_elapsed_us,monotonic_elapsed_us");
     for (int sample = 0; sample < 100; sample++) {
         struct timespec raw_start, wall_start, mono_start, raw_end, wall_end, mono_end;
