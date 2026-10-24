@@ -2,6 +2,7 @@ using tryAGI.WebRTC;
 using System.Net;
 using System.Net.Sockets;
 
+UdpReceiveSourceChecks.Run();
 PacketAllocationChecks.AuthenticationBoundaries();
 PacketAllocationChecks.ZeroAllocation();
 SrtpTests.SteadyStateAllocations();
