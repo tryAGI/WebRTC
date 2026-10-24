@@ -93,8 +93,10 @@ class DebugMapRelocationTests(unittest.TestCase):
             manifest.write_text(json.dumps(dict(real_dsymutil='/real/dsymutil')))
             with patch.dict(os.environ, TRYAGI_NATIVE_DEBUG_INPUT=str(manifest)), patch.object(link.subprocess, 'run') as run:
                 run.return_value.returncode=7
-                self.assertEqual(link.main(['--version']),7)
-                run.assert_called_once_with(['/real/dsymutil','--version'],timeout=30)
+                for argument in ('--version', '--help'):
+                    run.reset_mock()
+                    self.assertEqual(link.main([argument]),7)
+                    run.assert_called_once_with(['/real/dsymutil',argument],timeout=30)
         for args in (['--verify'], ['--version', '--quiet'], ['-q']):
             with self.assertRaises(ValueError): link.main(args)
 
