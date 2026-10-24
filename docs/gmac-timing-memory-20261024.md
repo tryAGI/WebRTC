@@ -204,3 +204,11 @@ executed binaries. macOS NativeAOT zero-warning acceptance is externally blocked
 until the owning native framework debug artifacts are corrected and revalidated.
 Tracked in [issue20](https://github.com/tryAGI/WebRTC/issues/20).
 This does not turn the warning into a failed authentication or memory contract.
+
+[Strict quality probe 40044697930](https://github.com/tryAGI/WebRTC/actions/runs/40044697930)
+confirms the new enforcement: Linux x64/arm64 and Windows x64 pass; macOS fails
+native publication on those two exact SDK diagnostics promoted by MSBuild.
+This is the expected external quality blocker, not a passing four-platform
+zero-warning verdict. No extra native measurement is accepted from that failed
+publication. The earlier executed contract data and numeric memory captures
+remain retained separately.
