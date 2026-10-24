@@ -24,7 +24,7 @@ def run_debugger(debugger):
             address=bp.GetLocationAtIndex(0).GetAddress().GetFunction().GetStartAddress()
             if not address.IsValid():raise ValueError('Checkpoint entry address unavailable')
             bp.SetEnabled(False)
-            entry=target.BreakpointCreateByAddress(address.GetLoadAddress(target))
+            entry=target.BreakpointCreateBySBAddress(address)
             if entry.GetNumLocations()!=1:raise ValueError('Entry breakpoint did not resolve')
         elif checkpoint!='source':raise ValueError('Unknown checkpoint mode')
         proof['checkpoint']=checkpoint
@@ -40,7 +40,9 @@ def run_debugger(debugger):
             if not value.IsValid() or error.Fail():raise ValueError('Unavailable debugger variable: '+name)
             return result
         for stage,value,outer,local,marker in expected:
-            if process.GetState()!=lldb.eStateStopped:raise ValueError('Fixture did not stop at each expected EH checkpoint')
+            if process.GetState()!=lldb.eStateStopped:
+                proof['process_state']=process.GetState();proof['exit_status']=process.GetExitStatus();proof['exit_description']=process.GetExitDescription()
+                raise ValueError('Fixture did not stop at each expected EH checkpoint')
             threads=[t for t in process if t.GetStopReason()==lldb.eStopReasonBreakpoint]
             if len(threads)!=1:raise ValueError('Ambiguous or missing checkpoint thread')
             top=threads[0].GetFrameAtIndex(0);parent=threads[0].GetFrameAtIndex(1)
