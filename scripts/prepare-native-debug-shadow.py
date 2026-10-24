@@ -57,7 +57,10 @@ def prepare(archive, output):
     original.checked(['xcrun', 'swiftc', '-emit-object', '-static', '-parse-as-library', '-enable-library-evolution', '-g', '-Onone',
         '-runtime-compatibility-version', 'none', '-sdk', sdk, '-target', 'arm64-apple-macosx12.0', '-module-name', 'pal_swiftbindings',
         '-module-cache-path', str(cache), str(source), '-o', str(new)])
-    proof = compare.verify(old.read_bytes(), new.read_bytes())
+    try: proof = compare.verify(old.read_bytes(), new.read_bytes())
+    except compare.ObjectMismatch as error:
+        (output / 'object-difference-proof.json').write_text(json.dumps(error.differences, indent=2) + '\n')
+        raise
     # Real code mutation must fail the same equivalence verifier. This is not a
     # missing-data or filename mismatch used as a surrogate positive control.
     mutated = bytearray(new.read_bytes()); offset = 32; changed = False

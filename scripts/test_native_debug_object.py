@@ -6,16 +6,18 @@ spec = importlib.util.spec_from_file_location('debug_object', Path(__file__).wit
 debug = importlib.util.module_from_spec(spec); spec.loader.exec_module(debug)
 
 
-def fixture(code=b'abcd', dwarf=b'efgh'):
+def fixture(code=b'abcd', dwarf=b'efgh', hints=None, padding=0):
     section_command_size = 72 + 160
-    payload_start = 32 + section_command_size + 24
-    header = struct.pack('<IiiIIIII', 0xfeedfacf, 0x100000c, 0, 1, 2, section_command_size + 24, 0, 0)
+    extra = 16 if hints is not None else 0
+    payload_start = 32 + section_command_size + 24 + extra
+    header = struct.pack('<IiiIIIII', 0xfeedfacf, 0x100000c, 0, 1, 2 + bool(extra), section_command_size + 24 + extra, 0, 0)
     segment = struct.pack('<II16sQQQQiiII', 0x19, section_command_size, b'', 0, 8, payload_start, 8, 7, 7, 2, 0)
     def section(name, segment, address, offset):
         return struct.pack('<16s16sQQIIIIIIII', name, segment, address, 4, offset, 2, 0, 0, 0, 0, 0, 0)
     sections = section(b'__text', b'__TEXT', 0, payload_start) + section(b'__debug_info', b'__DWARF', 4, payload_start + 4)
     symbols = struct.pack('<IIIIII', 2, 24, payload_start + 8, 0, payload_start + 8, 1)
-    return header + segment + sections + symbols + code + dwarf + b'\0'
+    hint_command = struct.pack('<IIII', 0x2e, 16, payload_start + 9 + padding, len(hints)) if hints is not None else b''
+    return header + segment + sections + symbols + hint_command + code + dwarf + b'\0' + b'\0' * padding + (hints or b'')
 
 
 class DebugObjectTests(unittest.TestCase):
@@ -24,6 +26,10 @@ class DebugObjectTests(unittest.TestCase):
 
     def test_code_changes_are_rejected(self):
         with self.assertRaises(debug.ObjectMismatch): debug.verify(fixture(), fixture(code=b'zzzz'))
+
+    def test_linkedit_payload_is_compared_instead_of_its_file_offset(self):
+        self.assertTrue(debug.verify(fixture(hints=b'1234'), fixture(hints=b'1234', padding=32))['code_data_layout_relocations_symbols_equal'])
+        with self.assertRaises(debug.ObjectMismatch): debug.verify(fixture(hints=b'1234'), fixture(hints=b'4321', padding=32))
 
     def test_wrong_architecture_and_truncation_are_rejected(self):
         data = bytearray(fixture()); struct.pack_into('<i', data, 4, 7)

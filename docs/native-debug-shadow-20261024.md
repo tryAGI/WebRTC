@@ -39,3 +39,11 @@ configuration keyHCUVWJDIE8ME, but its Foundation/shims signatures still differe
 The debug-object experiment now uses that unoptimized configuration while
 retaining byte equality and actual matching candidate-module guards. A matching
 cache key alone is never accepted as signature compatibility.
+
+Mach-O linkedit commands store physical file offsets. The verifier now compares
+their referenced function-start/data-in-code/linker-hint payloads byte-for-byte
+instead of requiring identical physical offsets after DWARF-size changes.
+Tests require moved identical linker hints to pass and changed hint bytes to
+fail. All loaded section addresses, bytes, relocations and symbols still match
+exactly or the candidate is rejected; structural difference proof now records
+section names, counts and differing-field labels without code/address dumps.

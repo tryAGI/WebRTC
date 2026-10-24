@@ -7,7 +7,9 @@ from pathlib import Path
 import struct
 
 
-class ObjectMismatch(ValueError): pass
+class ObjectMismatch(ValueError):
+    def __init__(self, message, differences=None):
+        super().__init__(message); self.differences = differences
 
 
 def signature(data):
@@ -39,6 +41,10 @@ def signature(data):
         elif command == 2:
             if symtab is not None or size != 24: raise ValueError('Invalid/duplicate symbol table')
             symtab = unpack('<IIII', offset + 8)
+        elif command in (0x26, 0x29, 0x2e):
+            if size != 16: raise ValueError('Invalid linkedit data command')
+            location, length = unpack('<II', offset + 8)
+            other.append(dict(command=command, size=length, sha256=hashlib.sha256(block(location, length)).hexdigest()))
         elif command != 0xb: other.append(raw.hex()) # DYSYMTAB indexes are normalized through symbols below.
         offset += size
     if offset != 32 + command_bytes or symtab is None: raise ValueError('Incomplete Mach-O commands')
@@ -92,7 +98,20 @@ def verify(original, candidate):
         # Public failure proof contains names/booleans only, never raw bytes,
         # relocated addresses or native symbol strings.
         changed = [k for k in left if left[k] != right[k]]
-        raise ObjectMismatch('Nondebug object content differs: ' + ','.join(changed))
+        left_sections = {s['name']: s for s in left['sections']}; right_sections = {s['name']: s for s in right['sections']}
+        delta = {}
+        for name in sorted(set(left_sections) | set(right_sections)):
+            a, b = left_sections.get(name), right_sections.get(name)
+            if a != b:
+                delta[name] = dict(present_in_both=a is not None and b is not None)
+                if a and b:
+                    delta[name].update(original_size=a['size'], candidate_size=b['size'],
+                        differing_fields=[key for key in a if a[key] != b[key]])
+        differences = dict(fields=changed, section_differences=delta, original_symbols=len(left['symbols']), candidate_symbols=len(right['symbols']),
+            symbol_names_equal={s[0] for s in left['symbols']} == {s[0] for s in right['symbols']},
+            original_command_kinds=[s['command'] if isinstance(s, dict) else int.from_bytes(bytes.fromhex(s)[:4], 'little') for s in left['other_commands']],
+            candidate_command_kinds=[s['command'] if isinstance(s, dict) else int.from_bytes(bytes.fromhex(s)[:4], 'little') for s in right['other_commands']])
+        raise ObjectMismatch('Nondebug object content differs: ' + ','.join(changed), differences)
     digest = hashlib.sha256(json.dumps(left, sort_keys=True).encode()).hexdigest()
     return dict(nondebug_signature_sha256=digest, sections=len(left['sections']), symbols=len(left['symbols']),
                 code_data_layout_relocations_symbols_equal=True, purpose='debug-only dsymutil input; never a runtime/linker substitute')
