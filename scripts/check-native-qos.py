@@ -23,6 +23,11 @@ def read(path,mode):
                           median_wall_us=statistics.median(float(r['wall_elapsed_us']) for r in rows))
 
 
+def activity_identity(path, mode):
+    markers=[line for line in Path(path).read_text().splitlines() if line.startswith('# native_activity=')]
+    if markers!=['# native_activity='+mode]: raise ValueError('Missing/wrong/ambiguous activity identity')
+
+
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('baseline');p.add_argument('initiated');p.add_argument('output');p.add_argument('--activity');args=p.parse_args()
     a,baseline=read(args.baseline,'default');b,initiated=read(args.initiated,'user-initiated')
@@ -31,6 +36,7 @@ if __name__=='__main__':
         scope='synthetic process/thread only;100 wakes then exit; no global/permanent/managed/production policy change')
     if args.activity:
         c,activity=read(args.activity,'default')
-        if c!=a or Path(args.activity).read_text().splitlines().count('# native_activity=latency-critical')!=1: raise ValueError('Missing matching activity control')
+        if c!=a: raise ValueError('Missing matching activity source')
+        activity_identity(args.baseline,'off');activity_identity(args.initiated,'off');activity_identity(args.activity,'latency-critical')
         result['latency_critical_activity']=activity
     Path(args.output).write_text(json.dumps(result,indent=2)+'\n')
