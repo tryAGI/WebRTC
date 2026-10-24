@@ -43,3 +43,14 @@ for tag in ('try','catch'):
     if s.count(old)!=1: raise ValueError('Unexpected upstream EH abbreviation')
     s=s.replace(old,'DW_TAG_'+tag+'_block, DW_CHILDREN_yes')
 abbrev.write_text(s)
+
+# Build-tool-only transitive dependency refresh. Keep audit enabled and update
+# the vulnerable dependency itself, not its severity or warning policy.
+for relative, expected in (
+    ('src/tasks/Crossgen2Tasks/Crossgen2Tasks.csproj', '622690e22cc466ef8213ba94aa204c1322d17208fd2f28c44bf72ca7d6739504'),
+    ('src/tasks/installer.tasks/installer.tasks.csproj', '698705c333e47b604d8c8e89e34f767998cb2e761a8fe31f6906097461c55338')):
+    project = args.runtime / relative
+    if hashlib.sha256(project.read_bytes()).hexdigest() != expected: raise ValueError('Unreviewed upstream build task project')
+    text = project.read_text()
+    reference = '  <ItemGroup><PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.21" /></ItemGroup>\n'
+    project.write_text(text.replace('</Project>', reference + '</Project>'))
