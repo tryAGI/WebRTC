@@ -15,7 +15,7 @@ class DeliveryViolation(ValueError): pass
 
 def validate(rows, control=False):
     expected = set(itertools.product(('AeadAes128Gcm',) if control else core.PROFILES, (0,) if control else (0, 16, 64, 256), range(3)))
-    seen = set(); delivery = []
+    seen = set(); delivery = []; residuals = []
     for row in rows:
         key = (row['profile'], int(row['burst']), int(row['sample']))
         if key not in expected or key in seen: raise ValueError('Authentication load coverage mismatch')
@@ -32,14 +32,16 @@ def validate(rows, control=False):
         if control:
             if values['fixture_drops'] != (1 if key[2] == 0 else 0): raise ValueError('Real packet-loss control missing')
         elif values['fixture_drops'] != 0: raise ValueError('Unexpected fixture loss')
+        residuals.append(int(values['offered'] + values['injected'] - sum(values[key] for key in ('received', 'rejected', 'ice_drops', 'media_drops', 'fixture_drops'))))
         if key[1] == 0 and (values['missing'] or values['ice_drops'] or values['media_drops']): delivery.append(key)
     if seen != expected: raise ValueError('Incomplete authentication load samples')
+    closure = dict(total=sum(residuals), min=min(residuals), max=max(residuals), nonzero_windows=sum(value != 0 for value in residuals))
     if control:
         if delivery != [('AeadAes128Gcm', 0, 0)]: raise ValueError('Control failed to isolate baseline delivery gate')
-        return dict(rows=len(rows), real_packet_drop_detected=True, violated_gate='baseline_delivery', security_verdict='harness rejects any observed corrupt plaintext; not a security audit')
+        return dict(rows=len(rows), packet_accounting_residual=closure, real_packet_drop_detected=True, violated_gate='baseline_delivery', security_verdict='harness rejects any observed corrupt plaintext; not a security audit')
     if delivery: raise DeliveryViolation('Baseline valid-packet delivery failed')
-    return dict(rows=len(rows), baseline_delivery=True, treatment_losses=sum(int(r['missing']) for r in rows if int(r['burst']) > 0),
-        scope='local authenticated UDP; process allocations include proxy/harness; rejected may be below injected due to kernel/transport drops; received-only latency is censored by loss; no absolute latency budget')
+    return dict(rows=len(rows), packet_accounting_residual=closure, baseline_delivery=True, treatment_losses=sum(int(r['missing']) for r in rows if int(r['burst']) > 0),
+        scope='local authenticated UDP; process allocations include proxy/harness; rejections are aggregate secure-transport failures, not a crypto-call count; accounting residual can expose kernel loss or cross-window timing; rejected may be below injected due to kernel/transport drops; received-only latency is censored by loss; no absolute latency budget')
 
 
 if __name__ == '__main__':

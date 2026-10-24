@@ -15,7 +15,7 @@ replacing its valid counterpart. Each scenario has a30second deadline and
 owned cancellation/disposal. There are no provider calls or device sessions.
 
 Metrics distinguish offered/received/missing valid packets, completed injected
-sends, observed authentication rejections, ICE and media queue drops, process
+sends, aggregate secure-transport rejections, ICE and media queue drops, process
 managed allocations, CPU, GC counts and received-only latency percentiles.
 Dropped UDP packets can make rejections lower than injection count. Loss censors
 latency, so a small p99 does not establish success when valid traffic is lost.
@@ -70,3 +70,13 @@ A separate admitted local macOS27/.NET10.0.9 control also observed99/100 then
 100/100 and100/100 valid packets with exactly one intentional drop. Its harness
 source metadata is `working_tree_unverified`, so it is only local semantic
 confirmation and is excluded from the committed-source CI cohort/proof.
+
+All432 normal samples have zero packet-accounting residual individually:
+`offered + injected - received - rejected - ice_drops - media_drops - fixture_drops`.
+The macOS excess ICE drops therefore match its observed valid-packet loss in
+these cohorts. This supports the queue as the observed loss location, not the
+cause of receiver slowness or general absence of kernel loss. Rejection counts
+are aggregate secure-transport failures (including replay/framing), not a count
+of cryptographic API invocations. The checker retains nonzero residuals as
+observations in future cohorts; kernel loss or crossing counter windows can
+produce them without proving fixture corruption.

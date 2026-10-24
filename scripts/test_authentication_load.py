@@ -17,6 +17,7 @@ def fixture(control=False):
 class AuthenticationLoadTests(unittest.TestCase):
     def test_coverage(self):
         rows = fixture(); self.assertEqual(load.validate(rows)['rows'], 36)
+        self.assertEqual(load.validate(rows)['packet_accounting_residual']['total'], 0)
         for bad in (rows[:-1], rows + [rows[0]]):
             with self.assertRaises(ValueError): load.validate(bad)
 
@@ -37,6 +38,7 @@ class AuthenticationLoadTests(unittest.TestCase):
     def test_treatment_loss_retains_censoring_and_does_not_claim_all_rejected(self):
         rows = fixture(); rows[3].update(received='90', missing='10', rejected='1500', ice_drops='10')
         self.assertEqual(load.validate(rows)['treatment_losses'], 10)
+        self.assertEqual(load.validate(rows)['packet_accounting_residual']['max'], 100)
 
 
 if __name__ == '__main__': unittest.main()
