@@ -12,6 +12,9 @@ class ObjectMismatch(ValueError):
         super().__init__(message); self.differences = differences
 
 
+UNWIND_SECTIONS = {'__LD/__compact_unwind', '__TEXT/__eh_frame'}
+
+
 def signature(data):
     def unpack(fmt, offset):
         if offset < 0 or offset + struct.calcsize(fmt) > len(data): raise ValueError('Truncated Mach-O structure')
@@ -58,6 +61,8 @@ def signature(data):
         if end < 0: raise ValueError('Unterminated symbol')
         name = strings[string_index:end].decode('utf-8')
         section_name = sections[section_index - 1]['name'] if section_index else ''
+        if section_name in UNWIND_SECTIONS and not kind & 0xe0:
+            value -= sections[section_index - 1]['address']
         symbols.append((name, kind, section_name, description, value))
     result = []
     for section in sections:
@@ -86,7 +91,7 @@ def signature(data):
         # still participates in equality. Every other section is byte-exact.
         zero_fill = section['flags'] & 0xff in (1, 0xc, 0x12)
         payload = b'' if zero_fill else block(section['location'], section['size'])
-        result.append(dict(name=name, address=section['address'], size=section['size'], alignment=section['alignment'],
+        result.append(dict(name=name, address=0 if name in UNWIND_SECTIONS else section['address'], size=section['size'], alignment=section['alignment'],
                            flags=section['flags'], reserved=section['reserved'], sha256=hashlib.sha256(payload).hexdigest(), relocations=relocations))
     nondebug_symbols = [s for s in symbols if not s[1] & 0xe0 and not s[2].startswith(('__DWARF/', '__LLVM/'))]
     return dict(cpu=cpu, subtype=subtype, flags=flags, other_commands=other, sections=result, symbols=sorted(nondebug_symbols))
@@ -114,7 +119,7 @@ def verify(original, candidate):
         raise ObjectMismatch('Nondebug object content differs: ' + ','.join(changed), differences)
     digest = hashlib.sha256(json.dumps(left, sort_keys=True).encode()).hexdigest()
     return dict(nondebug_signature_sha256=digest, sections=len(left['sections']), symbols=len(left['symbols']),
-                code_data_layout_relocations_symbols_equal=True, purpose='debug-only dsymutil input; never a runtime/linker substitute')
+                code_data_layout_relocations_symbols_equal=True, unwind_bases='section-relative MH_OBJECT metadata; code/data bases remain exact', purpose='debug-only dsymutil input; never a runtime/linker substitute')
 
 
 if __name__ == '__main__':

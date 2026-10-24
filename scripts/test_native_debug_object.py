@@ -20,6 +20,18 @@ def fixture(code=b'abcd', dwarf=b'efgh', hints=None, padding=0):
     return header + segment + sections + symbols + hint_command + code + dwarf + b'\0' + b'\0' * padding + (hints or b'')
 
 
+def unwind_fixture(address, symbol_shift=0):
+    command_size = 72 + 3 * 80; start = 32 + command_size + 24
+    header = struct.pack('<IiiIIIII', 0xfeedfacf, 0x100000c, 0, 1, 2, command_size + 24, 0, 0)
+    segment = struct.pack('<II16sQQQQiiII', 0x19, command_size, b'', 0, address + 4, start, 12, 7, 7, 3, 0)
+    def section(name, segment, address, offset):
+        return struct.pack('<16s16sQQIIIIIIII', name, segment, address, 4, offset, 2, 0, 0, 0, 0, 0, 0)
+    sections = section(b'__text', b'__TEXT', 0, start) + section(b'__debug_info', b'__DWARF', 4, start + 4) + section(b'__compact_unwind', b'__LD', address, start + 8)
+    strings = b'\0unwind\0'; symbols = struct.pack('<IBBHQ', 1, 0xe, 3, 0, address + symbol_shift)
+    table = struct.pack('<IIIIII', 2, 24, start + 12, 1, start + 28, len(strings))
+    return header + segment + sections + table + b'abcdefghijkl' + symbols + strings
+
+
 class DebugObjectTests(unittest.TestCase):
     def test_only_debug_changes_are_equivalent(self):
         self.assertTrue(debug.verify(fixture(), fixture(dwarf=b'zzzz'))['code_data_layout_relocations_symbols_equal'])
@@ -30,6 +42,10 @@ class DebugObjectTests(unittest.TestCase):
     def test_linkedit_payload_is_compared_instead_of_its_file_offset(self):
         self.assertTrue(debug.verify(fixture(hints=b'1234'), fixture(hints=b'1234', padding=32))['code_data_layout_relocations_symbols_equal'])
         with self.assertRaises(debug.ObjectMismatch): debug.verify(fixture(hints=b'1234'), fixture(hints=b'4321', padding=32))
+
+    def test_relocatable_unwind_base_is_relative_but_symbol_offset_is_exact(self):
+        self.assertTrue(debug.verify(unwind_fixture(64), unwind_fixture(128))['code_data_layout_relocations_symbols_equal'])
+        with self.assertRaises(debug.ObjectMismatch): debug.verify(unwind_fixture(64), unwind_fixture(128, symbol_shift=1))
 
     def test_wrong_architecture_and_truncation_are_rejected(self):
         data = bytearray(fixture()); struct.pack_into('<i', data, 4, 7)

@@ -47,3 +47,14 @@ Tests require moved identical linker hints to pass and changed hint bytes to
 fail. All loaded section addresses, bytes, relocations and symbols still match
 exactly or the candidate is rejected; structural difference proof now records
 section names, counts and differing-field labels without code/address dumps.
+
+
+Run40064373973 shows exact matching code/data bytes, section sizes and symbol
+names; remaining differences were only the object bases of compact_unwind and
+eh_frame plus their section-symbol values. In MH_OBJECT these are relocatable
+metadata placed after DWARF, so their bases move with debug size. Only these two
+unwind sections now normalize bases and symbol values to section-relative form.
+Their bytes, alignments, flags and normalized relocations remain exact; all code
+and data addresses remain exact. Tests accept a moved unwind base and reject a
+changed symbol offset within the same section. This corrects the comparison
+model; it does not authorize different loaded crypto code/data.
