@@ -10,8 +10,8 @@ info=folder/'DwarfInfo.cs';abbrev=folder/'DwarfAbbrev.cs'
 if hashlib.sha256(info.read_bytes()).hexdigest()!='34f1a169e73ef3e49b394a9b67bf1ed281ef7d9966c964067126cf5eb0bf2ade': raise ValueError('Unreviewed upstream emitter source')
 if hashlib.sha256(abbrev.read_bytes()).hexdigest()!='6ec1e2321754749656be87876eb5b16a778b9546416f4c80e4ad7269ad7da236': raise ValueError('Unreviewed upstream abbreviations')
 s=info.read_text();start=s.index('            // EH clauses\n');end=s.index('\n            writer.WriteEndDIE();\n        }',start)
-replacement='''            // Preserve shared/nested regions as a containment forest. Unexpected
-            // crossing physical ranges fail instead of writing invalid debug data.
+replacement='''            // Preserve native scope coverage in a bounded containment forest.
+            // Crossing ranges are partitioned; invalid method bounds fail closed.
             var ranges = new List<EhRangePlanner.Range>();
             foreach (DebugEHClauseInfo clause in _debugEHClauseInfos)
             {
@@ -26,7 +26,10 @@ replacement='''            // Preserve shared/nested regions as a containment fo
                 var item = pending.Pop();
                 if (item.End) { writer.WriteEndDIE(); continue; }
                 var region = item.Node.Region;
-                writer.WriteStartDIE(region.IsTry ? DwarfAbbrev.TryBlock : DwarfAbbrev.CatchBlock);
+                bool children = item.Node.Children.Count > 0;
+                writer.WriteStartDIE(region.IsTry
+                    ? (children ? DwarfAbbrev.TryBlockWithChildren : DwarfAbbrev.TryBlock)
+                    : (children ? DwarfAbbrev.CatchBlockWithChildren : DwarfAbbrev.CatchBlock));
                 writer.WriteCodeReference(_sectionSymbolName, _methodAddress + region.Offset);
                 writer.WriteAddressSize(region.Length);
                 pending.Push((item.Node, true));
@@ -38,10 +41,15 @@ helper=(Path(__file__).resolve().parent.parent/'tests/diagnostics/DwarfEhPlanner
 helper=helper.split('// BEGIN EH PLANNER\n',1)[1].split('// END EH PLANNER',1)[0]
 pos=s.rfind('\n}');s=s[:pos]+'\n'+helper+s[pos:];info.write_text(s)
 s=abbrev.read_text()
-for tag in ('try','catch'):
-    old='DW_TAG_'+tag+'_block, DW_CHILDREN_no'
+for name, tag in (('Try','try'),('Catch','catch')):
+    old=f"""        public static readonly DwarfAbbrev {name}Block = new([
+            DW_TAG_{tag}_block, DW_CHILDREN_no,
+            DW_AT_low_pc, DW_FORM_addr,
+            DW_AT_high_pc, DW_FORM_size]);"""
     if s.count(old)!=1: raise ValueError('Unexpected upstream EH abbreviation')
-    s=s.replace(old,'DW_TAG_'+tag+'_block, DW_CHILDREN_yes')
+    parent=old.replace(name+'Block',name+'BlockWithChildren').replace('DW_CHILDREN_no','DW_CHILDREN_yes')
+    s=s.replace(old,old+'\n\n'+parent)
+
 abbrev.write_text(s)
 
 # Build-tool-only transitive dependency refresh. Keep audit enabled and update

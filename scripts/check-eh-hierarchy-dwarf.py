@@ -2,6 +2,7 @@
 """Actual LLVM verifier positive/negative controls for the candidate's tree shape."""
 import argparse
 import json
+import re
 from pathlib import Path
 import subprocess
 
@@ -11,9 +12,11 @@ data=json.loads(Path(args.tree).read_text());args.output.mkdir(parents=True,exis
 def emit(nodes,nested):
     result=[]
     for node in nodes:
-        result += [f'.uleb128 {3 if node["try"] else 4}',f'.quad _fixture+{node["offset"]}',f'.long {node["length"]}']
-        if nested: result += emit(node['children'],True)+['.byte 0']
-        else: result += ['.byte 0']+emit(node['children'],False)
+        children = nested and bool(node['children'])
+        code=(3 if node['try'] else 4) if children else (5 if node['try'] else 6)
+        result += [f'.uleb128 {code}',f'.quad _fixture+{node["offset"]}',f'.long {node["length"]}']
+        if children: result += emit(node['children'],True)+['.byte 0']
+        elif not nested: result += emit(node['children'],False)
     return result
 
 header='''.text
@@ -23,10 +26,10 @@ _fixture:
   .space 60
 .section __DWARF,__debug_abbrev,regular,debug
 '''
-# CU/subprogram/try/catch, all with child lists and low/high PC. Their ranges
-# differ only by hierarchy in the two objects, never by truncation/removal.
-for code,tag in ((1,0x11),(2,0x2e),(3,0x32),(4,0x25)):
-    header+=f'.uleb128 {code}\n.uleb128 {tag}\n.byte 1\n.uleb128 0x11\n.uleb128 1\n.uleb128 0x12\n.uleb128 6\n.byte 0,0\n'
+# Parent/leaf abbreviations describe the actual hierarchy; original native PC
+# coverage is identical, with no removed scopes or fabricated child lists.
+for code,tag,children in ((1,0x11,1),(2,0x2e,1),(3,0x32,1),(4,0x25,1),(5,0x32,0),(6,0x25,0)):
+    header+=f'.uleb128 {code}\n.uleb128 {tag}\n.byte {children}\n.uleb128 0x11\n.uleb128 1\n.uleb128 0x12\n.uleb128 6\n.byte 0,0\n'
 header+='''.byte 0
 .section __DWARF,__debug_info,regular,debug
 .long Lend-Lstart
@@ -63,7 +66,8 @@ for index,case in enumerate(data['cases']):
         (args.output/(str(index)+'-'+mode+'.log')).write_text(result.stdout+result.stderr)
         print(result.stdout,end='');print(result.stderr,end='')
         current[mode+'_exit_code']=result.returncode
-    if current['flat_exit_code']==0 or current['nested_exit_code']!=0: raise ValueError('EH hierarchy control did not isolate overlap gate')
+        current[mode+'_diagnostic_count']=len(re.findall(r'(?im)^\s*(?:warning|error):',result.stdout+result.stderr))
+    if current['flat_exit_code']==0 or current['nested_exit_code']!=0 or current['nested_diagnostic_count']!=0: raise ValueError('EH hierarchy control did not isolate overlap gate')
     proof['cases'].append(current)
 proof['scope']='native scope coverage preserved across partitions; not source lexical nesting or general compiler acceptance'
 (args.output/'proof.json').write_text(json.dumps(proof,indent=2)+'\n')
