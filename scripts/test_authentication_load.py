@@ -2,6 +2,7 @@ import copy
 import importlib.util
 from pathlib import Path
 import unittest
+import tempfile
 spec = importlib.util.spec_from_file_location('load', Path(__file__).with_name('check-authentication-load.py'))
 load = importlib.util.module_from_spec(spec); spec.loader.exec_module(load)
 
@@ -39,6 +40,24 @@ class AuthenticationLoadTests(unittest.TestCase):
         rows = fixture(); rows[3].update(received='90', missing='10', rejected='1500', ice_drops='10')
         self.assertEqual(load.validate(rows)['treatment_losses'], 10)
         self.assertEqual(load.validate(rows)['packet_accounting_residual']['max'], 100)
+
+    def test_interval_pacing_guards_preserve_original_deadline_control(self):
+        rows = fixture()
+        for row in rows: row.update(min_send_gap_us='20000', max_send_gap_us='22000', max_injection_us='1000')
+        self.assertTrue(load.validate(rows, pacing='interval')['baseline_delivery'])
+        rows[0]['min_send_gap_us'] = '10'
+        with self.assertRaisesRegex(ValueError, 'minimum pacing gap'): load.validate(rows, pacing='interval')
+        self.assertTrue(load.validate(rows, pacing='deadline')['baseline_delivery'])
+        with self.assertRaises(ValueError): load.validate(fixture(), pacing='interval')
+
+    def test_pacing_metadata_requires_one_known_control(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'capture.csv'
+            path.write_text('# auth_load_pacing=interval\n')
+            self.assertEqual(load.producer_pacing(path), 'interval')
+            for text in ('', '# auth_load_pacing=unknown\n', '# auth_load_pacing=interval\n# auth_load_pacing=deadline\n'):
+                path.write_text(text)
+                with self.assertRaises(ValueError): load.producer_pacing(path)
 
 
 if __name__ == '__main__': unittest.main()

@@ -80,3 +80,29 @@ are aggregate secure-transport failures (including replay/framing), not a count
 of cryptographic API invocations. The checker retains nonzero residuals as
 observations in future cohorts; kernel loss or crossing counter windows can
 produce them without proving fixture corruption.
+
+## Receiver allocation candidate and producer pacing controls
+
+Run40063880939 at958db3e342820da5a6e7ea740fdb645dd90490b4 re-executed
+three processes on each platform after bounded receive scratch and ready-input
+wait changes. Process allocation fell across the recorded workloads, but macOS
+still lost1662 valid packets (previous1601); Linux/Windows again lost none.
+This is an allocation improvement, **not** acceptance of the macOS loss fix.
+The four-platform active-allocation budget run40063882777 passed separately.
+
+Source inspection also identified a fixture confounder: the original absolute
+producer deadline catches up after stalls by sending valid packets back-to-back,
+which also bunches each associated invalid burst. The updated fixture preserves
+that explicit `deadline` control and adds an `interval` producer which schedules
+each new send at least20ms after the previous send start. It does not accumulate
+catch-up work. Both controls retain the same corruption, load counts, validation
+and real packet-drop control. No historical treatment loss is erased or relabeled.
+
+New observations include minimum/maximum producer send gap and maximum proxy
+injection duration per sample. Those clocks describe managed send/proxy work,
+not kernel packet arrival. Source/pacing labels remain explicit; results from
+different producer modes must not be presented as matched runtime improvements.
+Interval captures fail if their measured minimum gap falls below19.9ms; the
+original deadline control retains its measured bunching without suppression.
+The default manual lane interleaves three fresh processes of each producer mode
+on the same runner per platform, with a finite25minute job bound.

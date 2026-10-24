@@ -11,13 +11,16 @@ internal static class AuthenticationLoadBenchmarks
 {
     internal static async Task Run(bool control)
     {
-        Console.WriteLine("profile,burst,sample,offered,received,missing,injected,rejected,ice_drops,media_drops,fixture_drops,process_bytes,cpu_ms,elapsed_ms,p50_ns,p95_ns,p99_ns,gen0,gen1,gen2");
+        var pacing = Environment.GetEnvironmentVariable("TRYAGI_AUTH_LOAD_PACING") ?? "interval";
+        if (pacing is not ("interval" or "deadline")) throw new ArgumentException("Unknown authentication-load pacing");
+        Console.WriteLine($"# auth_load_pacing={pacing}");
+        Console.WriteLine("profile,burst,sample,offered,received,missing,injected,rejected,ice_drops,media_drops,fixture_drops,process_bytes,cpu_ms,elapsed_ms,p50_ns,p95_ns,p99_ns,gen0,gen1,gen2,min_send_gap_us,max_send_gap_us,max_injection_us");
         foreach (var profile in control ? new[] { SrtpProfile.AeadAes128Gcm } : Enum.GetValues<SrtpProfile>())
         foreach (var burst in control ? new[] { 0 } : new[] { 0, 16, 64, 256 })
-            await Scenario(profile, burst, control);
+            await Scenario(profile, burst, control, pacing);
     }
 
-    private static async Task Scenario(SrtpProfile profile, int burst, bool control)
+    private static async Task Scenario(SrtpProfile profile, int burst, bool control, string pacing)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30)); var ct = deadline.Token;
         await using var left = new IceUdpTransport(new(IPAddress.Loopback, 0));
@@ -50,9 +53,17 @@ internal static class AuthenticationLoadBenchmarks
                 var bytes = GC.GetTotalAllocatedBytes(true); var start = Stopwatch.GetTimestamp();
                 for (var i = 0; i < 100; i++)
                 {
+                    if (pacing == "interval" && i > 0)
+                    {
+                        var remaining = TimeSpan.FromMilliseconds(20) - Stopwatch.GetElapsedTime(Volatile.Read(ref sent[first + i - 1]));
+                        if (remaining > TimeSpan.Zero) await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, Math.Ceiling(remaining.TotalMilliseconds))), ct);
+                    }
                     await Send(first + i);
-                    var remaining = TimeSpan.FromMilliseconds((i + 1) * 20) - Stopwatch.GetElapsedTime(start);
-                    if (remaining > TimeSpan.Zero) await Task.Delay(remaining, ct);
+                    if (pacing == "deadline")
+                    {
+                        var remaining = TimeSpan.FromMilliseconds((i + 1) * 20) - Stopwatch.GetElapsedTime(start);
+                        if (remaining > TimeSpan.Zero) await Task.Delay(remaining, ct);
+                    }
                 }
                 await Drain(first + 99);
                 var elapsed = Stopwatch.GetElapsedTime(start); var allocated = GC.GetTotalAllocatedBytes(true) - bytes;
@@ -61,7 +72,11 @@ internal static class AuthenticationLoadBenchmarks
                 var values = latencies.Skip(first).Take(100).Where(value => value > 0).Order().ToArray();
                 if (values.Length == 0) throw new IOException("Authentication stress starved all accepted traffic");
                 double Percentile(double p) => values[Math.Min(values.Length - 1, (int)Math.Ceiling(values.Length * p) - 1)] * 1e9 / Stopwatch.Frequency;
-                Console.WriteLine($"{profile},{burst},{sample},100,{values.Length},{100 - values.Length},{proxy.Injected - injected},{receiver.GetDiagnostics().RejectedRecords - rejects},{right.GetDiagnostics().DroppedDatagrams - iceDrops},{receiver.GetDiagnostics().DroppedMediaDatagrams - mediaDrops},{proxy.Dropped - dropped},{allocated},{cpuMs:F3},{elapsed.TotalMilliseconds:F3},{Percentile(.5):F1},{Percentile(.95):F1},{Percentile(.99):F1},{g0},{g1},{g2}");
+                var gaps = new long[99];
+                for (var i = 1; i < 100; i++) gaps[i - 1] = Volatile.Read(ref sent[first + i]) - Volatile.Read(ref sent[first + i - 1]);
+                var minGap = gaps.Min() * 1e6 / Stopwatch.Frequency; var maxGap = gaps.Max() * 1e6 / Stopwatch.Frequency;
+                var injection = proxy.MaximumInjectionMicroseconds(first, 100);
+                Console.WriteLine($"{profile},{burst},{sample},100,{values.Length},{100 - values.Length},{proxy.Injected - injected},{receiver.GetDiagnostics().RejectedRecords - rejects},{right.GetDiagnostics().DroppedDatagrams - iceDrops},{receiver.GetDiagnostics().DroppedMediaDatagrams - mediaDrops},{proxy.Dropped - dropped},{allocated},{cpuMs:F3},{elapsed.TotalMilliseconds:F3},{Percentile(.5):F1},{Percentile(.95):F1},{Percentile(.99):F1},{g0},{g1},{g2},{minGap:F3},{maxGap:F3},{injection:F3}");
             }
         }
         finally { reading.Cancel(); await collecting; }
@@ -108,6 +123,13 @@ internal sealed class CorruptingProxy : IAsyncDisposable
     private readonly Task _worker;
     private int _processed = -1;
     private long _injected, _dropped;
+    private readonly long[] _injectionTicks = new long[316];
+    internal double MaximumInjectionMicroseconds(int first, int count)
+    {
+        long maximum = 0;
+        for (var i = first; i < first + count; i++) maximum = Math.Max(maximum, Volatile.Read(ref _injectionTicks[i]));
+        return maximum * 1e6 / Stopwatch.Frequency;
+    }
     internal int Processed => Volatile.Read(ref _processed);
     internal long Injected => Interlocked.Read(ref _injected);
     internal long Dropped => Interlocked.Read(ref _dropped);
@@ -137,11 +159,14 @@ internal sealed class CorruptingProxy : IAsyncDisposable
                             // Mutate both authenticated header and tag. An admitted bad
                             // packet cannot masquerade as its following valid original.
                             corrupt[4] ^= 0x40; corrupt[length - 1] ^= 1;
+                            var injectionStart = Stopwatch.GetTimestamp();
                             for (var i = 0; i < burst; i++)
                             {
                                 await _socket.SendToAsync(corrupt.AsMemory(0, length), SocketFlags.None, right, _lifetime.Token);
                                 Interlocked.Increment(ref _injected);
                             }
+                            if (sequence >= _injectionTicks.Length) throw new IOException("Authentication fixture sequence exceeds bound");
+                            Volatile.Write(ref _injectionTicks[sequence], Stopwatch.GetTimestamp() - injectionStart);
                         }
                     }
                     if (control && sequence == 16) Interlocked.Increment(ref _dropped);

@@ -13,7 +13,7 @@ core = importlib.util.module_from_spec(spec); spec.loader.exec_module(core)
 class DeliveryViolation(ValueError): pass
 
 
-def validate(rows, control=False):
+def validate(rows, control=False, pacing=None):
     expected = set(itertools.product(('AeadAes128Gcm',) if control else core.PROFILES, (0,) if control else (0, 16, 64, 256), range(3)))
     seen = set(); delivery = []; residuals = []
     for row in rows:
@@ -29,6 +29,12 @@ def validate(rows, control=False):
             raise ValueError('Invalid injected/rejected packet accounting')
         if values['elapsed_ms'] <= 0 or not 0 < values['p50_ns'] <= values['p95_ns'] <= values['p99_ns']:
             raise ValueError('Invalid latency measurement')
+        if pacing is not None:
+            if not {'min_send_gap_us', 'max_send_gap_us', 'max_injection_us'}.issubset(values): raise ValueError('Missing producer pacing observations')
+            if pacing not in ('interval', 'deadline') or not 0 < values['min_send_gap_us'] <= values['max_send_gap_us'] or values['max_injection_us'] < 0:
+                raise ValueError('Invalid producer pacing observation')
+            if pacing == 'interval' and values['min_send_gap_us'] < 19900:
+                raise ValueError('Interval producer violated minimum pacing gap')
         if control:
             if values['fixture_drops'] != (1 if key[2] == 0 else 0): raise ValueError('Real packet-loss control missing')
         elif values['fixture_drops'] != 0: raise ValueError('Unexpected fixture loss')
@@ -44,8 +50,17 @@ def validate(rows, control=False):
         scope='local authenticated UDP; process allocations include proxy/harness; rejections are aggregate secure-transport failures, not a crypto-call count; accounting residual can expose kernel loss or cross-window timing; rejected may be below injected due to kernel/transport drops; received-only latency is censored by loss; no absolute latency budget')
 
 
+def producer_pacing(path):
+    markers = [line for line in Path(path).read_text().splitlines() if line.startswith('# auth_load_pacing=')]
+    if len(markers) != 1: raise ValueError('Exactly one explicit producer pacing marker required')
+    pacing = markers[0].split('=', 1)[1]
+    if pacing not in ('interval', 'deadline'): raise ValueError('Unknown producer pacing control')
+    return pacing
+
+
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__); p.add_argument('csv'); p.add_argument('--control', action='store_true'); p.add_argument('--output', required=True)
     args = p.parse_args(); cohort, source, rows = core.read_csv(args.csv, 'profile')
-    result = validate(rows, args.control); result.update(cohort=cohort, source=source)
+    pacing = producer_pacing(args.csv)
+    result = validate(rows, args.control, pacing); result.update(cohort=cohort, source=source, producer_pacing=pacing)
     Path(args.output).write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')

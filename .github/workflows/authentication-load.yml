@@ -1,6 +1,11 @@
 name: Authentication rejection under valid media load
 on:
   workflow_dispatch:
+    inputs:
+      pacing:
+        type: choice
+        options: [both, interval, deadline]
+        default: both
 permissions:
   contents: read
 jobs:
@@ -10,7 +15,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -20,21 +25,32 @@ jobs:
       - run: dotnet build src/tests/WebRTC.Performance -c Release -warnaserror
       - name: Fresh-process authentication bursts and real drop control
         shell: bash
+        env:
+          PACING: ${{ inputs.pacing }}
         run: |
+          controls=("$PACING")
+          if [ "$PACING" = both ]; then controls=(interval deadline); fi
           for repetition in 1 2 3; do
-            dotnet src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll --suite auth-load > "load-$repetition.csv"
-            python3 scripts/check-authentication-load.py "load-$repetition.csv" --output "proof-$repetition.json"
+            if [ "$PACING" = both ] && [ "$repetition" = 2 ]; then controls=(deadline interval)
+            elif [ "$PACING" = both ]; then controls=(interval deadline); fi
+            for pacing in "${controls[@]}"; do
+              mkdir -p "$pacing"
+              TRYAGI_AUTH_LOAD_PACING="$pacing" dotnet src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll --suite auth-load > "$pacing/load-$repetition.csv"
+              python3 scripts/check-authentication-load.py "$pacing/load-$repetition.csv" --output "$pacing/proof-$repetition.json"
+            done
           done
-          dotnet src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll --suite auth-load-control > control.csv
-          python3 scripts/check-authentication-load.py control.csv --control --output control-proof.json
+          for pacing in "${controls[@]}"; do
+            TRYAGI_AUTH_LOAD_PACING="$pacing" dotnet src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll --suite auth-load-control > "$pacing/control.csv"
+            python3 scripts/check-authentication-load.py "$pacing/control.csv" --control --output "$pacing/control-proof.json"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: authentication-load-${{ matrix.os }}-${{ github.sha }}
           path: |
-            load-*.csv
-            proof-*.json
-            control.csv
-            control-proof.json
+            interval/*.csv
+            interval/*.json
+            deadline/*.csv
+            deadline/*.json
           if-no-files-found: error
           retention-days: 30
