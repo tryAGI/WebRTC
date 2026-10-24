@@ -14,6 +14,7 @@ PHASES = [('disposed', w) for w in (2, 16, 32, 63)] + [('quiescent_10', 63), ('q
 
 
 def analyze(data, rows, mode):
+    if data.get('worker_minimum', 0) != 0: raise ValueError('Worker control requires its own cohort')
     if data['mode'] != mode or data['trace'] != 0 or data['waves'] != 64 or data['child_exit'] != 0 or data.get('owners') is not True or data['tiering_off'] is not True:
         raise ValueError('Unexpected instrumented native cohort')
     expected = [('disposed', w) for w in range(64)] + PHASES[-2:]

@@ -28,6 +28,7 @@ def summarize(root, mode):
     for path in paths:
         if path.stat().st_size > 65536: raise ValueError('Profile summary exceeds bound')
         data = json.loads(path.read_text())
+        if data.get('worker_minimum', 0) != 0: raise ValueError('Worker minimum diagnostic cannot borrow ordinary native cohort')
         if data['mode'] != mode or data['trace'] != 0 or data['waves'] != 64 or data['child_exit'] != 0:
             raise ValueError('Unexpected memory cohort')
         cohort, source, rows = core.read_csv(path.parent / 'retention.csv', 'mode', allow_tiering_control=True)

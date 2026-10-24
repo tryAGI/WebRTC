@@ -21,9 +21,27 @@ internal static class RetentionBenchmarks
         var quiescenceSetting = Environment.GetEnvironmentVariable("TRYAGI_RETENTION_QUIESCENCE") ?? "0";
         if (quiescenceSetting is not ("0" or "1")) throw new ArgumentException("Unknown retention quiescence setting");
         var quiescence = quiescenceSetting == "1";
-        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(waves == 64 ? 8 : 3));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(waves == 64 || quiescence ? 8 : 3));
+        var minimumSetting = Environment.GetEnvironmentVariable("TRYAGI_RETENTION_MIN_WORKERS") ?? "0";
+        if (minimumSetting is not ("0" or "24")) throw new ArgumentException("Unknown retention worker control");
+        if (minimumSetting == "24")
+        {
+            // Owned diagnostic child only. Keep workers warm to distinguish
+            // retirement effects from continuing peer/native retention.
+            ThreadPool.GetMinThreads(out _, out var ioMinimum);
+            if (!ThreadPool.SetMinThreads(24, ioMinimum)) throw new IOException("Worker minimum control unavailable");
+            using var release = new ManualResetEventSlim();
+            var entered = 0; var warmers = new Task[24];
+            for (var i = 0; i < warmers.Length; i++) warmers[i] = Task.Run(() =>
+            {
+                if (Interlocked.Increment(ref entered) == 24) release.Set();
+                release.Wait(deadline.Token);
+            }, deadline.Token);
+            await Task.WhenAll(warmers);
+        }
+        Console.WriteLine($"# configured_worker_minimum={minimumSetting};quiescence={quiescence}");
         Console.WriteLine($"# process_id={Environment.ProcessId}; mode={mode}; trace={trace}; profile=AeadAes256Gcm; warmup_waves=4; waves={waves}; pairs=2; live_idle_ms=2000; tiered_compilation={Environment.GetEnvironmentVariable("DOTNET_TieredCompilation") ?? Environment.GetEnvironmentVariable("COMPlus_TieredCompilation") ?? "default"}");
-        Console.WriteLine("mode,trace,wave,phase,elapsed_ms,managed_heap,managed_committed,fragmented_bytes,rss,private_bytes,handles,alive_disposed_peers,threadpool_threads,threadpool_pending,threadpool_completed");
+        Console.WriteLine("mode,trace,wave,phase,elapsed_ms,managed_heap,managed_committed,fragmented_bytes,rss,private_bytes,handles,alive_disposed_peers,threadpool_minimum,threadpool_threads,threadpool_pending,threadpool_completed");
         // Warm the redirected-console handshake before creating or measuring peers.
         if (profiling) await ProfileBarrier("ready", -5, deadline.Token);
         var weak = new List<WeakReference<PeerConnection>>();
@@ -41,7 +59,7 @@ internal static class RetentionBenchmarks
             var alive = weak.Count(Alive);
             if (wave >= 0) Snapshot(mode, trace, wave, "disposed", Stopwatch.GetElapsedTime(start), alive);
             if (alive != 0) throw new IOException("Disposed retention peer remains rooted");
-            if (profiling && (wave is 2 or 16 || waves == 64 && wave is 32 or 63)) await ProfileBarrier("disposed", wave, deadline.Token);
+            if (profiling && (wave is 2 or 16 || waves == 64 && wave is 32 or 63 || quiescence && wave == waves - 1)) await ProfileBarrier("disposed", wave, deadline.Token);
         }
         if (quiescence)
         {
@@ -121,6 +139,7 @@ internal static class RetentionBenchmarks
     {
         var heap = GC.GetTotalMemory(true); var info = GC.GetGCMemoryInfo(); using var process = Process.GetCurrentProcess();
         var memory = process.PrivateMemorySize64;
-        Console.WriteLine($"{mode},{trace},{wave},{phase},{elapsed.TotalMilliseconds:F3},{heap},{info.TotalCommittedBytes},{info.FragmentedBytes},{process.WorkingSet64},{(memory>0?memory.ToString():"unavailable")},{(OperatingSystem.IsMacOS()?"unavailable":process.HandleCount.ToString())},{alive},{ThreadPool.ThreadCount},{ThreadPool.PendingWorkItemCount},{ThreadPool.CompletedWorkItemCount}");
+        ThreadPool.GetMinThreads(out var workerMinimum, out _);
+        Console.WriteLine($"{mode},{trace},{wave},{phase},{elapsed.TotalMilliseconds:F3},{heap},{info.TotalCommittedBytes},{info.FragmentedBytes},{process.WorkingSet64},{(memory>0?memory.ToString():"unavailable")},{(OperatingSystem.IsMacOS()?"unavailable":process.HandleCount.ToString())},{alive},{workerMinimum},{ThreadPool.ThreadCount},{ThreadPool.PendingWorkItemCount},{ThreadPool.CompletedWorkItemCount}");
     }
 }
