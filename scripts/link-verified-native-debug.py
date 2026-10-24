@@ -27,6 +27,12 @@ def relocate(text, original, replacement):
 
 
 def main(arguments):
+    # MSBuild probes tool identity before invoking the actual linker. Delegate
+    # exactly --version, preserving its complete output/status; no other option
+    # bypasses archive identity checks or full verification.
+    if arguments == ['--version']:
+        data = json.loads(Path(os.environ['TRYAGI_NATIVE_DEBUG_INPUT']).read_text())
+        return subprocess.run([data['real_dsymutil'], '--version'], timeout=30).returncode
     if len(arguments) != 1 or arguments[0].startswith('-'): raise ValueError('Expected one owned NativeBinary input, no diagnostic-disabling options')
     binary = Path(arguments[0]).resolve(); workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
     if not binary.is_file() or not binary.is_relative_to(workspace): raise ValueError('NativeBinary is outside the owned job workspace')

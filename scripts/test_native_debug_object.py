@@ -2,6 +2,10 @@ import importlib.util
 from pathlib import Path
 import struct
 import unittest
+from unittest.mock import patch
+from tempfile import TemporaryDirectory
+import json
+import os
 spec = importlib.util.spec_from_file_location('debug_object', Path(__file__).with_name('verify-native-debug-object.py'))
 debug = importlib.util.module_from_spec(spec); spec.loader.exec_module(debug)
 
@@ -83,6 +87,17 @@ link = importlib.util.module_from_spec(link_spec); link_spec.loader.exec_module(
 
 
 class DebugMapRelocationTests(unittest.TestCase):
+    def test_version_probe_delegates_exact_tool_and_exit_status(self):
+        with TemporaryDirectory() as directory:
+            manifest=Path(directory)/'manifest.json'
+            manifest.write_text(json.dumps(dict(real_dsymutil='/real/dsymutil')))
+            with patch.dict(os.environ, TRYAGI_NATIVE_DEBUG_INPUT=str(manifest)), patch.object(link.subprocess, 'run') as run:
+                run.return_value.returncode=7
+                self.assertEqual(link.main(['--version']),7)
+                run.assert_called_once_with(['/real/dsymutil','--version'],timeout=30)
+        for args in (['--verify'], ['--version', '--quiet'], ['-q']):
+            with self.assertRaises(ValueError): link.main(args)
+
     def test_only_archive_filenames_move(self):
         text = '  - filename: "/official.a(pal_swiftbindings.o)"\n  filename: "/official.a(other.o)"\n  sym: /official.a(symbol)\n'
         result,count=link.relocate(text,'/official.a','/debug.a')
