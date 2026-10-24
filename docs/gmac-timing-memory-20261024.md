@@ -57,7 +57,8 @@ never acceptance. A one-byte regression cannot disappear through rounding.
 Crypto and packet suites now run repeated batches for at least 500 ms and observe
 a five-batch range within 10%, bounded by 128 batches or 3 seconds. A short sleep
 between batches gives background compilation a chance to run. This is observed
-stability, not evidence that every JIT tier has finished. Warm-up comments record
+stability, not evidence that every JIT tier has finished. The deadline is checked between batches; an in-flight batch or scheduler pause
+can overrun it, with actual elapsed time retained. Warm-up comments record
 case identity, rounds, elapsed time, minimum/maximum batch time and stability.
 SRTP sequence numbers wrap normally with increasing rollover counters; warm-up
 and measurements never reuse an outbound packet index.
@@ -116,7 +117,90 @@ a reason to weaken the allocation gates or claim all JIT compilation is finished
 
 [Initial memory run 40040573865](https://github.com/tryAGI/WebRTC/actions/runs/40040573865)
 assigned a 3-core runner to default audio and a 5-core runner to tiering-off audio.
-The comparator rejects those different reported cohorts, even though individual
+Local comparison rejects those different reported cohorts, even though individual
 process/disposal checks pass. They are not pooled or normalized by overriding
 processor count. The corrected workflow keeps both controls on the same runner
 and alternates order; the rejected original captures remain available separately.
+
+### Four-platform GMAC result
+
+[After capture 40040761698](https://github.com/tryAGI/WebRTC/actions/runs/40040761698)
+passes all four platforms at `72c2eaf`: each JIT and NativeAOT cohort has all 378
+GMAC samples exactly zero (3,024 new zero-byte samples total). Each cohort also
+passes the existing 147 raw-zero samples, rejects all 42 real injected allocation
+controls, passes all three repeated active-pipeline checks against unchanged
+reviewed ceilings, and passes payload-bearing rejection budgets. GCM failure
+allocation is removed only for empty ciphertext, as specified above.
+
+### Fresh final verification and matched memory results
+
+[Final performance capture 40042227957](https://github.com/tryAGI/WebRTC/actions/runs/40042227957)
+passes all four platforms at `5de69b8`, with the same runtime tree as `72c2eaf`.
+All eight compiler/platform cohorts again pass 378 GMAC exact-zero samples,
+147 existing raw-zero samples, 42 real allocation controls, three active pipeline
+processes and the unchanged payload-bearing rejection budgets. All nine ordinary
+validation lanes at that source pass in
+[40042225410](https://github.com/tryAGI/WebRTC/actions/runs/40042225410),
+including Linux x64/arm64 Pion, Chromium, three managed platforms and whole-root
+NativeAOT execution on Linux x64/arm64 and macOS arm64.
+
+[Corrected same-runner profiling 40042225269](https://github.com/tryAGI/WebRTC/actions/runs/40042225269)
+passes all five paired jobs and the aggregate comparator: 30 fresh processes and
+1,920 measured wave records, including the peer disposal checks. Current numeric
+captures also pass local recomputation with the stricter nonfinite-size parser.
+The following values are medians across three processes per control, disposed
+wave 63 minus wave 2; native values inherit vmmap rounding. Cores are matched
+within every control pair. Do not subtract one workload from another: open-channel
+runs used a different reported hardware cohort.
+
+| Workload | Cores | Malloc resident delta MiB: default / off | Live malloc delta KiB: default / off | GC committed delta KiB: default / off | Tail resident KiB/wave: default / off |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| crypto_only | 3 | 5.12 / 0.00 | -121.0 / 5.0 | 0.0 / 0.0 | 3.3 / 0.0 |
+| empty_control | 3 | 4.16 / 0.00 | -129.0 / 0.0 | 0.0 / 0.0 | 71.7 / 0.0 |
+| identity_only | 3 | 0.30 / 0.00 | -615.0 / 0.0 | 0.0 / 0.0 | 0.0 / 0.0 |
+| peer_audio | 3 | 4.00 / 0.20 | -4239.0 / 127.0 | 0.0 / 0.0 | 0.0 / 0.0 |
+| peer_open | 5 | 4.70 / 0.40 | -4209.0 / 52.0 | 576.0 / 416.0 | 6.6 / 9.9 |
+
+The empty control reproduces approximately 4.16 MiB late resident growth under
+default JIT while live malloc falls. Its final resident medians are approximately
+8.17 MiB default and 8.25 MiB off: disabling tiering shifts residency earlier,
+without reducing the final empty-harness footprint. Identity/crypto/audio controls
+show substantially less late growth when tiering is disabled, consistent with
+compiler/runtime warm-up and allocator retention contributing to these trends.
+
+Residual growth remains: the open-channel off cohort gains about 0.40 MiB resident,
+52 KiB live malloc and 416 KiB GC committed, with a positive late resident slope.
+Therefore the whole trend cannot be assigned to late JIT work, even though peer
+weak-reference checks pass. These distinct counters cannot identify a native
+owner. Thread/runtime/allocator and transport owners need phase-matched allocation
+stacks before selecting a repair. No long-run plateau, native leak freedom,
+production tiering recommendation or audible/provider acceptance is established.
+
+### Warning-quality boundary
+
+The green final performance job is **not** a zero-warning build verdict. Full log
+review found two `EXEC : warning` diagnostics in macOS NativeAOT dSYM processing:
+missing `Foundation-3EJO22UA1F2B1.pcm` and
+`_SwiftConcurrencyShims-2EK7503T0009Z.pcm` under Clang module cache
+`HCUVWJDIE8ME`. The diagnostic explains that redistributed static-library debug
+information references an absent build-time module cache. Managed compiler
+summaries report zero warnings, but these two native/tool warnings remain real.
+
+The exact reference strings are present in the public framework archive
+`Microsoft.NETCore.App.Runtime.NativeAOT.osx-arm64`10.0.13,
+`runtimes/osx-arm64/native/libSystem.Security.Cryptography.Native.Apple.a`, SHA-256
+`56819aa278060142966ae19af836277d0a5a74fd0e53d9497aab44552d6fad67`.
+Related upstream context: [123687](https://github.com/dotnet/runtime/issues/123687),
+[124336](https://github.com/dotnet/runtime/issues/124336), and
+[124266](https://github.com/dotnet/runtime/pull/124266).
+The latter changes diagnostic parsing; it does not supply missing module debug
+information. We do not adopt that parsing workaround, remove debug generation,
+or manufacture placeholder module caches. No warning exception is granted.
+
+Benchmark build/publish commands now use MSBuild `-warnaserror` in addition to
+compiler/analyzer warning policies, so tool warnings cannot leave a green quality
+verdict. The existing performance/semantic results remain observations of the
+executed binaries. macOS NativeAOT zero-warning acceptance is externally blocked
+until the owning native framework debug artifacts are corrected and revalidated.
+Tracked in [issue20](https://github.com/tryAGI/WebRTC/issues/20).
+This does not turn the warning into a failed authentication or memory contract.
