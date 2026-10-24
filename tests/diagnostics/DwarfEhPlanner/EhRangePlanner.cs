@@ -5,6 +5,7 @@ using System.Linq;
 namespace ILCompiler.ObjectWriter
 {
 // BEGIN EH PLANNER
+#nullable enable
     // Authored experimental compiler helper, MIT. Exact duplicate native ranges
     // carry no additional metadata in the original emitter. Preserve every
     // distinct region; nest containment rather than overlapping siblings.
@@ -95,5 +96,6 @@ namespace ILCompiler.ObjectWriter
             return roots;
         }
     }
+#nullable restore
 // END EH PLANNER
 }
