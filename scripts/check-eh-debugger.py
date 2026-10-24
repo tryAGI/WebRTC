@@ -18,6 +18,15 @@ def run_debugger(debugger):
         if not target.IsValid():raise ValueError('LLDB could not create the native target')
         bp=target.BreakpointCreateByRegex('EhDebugProbe.*Checkpoint')
         if bp.GetNumLocations()!=1:raise ValueError('Checkpoint must resolve to exactly one native location')
+        # A source breakpoint may skip past the final use of optimized arguments.
+        # Check arguments at actual function entry, and caller locals at the call.
+        address=bp.GetLocationAtIndex(0).GetAddress().GetFunction().GetStartAddress()
+        if not address.IsValid():raise ValueError('Checkpoint entry address unavailable')
+        bp.SetEnabled(False)
+        entry=target.BreakpointCreateByAddress(address.GetLoadAddress(target))
+        if entry.GetNumLocations()!=1:raise ValueError('Entry breakpoint did not resolve')
+        proof['checkpoint']='native function entry; no prologue skip'
+
         launch=lldb.SBLaunchInfo([]);launch.SetWorkingDirectory(str(Path(os.environ['TRYAGI_EH_DEBUG_TARGET']).parent))
         error=lldb.SBError();process=target.Launch(launch,error)
         if error.Fail():raise ValueError('LLDB launch failed: '+str(error.GetCString()))
