@@ -31,7 +31,7 @@ def checked(command, timeout=90):
     return result.stdout
 
 
-def prepare(archive, output):
+def prepare(archive, output, upstream_source=False):
     output.mkdir(parents=True, exist_ok=False)
     if hashlib.sha256(archive.read_bytes()).hexdigest() != ARCHIVE_SHA: raise ValueError('Unreviewed native framework archive')
     compiler = checked(['xcrun', 'swiftc', '--version'])
@@ -47,11 +47,15 @@ def prepare(archive, output):
     paths = re.findall(r'DW_AT_GNU_dwo_name\s+\("([^"\n]+)"\)', original)
     if len(paths) != 2: raise ValueError('Unexpected external module references')
     cache = output / 'modules'
-    fixture = Path(__file__).resolve().parent.parent / 'tests/diagnostics/NativeSymbols/ModuleProbe.swift'
+    fixture_root = Path(__file__).resolve().parent.parent / 'tests/diagnostics/NativeSymbols'
+    fixture = fixture_root / ('dotnet/pal_swiftbindings.swift' if upstream_source else 'ModuleProbe.swift')
+    if upstream_source and hashlib.sha256(fixture.read_bytes()).hexdigest() != '0ae3e543906cb338abac4c0628a8883dee87d7c8d77b8b756548a2cc2dc0231d':
+        raise ValueError('Pinned upstream diagnostic fixture changed')
     checked(['xcrun', 'swiftc', '-emit-object', '-static', '-parse-as-library', '-enable-library-evolution',
              '-g', '-O', '-runtime-compatibility-version', 'none', '-sdk', sdk, '-target', 'arm64-apple-macosx12.0',
              '-module-name', 'pal_swiftbindings', '-module-cache-path', str(cache), str(fixture), '-o', str(output / 'probe.o')])
     found, signatures = {}, {}
+    mismatches = []
     for module, expected in EXPECTED.items():
         candidates = list(cache.rglob(module + '-*.pcm'))
         if not candidates or len(candidates) > 8: raise ValueError('Missing/excessive actual SDK module candidates')
@@ -59,12 +63,14 @@ def prepare(archive, output):
         for path in candidates:
             metadata = checked(['xcrun', 'dwarfdump', '--debug-info', '--recurse-depth=0', str(path)])
             ids = units(metadata)
-            signatures.setdefault(module, []).append(ids)
+            signatures.setdefault(module, []).append(dict(ids=ids, cache_key=path.parent.name))
             if ids.get(module) == expected: actual.append(path)
         if len(actual) != 1:
-            (output / 'signature-mismatch.json').write_text(json.dumps(signatures, indent=2) + '\n')
-            raise ValueError('Regenerated SDK module signature does not match original debug import')
-        found[module] = actual[0]
+            mismatches.append(module)
+        else: found[module] = actual[0]
+    if mismatches:
+        (output / 'signature-mismatch.json').write_text(json.dumps(dict(fixture='upstream' if upstream_source else 'authored', modules=signatures), indent=2) + '\n')
+        raise ValueError('Regenerated SDK module signature does not match original debug import: ' + ','.join(mismatches))
     maps = []
     for old in paths:
         name = Path(old).name.split('-', 1)[0]
@@ -79,8 +85,9 @@ def prepare(archive, output):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__); p.add_argument('archive', type=Path); p.add_argument('output', type=Path)
+    p.add_argument('--upstream-source', action='store_true')
     args = p.parse_args()
-    try: prepare(args.archive, args.output)
+    try: prepare(args.archive, args.output, args.upstream_source)
     except (ValueError, RuntimeError, subprocess.SubprocessError) as error:
         args.output.mkdir(parents=True, exist_ok=True)
         (args.output / 'failure-proof.json').write_text(json.dumps(dict(verdict='fail', reason=str(error)[:4096]), indent=2) + '\n')

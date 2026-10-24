@@ -1,6 +1,11 @@
 name: Native SDK symbol recovery
 on:
   workflow_dispatch:
+    inputs:
+      upstream_source:
+        description: Compile exact MIT-licensed framework source as a debug-only probe, never linked
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
@@ -24,7 +29,9 @@ jobs:
       - name: Resolve unchanged official framework pack
         run: dotnet restore src/tests/WebRTC.AotSmoke -r osx-arm64 -p:PublishAot=true -p:RuntimeFrameworkVersion=10.0.13 -warnaserror
       - name: Regenerate real matching SDK module data
-        run: python3 scripts/prepare-native-symbols.py "$HOME/.nuget/packages/microsoft.netcore.app.runtime.nativeaot.osx-arm64/10.0.13/runtimes/osx-arm64/native/libSystem.Security.Cryptography.Native.Apple.a" "$GITHUB_WORKSPACE/artifacts/native-symbols"
+        env:
+          SOURCE_OPTION: ${{ inputs.upstream_source && '--upstream-source' || '' }}
+        run: python3 scripts/prepare-native-symbols.py "$HOME/.nuget/packages/microsoft.netcore.app.runtime.nativeaot.osx-arm64/10.0.13/runtimes/osx-arm64/native/libSystem.Security.Cryptography.Native.Apple.a" "$GITHUB_WORKSPACE/artifacts/native-symbols" $SOURCE_OPTION
       - name: Publish strict native smoke with explicit module path maps
         run: |
           options="$(cat artifacts/native-symbols/dsym-options.txt)"

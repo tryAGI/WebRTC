@@ -8,8 +8,9 @@ https://github.com/dotnet/dotnet/commit/4099f83977f4d29604a9aeb971fb0a7bc1d5f699
 Its native Apple CMake command compiles Swift with full module debugging.
 
 The authored tiny ModuleProbe.swift fixture generates actual SDK Clang module
-objects using that exact compiler/SDK and build options. No upstream source is
-imported. Its object is never linked into WebRTC and never replaces framework
+objects using that exact compiler/SDK and build options. The first experiment uses authored source. A separately selected second
+experiment compiles the exact pinned MIT-licensed framework source as a diagnostic
+fixture; its original license and provenance are retained. Neither object is linked. Its object is never linked into WebRTC and never replaces framework
 code. `prepare-native-symbols.py` accepts only the reviewed official archive,
 requires actual regenerated imported-module DWARF signatures to match, and emits
 explicit dsymutil object-prefix maps to those verified files. Missing or different
@@ -40,3 +41,10 @@ framework or runtime implementation was modified. Native symbol acceptance
 remains blocked by issue20. A corrected official framework pack containing its
 module debug data is the preferred repair; changing names or weakening the
 signature check would misrepresent the available type information.
+
+
+The second probe changes only the diagnostic input to the exact upstream Swift
+source, retaining the original file name, module name and all compiler flags.
+It records both module signatures and module-cache configuration keys before
+failing; it still cannot emit a map unless both signatures match. This narrows
+source-driven module generation without substituting a native runtime object.
