@@ -236,7 +236,12 @@ public sealed partial class DtlsSrtpTransport : IAsyncDisposable
             {
                 while (true)
                 {
-                    await Task.WhenAny(next, tick).ConfigureAwait(false);
+                    _lifetime.Token.ThrowIfCancellationRequested();
+                    // Drain already-ready input without allocating a WhenAny promise.
+                    // Maintenance is still examined after every datagram, so a burst
+                    // cannot starve retransmission, expiry or caller cancellation.
+                    if (!next.IsCompleted && !tick.IsCompleted)
+                        await Task.WhenAny(next, tick).ConfigureAwait(false);
                     if (next.IsCompleted)
                     {
                         if (!await next.ConfigureAwait(false)) throw new IOException("ICE ended before DTLS shutdown.");
@@ -305,21 +310,31 @@ public sealed partial class DtlsSrtpTransport : IAsyncDisposable
             trace.Mark(PacketStage.AuthenticationStarted);
             lock (_cryptoGate)
             {
-                var size = datagram.Length - (rtcp ? _srtpReceiver!.RtcpOverhead : _srtpReceiver!.RtpOverhead);
-                if (size < 0) { Reject(); trace.Mark(PacketStage.Dropped, PacketReason.InvalidFraming); return; }
-                var plaintext = new byte[size];
-                var success = rtcp ? _srtpReceiver.TryUnprotectRtcp(datagram, plaintext, out _, out var rejection) : _srtpReceiver.TryUnprotectRtp(datagram, plaintext, out _, out rejection);
-                if (success)
+                var receiver = _srtpReceiver ?? throw new InvalidOperationException("Established SRTP receive context missing.");
+                var size = datagram.Length - (rtcp ? receiver.RtcpOverhead : receiver.RtpOverhead);
+                // The SRTP context already enforces this packet bound. Check it
+                // before reserving stack storage, independently of the DTLS limit.
+                if (size < 0 || size > SrtpContext.MaximumPacketLength) { Reject(); trace.Mark(PacketStage.Dropped, PacketReason.InvalidFraming); return; }
+                Span<byte> authenticated = stackalloc byte[size];
+                try
                 {
-                    var authenticatedAt = Stopwatch.GetTimestamp(); Interlocked.Exchange(ref _lastAuthenticatedAt, authenticatedAt);
-                    if (!rtcp && Interlocked.CompareExchange(ref _firstAuthenticatedRtpAt, authenticatedAt, 0) == 0 && trace.Owner is { } owner)
-                        owner.Lifecycle(PacketStage.FirstMedia, Interlocked.Read(ref owner.ConnectionStartedAt));
-                    if (!rtcp && RtpPacket.TryParse(plaintext, out var rtp)) trace.Identify(rtp.SynchronizationSource, rtp.SequenceNumber, rtp.Timestamp);
-                    trace.Size(plaintext.Length); trace.Mark(PacketStage.Authenticated);
-                    trace.Mark(PacketStage.SecureMediaEnqueued, queueDepth: Math.Min(128, _media.Reader.Count + 1));
-                    _media.Writer.TryWrite(new(rtcp ? SecureMediaKind.Rtcp : SecureMediaKind.Rtp, plaintext) { Trace = trace });
+                    var success = rtcp ? receiver.TryUnprotectRtcp(datagram, authenticated, out var written, out var rejection) : receiver.TryUnprotectRtp(datagram, authenticated, out written, out rejection);
+                    if (success)
+                    {
+                        // Queue ownership starts only after authentication succeeds.
+                        // The bounded scratch never aliases an exported payload.
+                        var plaintext = authenticated[..written].ToArray();
+                        var authenticatedAt = Stopwatch.GetTimestamp(); Interlocked.Exchange(ref _lastAuthenticatedAt, authenticatedAt);
+                        if (!rtcp && Interlocked.CompareExchange(ref _firstAuthenticatedRtpAt, authenticatedAt, 0) == 0 && trace.Owner is { } owner)
+                            owner.Lifecycle(PacketStage.FirstMedia, Interlocked.Read(ref owner.ConnectionStartedAt));
+                        if (!rtcp && RtpPacket.TryParse(plaintext, out var rtp)) trace.Identify(rtp.SynchronizationSource, rtp.SequenceNumber, rtp.Timestamp);
+                        trace.Size(plaintext.Length); trace.Mark(PacketStage.Authenticated);
+                        trace.Mark(PacketStage.SecureMediaEnqueued, queueDepth: Math.Min(128, _media.Reader.Count + 1));
+                        _media.Writer.TryWrite(new(rtcp ? SecureMediaKind.Rtcp : SecureMediaKind.Rtp, plaintext) { Trace = trace });
+                    }
+                    else { Reject(); trace.Mark(PacketStage.Dropped, rejection); }
                 }
-                else { Reject(); trace.Mark(PacketStage.Dropped, rejection); }
+                finally { CryptographicOperations.ZeroMemory(authenticated); }
             }
             return;
         }

@@ -32,6 +32,7 @@ foreach (var scenario in new[] { "canonical-unordered", "canonical-ordered", "pa
     await DataChannelAckTests.Exchange(scenario);
 Console.WriteLine("NativeAOT bounded DCEP ACK compatibility and negative controls passed");
 await DtlsReceiveBoundsTests.IceBoundary();
+foreach (var profile in Enum.GetValues<SrtpProfile>()) await DtlsReceiveBoundsTests.MediaOwnership(profile);
 await DtlsReceiveBoundsTests.Exchange(1200);
 await DtlsReceiveBoundsTests.Exchange(2048);
 Console.WriteLine("NativeAOT independent receive limits and atomic oversized-record rejection passed");
