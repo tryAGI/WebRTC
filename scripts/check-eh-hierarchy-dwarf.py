@@ -41,15 +41,29 @@ Lstart:
 .quad _fixture
 .long 64
 '''
-proof={}
-for mode in ('flat','nested'):
-    assembly=args.output/(mode+'.s');obj=args.output/(mode+'.o')
-    assembly.write_text(header+'\n'.join(emit(data['roots'],mode=='nested'))+'\n.byte 0,0\nLend:\n')
-    subprocess.run(['xcrun','clang','-c',str(assembly),'-o',str(obj),'-Werror'],check=True,timeout=30)
-    result=subprocess.run(['xcrun','dwarfdump','--verify',str(obj)],capture_output=True,text=True,timeout=30)
-    (args.output/(mode+'.log')).write_text(result.stdout+result.stderr)
-    print(result.stdout,end='');print(result.stderr,end='')
-    proof[mode+'_exit_code']=result.returncode
-if proof['flat_exit_code']==0 or proof['nested_exit_code']!=0: raise ValueError('EH hierarchy control did not isolate overlap gate')
-proof['scope']='authored structural fixture; same region extents; not full compiler/rooted acceptance'
+
+def original(nodes):
+    result={}
+    for node in nodes:
+        key=(node['originOffset'],node['originLength'],node['try'])
+        result[key]=dict(offset=key[0],length=key[1],try_kind=key[2])
+        for child in original(node['children']):
+            result[(child['offset'],child['length'],child['try'])]=dict(offset=child['offset'],length=child['length'],try_kind=child['try'])
+    return [dict(offset=r['offset'],length=r['length'],**{'try':r['try_kind']},children=[]) for r in result.values()]
+
+proof={'cases':[]}
+for index,case in enumerate(data['cases']):
+    current={}
+    for mode in ('flat','nested'):
+        assembly=args.output/(str(index)+'-'+mode+'.s');obj=args.output/(str(index)+'-'+mode+'.o')
+        nodes=case['roots'] if mode=='nested' else original(case['roots'])
+        assembly.write_text(header+'\n'.join(emit(nodes,mode=='nested'))+'\n.byte 0,0\nLend:\n')
+        subprocess.run(['xcrun','clang','-c',str(assembly),'-o',str(obj),'-Werror'],check=True,timeout=30)
+        result=subprocess.run(['xcrun','dwarfdump','--verify',str(obj)],capture_output=True,text=True,timeout=30)
+        (args.output/(str(index)+'-'+mode+'.log')).write_text(result.stdout+result.stderr)
+        print(result.stdout,end='');print(result.stderr,end='')
+        current[mode+'_exit_code']=result.returncode
+    if current['flat_exit_code']==0 or current['nested_exit_code']!=0: raise ValueError('EH hierarchy control did not isolate overlap gate')
+    proof['cases'].append(current)
+proof['scope']='native scope coverage preserved across partitions; not source lexical nesting or general compiler acceptance'
 (args.output/'proof.json').write_text(json.dumps(proof,indent=2)+'\n')
