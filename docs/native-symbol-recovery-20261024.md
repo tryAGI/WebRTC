@@ -28,3 +28,15 @@ References:
 - https://www.llvm.org/docs/CommandGuide/dsymutil.html
 - https://github.com/dotnet/dotnet/blob/4099f83977f4d29604a9aeb971fb0a7bc1d5f699/src/runtime/src/native/libs/System.Security.Cryptography.Native.Apple/CMakeLists.txt
 - https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md
+
+## Exact-toolchain result
+
+[Run40059309340](https://github.com/tryAGI/WebRTC/actions/runs/40059309340)
+used the real Xcode16.4 compiler and macOS15.5 SDK. It failed the signature
+check: regenerated Foundation was `c8d25a45d619ab5c`, while the official
+archive imports `6baccd36ecae4f32`. The compiler version alone does not
+reconstruct compatible module debug data. No path map was emitted, and no
+framework or runtime implementation was modified. Native symbol acceptance
+remains blocked by issue20. A corrected official framework pack containing its
+module debug data is the preferred repair; changing names or weakening the
+signature check would misrepresent the available type information.
