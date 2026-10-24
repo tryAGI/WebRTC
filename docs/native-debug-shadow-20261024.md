@@ -31,3 +31,11 @@ consumed only by this publish's dsymutil invocation and destroyed with the job.
 Only proof JSON is retained30days; no SDK PCM/archive or raw symbols are uploaded.
 Source/license provenance remains in docs/provenance.md and the adjacent .NET
 fixture license. No persistent cache or new runtime dependency is introduced.
+
+
+The first-O candidate failed code/data equality (run40063545459) and emitted
+no map. The-Onone direct-module probe40063729912 recovered the original module
+configuration keyHCUVWJDIE8ME, but its Foundation/shims signatures still differed.
+The debug-object experiment now uses that unoptimized configuration while
+retaining byte equality and actual matching candidate-module guards. A matching
+cache key alone is never accepted as signature compatibility.

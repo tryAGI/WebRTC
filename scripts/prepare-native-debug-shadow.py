@@ -54,7 +54,7 @@ def prepare(archive, output):
     if hashlib.sha256(source.read_bytes()).hexdigest() != '0ae3e543906cb338abac4c0628a8883dee87d7c8d77b8b756548a2cc2dc0231d': raise ValueError('Diagnostic source changed')
     old = output / 'official.o'; new = output / 'pal_swiftbindings.o'; cache = output / 'modules'
     old.write_bytes(subprocess.run(['ar', '-p', str(archive), 'pal_swiftbindings.o'], capture_output=True, check=True, timeout=20).stdout)
-    original.checked(['xcrun', 'swiftc', '-emit-object', '-static', '-parse-as-library', '-enable-library-evolution', '-g', '-O',
+    original.checked(['xcrun', 'swiftc', '-emit-object', '-static', '-parse-as-library', '-enable-library-evolution', '-g', '-Onone',
         '-runtime-compatibility-version', 'none', '-sdk', sdk, '-target', 'arm64-apple-macosx12.0', '-module-name', 'pal_swiftbindings',
         '-module-cache-path', str(cache), str(source), '-o', str(new)])
     proof = compare.verify(old.read_bytes(), new.read_bytes())
