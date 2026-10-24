@@ -409,3 +409,13 @@ Copyright belongs to the .NET Foundation and Contributors. The actual license
 was checked at this pinned revision before import. Its sole consumer is the
 manual native-symbol reconstruction experiment. The compiled object is never
 linked or packaged; this does not import or replace any runtime crypto.
+
+## Experimental compiler EH source fixture
+
+The diagnostic-only emitter adapter in scripts/prepare-compiler-eh-candidate.py
+operates on MIT .NET runtime source at6aa72daa24f66c01c3d7b6a32519e9d21396deec,
+DwarfInfo.cs/DwarfAbbrev.cs. Headers/license/input hashes were checked and are
+recorded in docs/compiler-eh-candidate-20261024.md. Original notice is preserved
+in tests/diagnostics/CompilerEhCandidate/LICENSE.TXT. The planner/structural
+fixtures are authored. No runtime implementation or upstream compiler binary is
+vendored or substituted into the canonical package.
