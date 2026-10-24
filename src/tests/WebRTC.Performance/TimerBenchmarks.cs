@@ -6,7 +6,7 @@ internal static class TimerBenchmarks
 {
     internal static async Task Run()
     {
-        Console.WriteLine("timer,sample,requested_us,elapsed_us");
+        Console.WriteLine("timer,sample,requested_us,elapsed_us,wall_elapsed_us");
         using var bound = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         foreach (var timer in new[] { "delay", "periodic", "sleep" })
         {
@@ -16,6 +16,7 @@ internal static class TimerBenchmarks
             for (var sample = 0; sample < 100; sample++)
             {
                 bound.Token.ThrowIfCancellationRequested();
+                var wallStart = DateTime.UtcNow;
                 var start = Stopwatch.GetTimestamp();
                 if (timer == "delay") await Task.Delay(20, bound.Token);
                 else if (periodic is not null)
@@ -24,7 +25,8 @@ internal static class TimerBenchmarks
                 }
                 else Thread.Sleep(20);
                 var elapsed = Stopwatch.GetElapsedTime(start).TotalMicroseconds;
-                Console.WriteLine($"{timer},{sample},20000,{elapsed:F3}");
+                var wallElapsed = (DateTime.UtcNow - wallStart).TotalMicroseconds;
+                Console.WriteLine($"{timer},{sample},20000,{elapsed:F3},{wallElapsed:F3}");
             }
         }
     }
