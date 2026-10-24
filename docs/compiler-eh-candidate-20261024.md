@@ -1,18 +1,20 @@
 # Experimental source-level EH hierarchy correction
 
-The pinned .NET10.0.13 runtime source at6aa72daa24f66c01c3d7b6a32519e9d21396deec
+The pinned .NET 10.0.13 runtime source at6aa72daa24f66c01c3d7b6a32519e9d21396deec
 has the exact same DwarfInfo.cs bytes as monorepo4099f839 used by the diagnosed
 package. The candidate groups duplicate try ranges, emits properly nested
 contained native regions and marks EH abbreviations as containing children.
-It preserves every distinct range/tag extent and uses iterative emission.
-Crossing physical ranges, contradictory identical try/handler scopes and
-out-of-bounds/overflow ranges explicitly fail. These cases need a richer native
-range-list representation before any compiler compatibility claim.
+It preserves native PC coverage for every distinct original range/tag and uses
+iterative emission. The original laminar-only candidate rejected crossing and
+equal-extent mixed-tag ranges. The broader candidate below partitions those
+physical ranges into nested fragments; invalid bounds/overflow still fail closed.
+Native scope coverage is not a reconstruction of source-language lexical nesting.
 
 The authored planner regression checks nesting/shared try grouping, distinct
 region preservation, input-order independence, touching/empty ranges and rejection
-of unsupported layouts. A separate assembly fixture feeds the real LLVM verifier
-identical native range extents: flat siblings must fail, containment must pass.
+of invalid layouts and excessive fragmentation. Separate assembly fixtures feed
+the real LLVM verifier the same original native PC coverage: flat siblings must
+fail, nested/partitioned coverage must pass.
 This is structural verification, not whole-compiler acceptance.
 
 The manual compiler-eh-candidate workflow also attempts the real upstream source
@@ -53,7 +55,7 @@ The corrected local admitted run passed the same flat-rejection/nested-acceptanc
 control (receipt20261024-15443aaf18134b79906186a4d0357b9f,92.670s; SLO pass). Neither failed local attempt
 is counted as a passing test.
 
-The first full source restore failed4 audit errors in upstream build-task projects:
+The first full source restore failed 4 audit errors in upstream build-task projects:
 NU1902/NU1903, System.Security.Cryptography.Pkcs9.0.6. A tee pipeline accidentally
 returned success for that build step; its next step correctly failed for absent
 compiler output. The workflow now enables shell pipefail and retains complete
@@ -120,12 +122,75 @@ complete source-diff SHA256a60411c7d75a85ff97031b20d4964436302f4096bfdaab36382ec
 The clean rooted native binary SHA256 is
 dd1fa827ca2ed216b58449f2e64e6e69f8eee7cda77d107d07255e307f649a62.
 Debug-only linking preserves that binary and the official framework crypto
-archive, relocates19 debug archive entries and records dwarf_verified=true.
-The14-section/216-symbol nondebug equality and real code mutation rejection hold.
+archive, relocates 19 debug archive entries and records dwarf_verified=true.
+The 14-section/216-symbol nondebug equality and real code mutation rejection hold.
 
 This is a validated experimental source-level/debug-input repair for these
 fixtures, with exact provenance. It is not an upstream released SDK, a replacement
 for installed compilers, universal optimized-EH layout support or a production
-voice/device acceptance result. Unsupported non-laminar layouts still fail closed.
+voice/device acceptance result. That earlier candidate still rejected non-laminar
+layouts; the broader experiment below supersedes that limitation within its bounds.
 The canonical publisher/consumer toolchain remains unchanged; promoting this
 candidate requires upstream review/general compiler regression coverage.
+
+
+## Broader physical-range support
+
+The boundary-sweep fallback retains each original range/tag identity and covers
+each of its original native PCs exactly once, even when two physical scopes cross
+or a try/handler share the same extent. It fragments ranges only at existing
+boundaries, emits non-overlapping siblings and contained children, and preserves
+empty regions. The fast laminar path remains. Invalid method bounds/overflow and
+more than 16,384 fragments fail closed; this finite bound deliberately excludes
+pathological inputs rather than allowing unbounded compiler work.
+
+Four authored coverage scenarios include nested/shared tries, crossing ranges
+with empty scopes, equal-extent mixed tags and nested crossings. Each checks every
+PC against its original scope identity, parent containment, sibling separation
+and empty-scope retention. A 300-range hostile case must exceed the fragment bound.
+All four independent assembly controls reject the flat original scopes and pass
+the partitioned hierarchy in LLVM (flat exit1, candidate exit0).
+
+[Run40095638357](https://github.com/tryAGI/WebRTC/actions/runs/40095638357), source
+5de69a367d2566968816c3d917ceae3389a925e8, passes both the structural job and real
+source-built compiler/minimal/full-rooted job. The full rooted smoke includes the
+UDP source-cache regression. Source build has 0 raw diagnostics; minimal compile,
+execution and full verification pass with empty warning/error sets. Rooted
+execution/full DWARF verification pass; debug linking preserves the binary and
+official crypto archive and relocates 19 archive entries. The 14-section/216-symbol
+nondebug equality and actual code-mutation rejection still hold.
+
+The previous broader attempt40095025619 failed compiler compilation on CS8632
+because the upstream file disables nullable annotations. The corrected helper
+explicitly enables nullable contracts only within the authored region and restores
+the upstream context afterward; no diagnostic suppression or nullable disable was
+added. That failed attempt is not counted as passing compiler validation.
+
+Pinned runtime source remains6aa72daa24f66c01c3d7b6a32519e9d21396deec.
+Broader source-diff SHA256:
+5c895e29318803c3373cdcde5131f78e949f43c88e6a9fbd4d68499fbb3f66a7.
+ILCompiler.Compiler.dll SHA256:
+6f9843a4949494ad3d922c172ee1ab0076e6179ee64405da63368c51724f6ed2.
+Rooted native binary SHA256:
+3b8185b435967d561de534947f551d02be507b89434ff4715f4942cbae11dde9.
+The launcher ilc hash is unchanged; the compiler assembly/diff identify this
+broader candidate. These are experimental native coverage/debug results, not an
+upstream SDK release, universal source lexical correctness or device/audio proof.
+The installed SDK and canonical publisher remain unchanged.
+
+
+### Leaf-scope diagnostic correction
+
+A full independent diagnostic scan of40095638357 finds 0 diagnostics in the
+compiler job, but the structural fixture emits warnings for leaf try/catch scopes
+that declare children and have none. Therefore its exit 0 positive fixtures are
+**not** a zero-warning structural quality pass. The 38 diagnostic records in the
+hierarchy job include deliberately failing overlap controls, aggregate summaries
+and these real positive-fixture warnings; they are not 38 new compiler defects.
+
+The follow-up keeps the upstream leaf abbreviations as DW_CHILDREN_no and adds
+separate parent abbreviations only when children exist. The assembly fixture
+models the same distinction and fails any positive-case warning/error diagnostic,
+even when the verifier exits0. Negative overlap controls retain full diagnostics.
+This fixes the represented tree rather than suppressing warnings. Fresh source
+compiler and structural verification are required for this final candidate.

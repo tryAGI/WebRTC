@@ -86,6 +86,11 @@ Native allocations/RSS, physical energy and end-to-end audio are separate
 measurements. See [reproduction and limitations](https://github.com/tryAGI/WebRTC/blob/main/docs/performance.md)
 and [allocation boundaries](https://github.com/tryAGI/WebRTC/blob/main/docs/zero-allocation-boundaries-20261024.md).
 
+Reusing the socket receive-source address removed about **144 managed bytes per
+received packet** in matched four-platform loopback cohorts; all 96 measured
+configuration medians decreased. Owned outputs still allocate. See the
+[before/after measurements and validation limits](https://github.com/tryAGI/WebRTC/blob/main/docs/zero-allocation-boundaries-20261024.md#matched-udp-allocation-result).
+
 An opt-in [Apple crypto attribution benchmark](https://github.com/tryAGI/WebRTC/blob/main/docs/apple-crypto-attribution-20261024.md)
 compares the same optimized driver against unchanged framework bridge source
 built-Onone/-O, with checked valid/bad-tag opens and three fresh processes each.
