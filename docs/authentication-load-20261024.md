@@ -131,3 +131,12 @@ to be complete. The failure-marker guard passed with the full100-test Python
 suite; the changed performance project compiled with zero warnings/errors through
 host admission. This error-reporting branch has not yet been exercised by a new
 live timeout capture; no additional runtime change was made for it.
+
+
+Follow-up824543e/run40076213882 executed the graceful deadline path during the
+zero-injection AES-CM baseline: two100/100 samples took11.357s/9.882s, then pacing
+exceeded the unchanged30s scenario deadline. The capture retains a typed failure
+marker, full exception and exit1; the observer did not terminate it. The matching
+framework-only timer controls independently show large hosted macOS wake gaps.
+See apple-crypto-attribution-20261024.md. This closes the reporting-path execution
+gap, not the macOS loss or timing acceptance gap.

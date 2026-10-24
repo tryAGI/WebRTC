@@ -67,6 +67,13 @@ remain explicit unknowns. See [diagnostics and collection example](https://githu
 
 ## Measured hot paths
 
+An opt-in [Apple crypto attribution benchmark](https://github.com/tryAGI/WebRTC/blob/main/docs/apple-crypto-attribution-20261024.md)
+compares the same optimized driver against unchanged framework bridge source
+built-Onone/-O, with checked valid/bad-tag opens and three fresh processes each.
+Separate timer-only and hostile-load stack controls keep host scheduling effects
+visible; these are diagnostics, not whole-transport zero-allocation or audio SLO claims.
+
+
 Empty-ciphertext GCM (GMAC) rejection now has exact zero managed-allocation
 contracts: empty RTP, header-only encrypted RTCP and authentication-only SRTCP,
 AES-128/256, bad tags/wrong keys/replays. Payload-bearing GCM authentication

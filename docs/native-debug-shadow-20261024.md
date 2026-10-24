@@ -122,3 +122,30 @@ accepted. This remains a partial diagnostic repair, not a canonical AOT repair.
 The original Swift bridge matching-Onone code is a separate optimization hypothesis
 tracked in [issue24](https://github.com/tryAGI/WebRTC/issues/24), not an attributed
 cause of audio loss. No Advantage dependency was changed in this batch.
+
+
+## SDK probe and emitter follow-up
+
+The SDK's actual capability probe is--help (confirmed in10.0.13
+Microsoft.NETCore.Native.Unix.targets), in addition to the supported--version
+identity query. The initial version-only correction did not address that probe.
+The wrapper now delegates both exact single-argument queries, preserving complete
+stdout/stderr/status. Every real binary link still enforces archive equality,
+no diagnostic-disabling options and full DWARF verification. The105-test Python
+suite includes wrong/mixed-option rejection and nonzero probe status forwarding.
+
+[Run40076117151](https://github.com/tryAGI/WebRTC/actions/runs/40076117151)
+at72c553ba4d43f8604074f927c54595e36bbd9bce has zero rejected-probe diagnostics.
+It retains unchanged official archive/binary, usable crypto/managed ranges and
+762 rooted managed overlap errors; the framework-only repro still rejects14.
+Full quality remains failed. This fixes our probe handling, not the upstream
+managed debug emitter.
+
+Pinned framework source inspection gives a concrete upstream lead:
+[DwarfSubprogramInfo.Dump at4099f839](https://github.com/dotnet/dotnet/blob/4099f83977f4d29604a9aeb971fb0a7bc1d5f699/src/runtime/src/coreclr/tools/aot/ILCompiler.Compiler/Compiler/ObjectWriter/Dwarf/DwarfInfo.cs#L424)
+emits each clause's try and handler as siblings under the method. Nested and
+shared try ranges can overlap at that sibling level. This source observation is
+consistent with the repro; a correct compiler fix needs native range grouping,
+containment/hierarchy and shared-clause/funclet coverage with full verifier and
+runtime tests. No debug entries were discarded, ranges rewritten post-link,
+compiler replaced or full repair claimed. See issue23 for the upstream boundary.
