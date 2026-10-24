@@ -48,3 +48,16 @@ source, retaining the original file name, module name and all compiler flags.
 It records both module signatures and module-cache configuration keys before
 failing; it still cannot emit a map unless both signatures match. This narrows
 source-driven module generation without substituting a native runtime object.
+
+
+## Optimization configuration follow-up
+
+The original object imports SwiftOnoneSupport and omits the Swift compile-unit
+optimized marker. Upstream CMake initializes `SWIFT_OPTIMIZATION_FLAG` inside
+`if (NOT SWIFT_COMPILER_TARGET)`, so a preset target can leave the flag unset,
+which uses the compiler's unoptimized default even in a Release build. The
+previous probes explicitly used-O. A bounded-Onone probe now tests that
+configuration while retaining the exact original module-signature guards.
+This is a tested hypothesis only after its real signature/publish checks finish.
+The separate debug-input experiment40063545459 failed nondebug equality and
+emitted no map; no runtime code/data equivalence was assumed.

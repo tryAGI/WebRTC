@@ -31,7 +31,7 @@ def checked(command, timeout=90):
     return result.stdout
 
 
-def prepare(archive, output, upstream_source=False):
+def prepare(archive, output, upstream_source=False, unoptimized=False):
     output.mkdir(parents=True, exist_ok=False)
     if hashlib.sha256(archive.read_bytes()).hexdigest() != ARCHIVE_SHA: raise ValueError('Unreviewed native framework archive')
     compiler = checked(['xcrun', 'swiftc', '--version'])
@@ -52,7 +52,7 @@ def prepare(archive, output, upstream_source=False):
     if upstream_source and hashlib.sha256(fixture.read_bytes()).hexdigest() != '0ae3e543906cb338abac4c0628a8883dee87d7c8d77b8b756548a2cc2dc0231d':
         raise ValueError('Pinned upstream diagnostic fixture changed')
     checked(['xcrun', 'swiftc', '-emit-object', '-static', '-parse-as-library', '-enable-library-evolution',
-             '-g', '-O', '-runtime-compatibility-version', 'none', '-sdk', sdk, '-target', 'arm64-apple-macosx12.0',
+             '-g', '-Onone' if unoptimized else '-O', '-runtime-compatibility-version', 'none', '-sdk', sdk, '-target', 'arm64-apple-macosx12.0',
              '-module-name', 'pal_swiftbindings', '-module-cache-path', str(cache), str(fixture), '-o', str(output / 'probe.o')])
     found, signatures = {}, {}
     mismatches = []
@@ -69,7 +69,7 @@ def prepare(archive, output, upstream_source=False):
             mismatches.append(module)
         else: found[module] = actual[0]
     if mismatches:
-        (output / 'signature-mismatch.json').write_text(json.dumps(dict(fixture='upstream' if upstream_source else 'authored', modules=signatures), indent=2) + '\n')
+        (output / 'signature-mismatch.json').write_text(json.dumps(dict(fixture='upstream' if upstream_source else 'authored', optimization='Onone' if unoptimized else 'O', modules=signatures), indent=2) + '\n')
         raise ValueError('Regenerated SDK module signature does not match original debug import: ' + ','.join(mismatches))
     maps = []
     for old in paths:
@@ -80,14 +80,15 @@ def prepare(archive, output, upstream_source=False):
     if hashlib.sha256(archive.read_bytes()).hexdigest() != ARCHIVE_SHA: raise ValueError('Framework archive changed')
     (output / 'dsym-options.txt').write_text(' '.join(maps))
     (output / 'proof.json').write_text(json.dumps(dict(archive_sha256=ARCHIVE_SHA, compiler=compiler.strip(), signatures=EXPECTED,
-        module_data='actual SDK-generated PCM with matching imported DWARF signatures', framework_modified=False), indent=2) + '\n')
+        optimization='Onone' if unoptimized else 'O', module_data='actual SDK-generated PCM with matching imported DWARF signatures', framework_modified=False), indent=2) + '\n')
 
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__); p.add_argument('archive', type=Path); p.add_argument('output', type=Path)
     p.add_argument('--upstream-source', action='store_true')
+    p.add_argument('--unoptimized', action='store_true')
     args = p.parse_args()
-    try: prepare(args.archive, args.output, args.upstream_source)
+    try: prepare(args.archive, args.output, args.upstream_source, args.unoptimized)
     except (ValueError, RuntimeError, subprocess.SubprocessError) as error:
         args.output.mkdir(parents=True, exist_ok=True)
         (args.output / 'failure-proof.json').write_text(json.dumps(dict(verdict='fail', reason=str(error)[:4096]), indent=2) + '\n')
