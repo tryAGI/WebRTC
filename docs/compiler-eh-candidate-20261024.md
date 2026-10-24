@@ -281,3 +281,36 @@ checker before cancellation was attempted; it was not canceled and supplies no
 valid entry control. No earlier failure is reclassified as passing. The corrected
 candidate must independently pass this live-value entry/caller-scope fixture and
 its original full rooted verification before broader semantic acceptance is stated.
+
+
+### Final live-value candidate result
+
+[Candidate40101632837](https://github.com/tryAGI/WebRTC/actions/runs/40101632837),
+source959f51b2a83be80b2144db7ab63a43410476eb75, completes both jobs successfully.
+The corrected module-relative native-entry checker reads all five exact stage/value,
+outer and scope-local combinations, resolves caller source lines17/34/17/26/34,
+and observes native exit0. It agrees with the official control's live-value cases.
+The candidate gate checks entry arguments and caller source/scoped locals; the
+separate official control additionally checks source-point checkpoint arguments.
+Neither result promises values for optimized-away variables or universal lexical
+correctness across arbitrary compiler layouts.
+
+The candidate build gate and an independent scan of the complete compiler-job log
+both find0 raw diagnostics. Minimal repro/full debugger fixture DWARF checks,
+full rooted compilation/execution/DWARF verification, and the four positive
+structural cases all pass. The intentional negative overlap controls remain
+visible. The source-diff SHA256 remains
+8f0e07248f4fc718c0c5b820d27f27dc5db94b9d0330b9bb0715cd90e2e120bf.
+Compiler assembly SHA256:
+ba672c6fbc949fc3ac5b7fa1998749c1ba20cdf516444b39822ebeb4f8738e50.
+Rooted native binary SHA256:
+8f5f3d1920be0a6480c52b41acdf53b95e4efa664f2b7693bf994919bd6d8248.
+The14-section/216-symbol nondebug equality and actual code-mutation rejection
+remain; debug linking preserves the native binary/official archive and relocates19
+members. Installed SDK/canonical publisher are unchanged; this is experimental
+fixture-level debugger acceptance, not official SDK or production acceptance.
+
+The old candidate40101119428 reproduces the official old-fixture liveness failure
+(first entry/caller values correct, then unavailable outer). Earlier source-argument,
+absolute-address and dead-local failures remain recorded as failed diagnostics or
+harness/fixture mistakes, not evidence of a new library runtime defect.

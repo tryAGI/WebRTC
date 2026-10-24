@@ -1,6 +1,7 @@
 # Caller-owned receive buffers: proposed API design
 
 Status: proposed, no runtime API or existing owned-array contract changed.
+Implementation tracker: [WebRTC#26](https://github.com/tryAGI/WebRTC/issues/26).
 The objective is lower warmed receive allocation without making packet ownership
 implicit. The existing SecureMediaDatagram.Data array can outlive subsequent
 receives. Reusing it would silently corrupt callers; it must retain that contract.
@@ -37,7 +38,8 @@ release that one packet, and record an explicit local media drop/diagnostic reas
 A retry receives the next packet; this status is not a promise to retain the same
 packet. This deliberate datagram contract avoids indefinite head reservations,
 extra held buffers and head-of-line blocking from an undersized destination. The
-caller should provision the documented maximum supported packet size. Existing
+caller should provision the configured MaximumReceiveDatagramSize as a
+conservative destination bound for accepted SRTP/SRTCP plaintext. Existing
 owned-array mode is unaffected. On Completed, Length and RequiredCapacity are 0. Kind is meaningful only for
 Received and DestinationTooSmall. Faulted transport completion throws its original
 error; caller cancellation throws OperationCanceledException.
@@ -47,6 +49,9 @@ After the synchronous copy starts, complete Received atomically rather than repo
 cancellation after altering the caller's memory. Shutdown races follow the same
 rule; each internal buffer has one owner and exactly one release. Document that
 uncooperative caller mutation while a receive is pending violates the contract.
+If a custom/disposed MemoryManager throws while obtaining or writing its Span,
+fault the receive and still clear/return the internal rental exactly once; never
+retain the caller memory for a later retry.
 
 ## Internal ownership and security
 
