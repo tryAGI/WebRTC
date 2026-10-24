@@ -55,8 +55,12 @@ internal static class AuthenticationLoadBenchmarks
                 {
                     if (pacing == "interval" && i > 0)
                     {
-                        var remaining = TimeSpan.FromMilliseconds(20) - Stopwatch.GetElapsedTime(Volatile.Read(ref sent[first + i - 1]));
-                        if (remaining > TimeSpan.Zero) await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, Math.Ceiling(remaining.TotalMilliseconds))), ct);
+                        while (true)
+                        {
+                            var remaining = TimeSpan.FromMilliseconds(20) - Stopwatch.GetElapsedTime(Volatile.Read(ref sent[first + i - 1]));
+                            if (remaining <= TimeSpan.Zero) break;
+                            await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, Math.Ceiling(remaining.TotalMilliseconds))), ct);
+                        }
                     }
                     await Send(first + i);
                     if (pacing == "deadline")

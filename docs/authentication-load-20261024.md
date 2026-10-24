@@ -106,3 +106,8 @@ Interval captures fail if their measured minimum gap falls below19.9ms; the
 original deadline control retains its measured bunching without suppression.
 The default manual lane interleaves three fresh processes of each producer mode
 on the same runner per platform, with a finite25minute job bound.
+
+The first paired producer run40065231287 was correctly rejected on Windows:
+its minimum observed interval was18.8451ms. One Task.Delay completion did not
+establish elapsed20ms. The interval producer now rechecks the monotonic clock
+in a bounded cancellation-aware delay loop; the19.9ms guard stays unchanged.
