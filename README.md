@@ -73,6 +73,15 @@ AES-128/256, bad tags/wrong keys/replays. Payload-bearing GCM authentication
 failures retain their measured framework exception costs. See
 [before/after results, timing warm-up and matched memory controls](https://github.com/tryAGI/WebRTC/blob/main/docs/gmac-timing-memory-20261024.md).
 
+| Warmed empty-ciphertext GCM bad-tag / wrong-key rejection | Before managed bytes/failure | After |
+| --- | ---: | ---: |
+| JIT, Linux x64/arm64, macOS arm64, Windows x64 | 192–464 | 0 |
+| NativeAOT, same platforms | 240 | 0 |
+
+Caller buffers are preallocated. Replay rejection was already zero. The executed
+macOS NativeAOT measurements have a separate [SDK debug-symbol quality blocker](https://github.com/tryAGI/WebRTC/issues/20);
+strict benchmark builds now fail on its two tool diagnostics.
+
 Managed and NativeAOT builds now pass the same 147 exact zero-allocation samples
 on Linux x64/arm64, macOS arm64 and Windows x64. Separate reviewed NativeAOT
 ceilings protect all 40 active media/audio/channel/video configurations; owned
