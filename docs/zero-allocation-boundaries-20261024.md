@@ -166,3 +166,14 @@ so future failed captures preserve completed/failed suite exit codes. Additional
 ICE/DTLS/warm-up/sample stage markers are emitted outside measured allocation
 windows; the 30-second deadline and allocation budget semantics are unchanged.
 No runtime, power setting, timer resolution or active audio was changed.
+
+
+The final broader source-built compiler follow-up
+[40097448470](https://github.com/tryAGI/WebRTC/actions/runs/40097448470)
+also passes both jobs with warning-free positive fixtures and0 raw compiler
+job diagnostics; see the compiler report for exact hashes. This remains separate
+from the unchanged stock SDK/canonical publication blocker. The phase-marker and
+partial-progress follow-up builds cleanly in
+[40097654052](https://github.com/tryAGI/WebRTC/actions/runs/40097654052), source
+bca7fd981470aa2aa5f191151ce3dab9a722b32d;113 Python diagnostic guards pass.
+There is no second physical capture or new Advantage/package adoption claim.

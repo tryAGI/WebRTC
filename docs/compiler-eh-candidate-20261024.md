@@ -194,3 +194,27 @@ models the same distinction and fails any positive-case warning/error diagnostic
 even when the verifier exits0. Negative overlap controls retain full diagnostics.
 This fixes the represented tree rather than suppressing warnings. Fresh source
 compiler and structural verification are required for this final candidate.
+
+
+### Final broadened candidate: clean positive controls and rooted verification
+
+[Run40097448470](https://github.com/tryAGI/WebRTC/actions/runs/40097448470), source
+c01af501474f4d7ea13bf34b5ce843bb85d0c4d5, completes both jobs successfully.
+All four positive structural fixtures exit0 with0 diagnostic records. Their flat
+negative controls exit1 and retain4/3/3/4 error/aggregate diagnostic records;
+negative-test errors are expected and are not hidden. Source build and an
+independent scan of the complete compiler job both find0 raw diagnostics.
+Minimal compilation/execution/full verification pass with empty warnings/errors.
+Full rooted compilation/execution/DWARF verification pass, with unchanged official
+archive/native binary during debug linking,19 relocated entries and the existing
+nondebug equality/code-mutation negative control intact.
+
+Final source-diff SHA256:
+8f0e07248f4fc718c0c5b820d27f27dc5db94b9d0330b9bb0715cd90e2e120bf.
+Final ILCompiler.Compiler.dll SHA256:
+ba672c6fbc949fc3ac5b7fa1998749c1ba20cdf516444b39822ebeb4f8738e50.
+Final rooted native binary SHA256:
+8e2667fc67225e6b00ef0eafc92e80c4b929e5b8bf9a5bfe777a25e88ec74d3a.
+Pinned upstream source/runtime and all experimental/canonical SDK acceptance
+boundaries above remain unchanged. This supersedes the leaf-warning limitation
+of the previous structural run, not its retained failure history.
