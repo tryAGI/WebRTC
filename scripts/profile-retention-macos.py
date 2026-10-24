@@ -112,7 +112,7 @@ def capture_owners(pid, path):
                     block = os.read(key.fileobj.fileno(), 65536)
                     if not block: selected.unregister(key.fileobj); continue
                     data.extend(block)
-                    if len(data) > 16 * 1024 * 1024: raise ValueError('Native owner capture exceeds bound')
+                    if len(data) > 64 * 1024 * 1024: raise ValueError('Native owner capture exceeds bound')
         if tool.wait(timeout=5) != 0: raise RuntimeError('Native owner tool failed')
         text = data.decode('utf-8')
         if owner_diagnostic(text): raise RuntimeError('Native owner tool emitted a diagnostic')

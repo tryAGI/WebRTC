@@ -26,3 +26,9 @@ malloc requests are separate and can overlap; neither equals resident memory.
 RSS, GC committed memory, malloc resident bytes and live requested bytes retain
 separate units. A quiet-period reduction can support a settling hypothesis but
 cannot establish leak freedom. Native profiling also perturbs allocator behavior.
+
+The first peer stack capture exceeded the initial16MiB tool-output limit
+(run40060754767); it was rejected rather than summarized partially. The
+controller now allows at most64MiB per capture with the original30second
+deadline unchanged. Empty-process capture already completed all six barriers
+in that run, but one process is not a three-pair attribution result.
