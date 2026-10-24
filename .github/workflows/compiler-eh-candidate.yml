@@ -56,6 +56,12 @@ jobs:
           dotnet publish tests/diagnostics/AotDwarfRanges -c Release -r osx-arm64 -p:PublishAot=true -p:RuntimeFrameworkVersion=10.0.13 -p:IlcToolsPath="$tools" -warnaserror -o artifacts/candidate-repro
           artifacts/candidate-repro/AotDwarfRanges
           python3 scripts/check-native-dwarf-repro.py artifacts/candidate-repro/AotDwarfRanges.dSYM artifacts/candidate-repro/proof.json
+      - name: Verify real debugger frames, source lines and EH locals
+        run: |
+          tools="$GITHUB_WORKSPACE/artifacts/upstream-runtime/artifacts/bin/coreclr/osx.arm64.Release/ilc/"
+          dotnet publish tests/diagnostics/AotDebuggerSemantics -c Release -r osx-arm64 -p:PublishAot=true -p:RuntimeFrameworkVersion=10.0.13 -p:IlcToolsPath="$tools" -warnaserror -o artifacts/debugger-semantics
+          python3 scripts/check-native-dwarf-repro.py artifacts/debugger-semantics/AotDebuggerSemantics.dSYM artifacts/debugger-semantics/dwarf-proof.json
+          python3 scripts/check-eh-debugger.py artifacts/debugger-semantics/AotDebuggerSemantics tests/diagnostics/AotDebuggerSemantics/Program.cs artifacts/debugger-semantics/semantics-proof.json
       - name: Rooted smoke with complete debug verification
         run: |
           tools="$GITHUB_WORKSPACE/artifacts/upstream-runtime/artifacts/bin/coreclr/osx.arm64.Release/ilc/"
@@ -78,6 +84,8 @@ jobs:
           path: |
             artifacts/compiler-evidence
             artifacts/candidate-repro/proof.json
+            artifacts/debugger-semantics/*.json
+            artifacts/debugger-semantics/lldb.log
             artifacts/debug-input/*proof.json
           if-no-files-found: error
           retention-days: 30
