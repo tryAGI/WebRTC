@@ -76,3 +76,11 @@ wrapper lives only in this publish step's PATH and uses the exact verified
 archive identities. Native-link proof records the unchanged binary hash and
 relocated-member count. A successful strict publish/full DWARF/smoke is still
 required before claiming repair. No archive or PCM is uploaded.
+
+
+The canonical validation/publication workflow now passes MSBuild-warnaserror
+for build, NativeAOT publish and package creation. The prior green Mac lane
+could still emit the two native-tool warnings; green status was not clean
+quality evidence. New publication must fail closed on those diagnostics until
+verified debug linking is integrated, rather than continue producing packages
+through the known external blocker. Compiler warning settings are not weakened.
