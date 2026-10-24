@@ -82,6 +82,13 @@ Caller buffers are preallocated. Replay rejection was already zero. The executed
 macOS NativeAOT measurements have a separate [SDK debug-symbol quality blocker](https://github.com/tryAGI/WebRTC/issues/20);
 strict benchmark builds now fail on its two tool diagnostics.
 
+The opt-in authenticated-media stress lane also injects real bad-tag UDP bursts
+alongside valid audio, with a deliberate packet-loss control. Four-platform runs
+completed 3.6 million corrupted sends without observed corrupted plaintext
+admission; the macOS cohort lost valid traffic under higher bursts. That remains
+an [open reliability issue](https://github.com/tryAGI/WebRTC/issues/22), not a
+hostile-load performance guarantee. See the [full measurements and limits](https://github.com/tryAGI/WebRTC/blob/main/docs/authentication-load-20261024.md).
+
 Managed and NativeAOT builds now pass the same 147 exact zero-allocation samples
 on Linux x64/arm64, macOS arm64 and Windows x64. Separate reviewed NativeAOT
 ceilings protect all 40 active media/audio/channel/video configurations; owned
