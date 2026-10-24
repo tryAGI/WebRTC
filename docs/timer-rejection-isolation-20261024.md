@@ -106,3 +106,19 @@ not set a global policy or add a power/priority assertion to the library. It
 isolates an activity-policy hypothesis, not authorization to adopt it in product
 code or an energy/thermal conclusion. Metadata retains actual thread class and
 activity state with every raw/wall/monotonic capture.
+
+
+The process activity follow-up
+[run40092650294](https://github.com/tryAGI/WebRTC/actions/runs/40092650294)
+atcffdc53bfbaee6a7d7cb6f076181f517e383c493 passed both Mac lanes,1800 wakes
+across18 fresh processes. Default and initiated controls explicitly record
+activity=off; the latency-critical/user-initiated activity arm explicitly records
+activity=latency-critical. Raw captures were independently rechecked with the
+stronger22e3275 activity-identity guard (rejecting active/ambiguous baselines).
+On macOS15, default/initiated/activity medians were100.950/78.758/114.161,
+106.563/69.513/45.247 and92.169/80.126/106.170ms. On macOS26 they were
+62.377/56.152/59.244,41.646/65.550/61.100 and41.787/50.133/49.760ms.
+Neither scoped QoS nor this activity assertion restored20ms cadence consistently.
+The data does not prove App Nap is the cause, and does not justify adding either
+assertion to runtime code. The remaining hosted scheduling/coalescing environment
+requires a physical matched-runtime control or host-level evidence.

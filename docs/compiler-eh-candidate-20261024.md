@@ -66,3 +66,36 @@ from EH emitter changes and from the official10.0.13 runtime/framework used by
 the repro. Their original project hashes are checked by the preparation script;
 all source changes are retained in the CI diff under the upstream MIT notice.
 No full compiler repair/acceptance follows from the structural fixture alone.
+
+
+## Full source-level verification experiment
+
+[Run40091348239](https://github.com/tryAGI/WebRTC/actions/runs/40091348239)
+at99e98d2de4fbc428f0ba02b26565b6bfb0dd662e built the actual candidate compiler,
+then compiled/executed/fully verified both the minimal repro and complete rooted
+WebRTC smoke. The14 minimal and762 rooted overlap errors were eliminated in this
+experiment. Minimal proof has exit0/errors{}/warnings{}; rooted debug-link proof
+has dwarf_verified=true/debug_link_exit_code=0, official archive and native binary
+unchanged by debug linking,19 relocated archive entries. Native binary SHA256
+fd8bc102a11081097f0886b7a50a1816cecbdcebbfb6c2b78e1ffd66a527773c.
+All14 nondebug sections/216symbols and the actual code-mutation rejection still
+pass. This confirms the source-level candidate works for these full fixtures,
+not every possible optimized EH layout, an upstream SDK release or production.
+
+That experiment still has **seven upstream native-tool warnings** in source-build
+logs despite MSBuild's0-warning summary: six duplicate-minipal link warnings and
+one empty-bootstrapperdll archive symbol table. Overall workflow green therefore
+is not zero-warning quality acceptance. The follow-up raw-log gate counts native
+and managed diagnostics independently, retains original lines, and records source
+diff/compiler payload hashes. Unit controls prove native warnings cannot be hidden
+behind a0-warning summary. No diagnostic is suppressed.
+
+The compiler-only follow-up builds clr.alljits+clr.tools rather than unused
+nativeaotlibs/nativeaotruntime products (the repro uses the official SDK runtime).
+It selects CMake's native library de-duplication policies
+[CMP0156](https://cmake.org/cmake/help/latest/policy/CMP0156.html) and
+[CMP0179](https://cmake.org/cmake/help/latest/policy/CMP0179.html), so redundant
+archives are removed from link lines based on linker capability and first-use
+order. This changes the actual link graph, not warning severity/output. A fresh
+source build plus strict minimal/rooted verification must pass the raw-log gate
+before clean acceptance; the earlier seven-warning experiment stays recorded.
