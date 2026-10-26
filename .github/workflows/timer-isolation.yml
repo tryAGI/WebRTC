@@ -1,0 +1,70 @@
+name: Independent clocks and managed rejection attribution
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  clocks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - run: python3 -m unittest discover -s scripts -p "test_*.py"
+      - run: dotnet build src/tests/WebRTC.Performance -c Release -warnaserror
+      - run: |
+          mkdir -p artifacts/clocks
+          clang -std=c11 -O2 -Wall -Wextra -Werror tests/diagnostics/NativeTimers/timers.c -o artifacts/clocks/native-timers
+      - name: Interleaved fresh processes on one runner
+        shell: bash
+        run: |
+          for repetition in 1 2 3; do
+            if [ "$repetition" = 2 ]; then
+              dotnet src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll --suite timers > "artifacts/clocks/managed-$repetition.csv"
+              artifacts/clocks/native-timers > "artifacts/clocks/native-$repetition.csv"
+            else
+              artifacts/clocks/native-timers > "artifacts/clocks/native-$repetition.csv"
+              dotnet src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll --suite timers > "artifacts/clocks/managed-$repetition.csv"
+            fi
+            python3 scripts/check-clock-isolation.py "artifacts/clocks/native-$repetition.csv" "artifacts/clocks/managed-$repetition.csv" "artifacts/clocks/proof-$repetition.json"
+          done
+      - name: Uninstrumented framework rejection and throw controls
+        shell: bash
+        run: |
+          for repetition in 1 2 3; do
+            dotnet src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll --suite rejection-cost > "artifacts/clocks/rejection-$repetition.csv"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: clock-isolation-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            artifacts/clocks/*.csv
+            artifacts/clocks/*.json
+          if-no-files-found: error
+          retention-days: 30
+  rejection-stacks:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet build src/tests/WebRTC.Performance -c Release -warnaserror
+      - name: Install pinned diagnostic-only tool into job-owned artifacts
+        run: dotnet tool install dotnet-trace --version 10.0.750501 --tool-path artifacts/diagnostic-tools/trace-10.0.750501
+      - run: python3 scripts/collect-rejection-traces.py artifacts/diagnostic-tools/trace-10.0.750501/dotnet-trace src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll artifacts/rejection-traces
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: rejection-stacks-${{ github.sha }}
+          path: artifacts/rejection-traces
+          if-no-files-found: error
+          retention-days: 30

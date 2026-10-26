@@ -49,6 +49,30 @@ class BarrierTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             profile.native_summary('TOTAL 50.0M 15.0M')
 
+    def test_quiescence_requires_explicit_phase(self):
+        line = '# profile_barrier=quiescent_10;wave=63;alive_disposed_peers=0'
+        self.assertEqual(profile.barrier(line, 63, 'quiescent_10'), 63)
+        with self.assertRaises(ValueError): profile.barrier(line, 63)
+
+    def test_native_symbol_error_type_is_data_but_tool_warning_fails(self):
+        self.assertFalse(profile.owner_diagnostic('1 call for 16 bytes: 0x1 (dyld) parse(mach_o::Error*) | 0x2 malloc'))
+        for text in ('malloc_history: warning: missing stacks', 'error: inaccessible task', 'unable to read process'):
+            self.assertTrue(profile.owner_diagnostic(text))
+
+    def test_native_owners_separate_vm_and_malloc_and_redact(self):
+        text = ('Private /Users/private/path\n'
+                '2 calls for 80 bytes: 0x123 (libcoreclr.dylib) Threadpool | 0x234 (libsystem_malloc.dylib) malloc\n'
+                '1 call for 4096 bytes: 0x12 (libclrjit.dylib) Code | 0x3 (libsystem_kernel.dylib) mmap\n'
+                '1 call for 128 bytes: 0x12 (CryptoKit) encrypt | 0x3 (libswiftCore.dylib) swift_allocObject | 0x4 (libsystem_malloc.dylib) malloc\n')
+        result = profile.owner_summary(text)
+        self.assertEqual(result['groups']['malloc_request/dotnet_runtime']['requested_bytes'], 80)
+        self.assertEqual(result['groups']['vm_request/dotnet_jit']['requested_bytes'], 4096)
+        self.assertEqual(result['groups']['malloc_request/crypto_sdk']['calls'], 1)
+        self.assertNotIn('0x', str(result)); self.assertNotIn('private', str(result))
+        self.assertEqual(profile.owner_summary('1 call for 16 bytes: unknown leaf')['groups']['unknown_request/unknown_or_other']['requested_bytes'], 16)
+        for bad in ('', '1 call for bad bytes: malloc', '9' * 21 + ' calls for 1 bytes: malloc'):
+            with self.assertRaises(ValueError): profile.owner_summary(bad)
+
 
 if __name__ == '__main__':
     unittest.main()

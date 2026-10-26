@@ -57,4 +57,5 @@
     <Compile Include="../WebRTC.ProtocolTests/RejectionAllocationChecks.cs" Link="RejectionAllocationChecks.cs" />
     <Compile Include="../WebRTC.ProtocolTests/SrtpTests.cs" Link="SrtpTests.cs" />
 </ItemGroup>
+  <ItemGroup><Compile Include="../../libs/WebRTC/UdpReceiveSource.cs" Link="UdpReceiveSource.cs" /><Compile Include="../WebRTC.ProtocolTests/UdpReceiveSourceChecks.cs" Link="UdpReceiveSourceChecks.cs" /></ItemGroup>
 </Project>

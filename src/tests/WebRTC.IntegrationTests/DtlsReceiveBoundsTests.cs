@@ -78,6 +78,64 @@ internal static class DtlsReceiveBoundsTests
             catch (ArgumentOutOfRangeException) { }
         }
     }
+    internal static async Task MediaOwnership(SrtpProfile profile)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(8)); var ct = deadline.Token;
+        var iceOptions = new IceUdpTransportOptions { MaximumDataDatagramSize = 8192, MaximumReceiveDataDatagramSize = 8192 };
+        await using var left = new IceUdpTransport(new(IPAddress.Loopback, 0), options: iceOptions);
+        await using var right = new IceUdpTransport(new(IPAddress.Loopback, 0), options: iceOptions);
+        await Task.WhenAll(left.ConnectAsync(right.LocalCredentials, IceRole.Controlling, [new(right.LocalEndPoint)], ct),
+            right.ConnectAsync(left.LocalCredentials, IceRole.Controlled, [new(left.LocalEndPoint)], ct));
+        using var a = DtlsIdentity.Generate(); using var b = DtlsIdentity.Generate();
+        var options = new DtlsSrtpOptions { Profiles = [profile], MaximumReceiveDatagramSize = 8192 };
+        await using var sender = new DtlsSrtpTransport(left, a, DtlsRole.Client, b.GetFingerprintSha256(), options);
+        await using var receiver = new DtlsSrtpTransport(right, b, DtlsRole.Server, a.GetFingerprintSha256(), options);
+        await Task.WhenAll(sender.ConnectAsync(ct), receiver.ConnectAsync(ct));
+        await using var reader = receiver.ReceiveMediaDatagramsAsync(ct).GetAsyncEnumerator(ct);
+        var expected = new byte[72]; expected[0] = 0x80; expected[1] = 111; expected[11] = 42;
+        await sender.SendRtpAsync(expected, ct);
+        if (!await reader.MoveNextAsync() || !reader.Current.Data.AsSpan().SequenceEqual(expected)) throw new IOException("Initial media missing");
+        var retained = reader.Current.Data;
+        var rejected = receiver.GetDiagnostics().RejectedRecords;
+        var oversized = new byte[SrtpContext.MaximumPacketLength + 1 + (profile == SrtpProfile.Aes128CmHmacSha1_80 ? 10 : 16)];
+        oversized[0] = 0x80; oversized[1] = 111; oversized[11] = 42;
+        await left.SendDatagramAsync(oversized, ct);
+        while (receiver.GetDiagnostics().RejectedRecords == rejected) await Task.Delay(5, ct);
+        var changed = (byte[])expected.Clone();
+        for (var i = 1; i <= 32; i++)
+        {
+            changed[3] = (byte)i; changed[12] = (byte)i;
+            await sender.SendRtpAsync(changed, ct);
+            if (!await reader.MoveNextAsync() || !reader.Current.Data.AsSpan().SequenceEqual(changed) ||
+                ReferenceEquals(retained, reader.Current.Data) || !retained.AsSpan().SequenceEqual(expected))
+                throw new IOException("Receive scratch escaped or oversized input poisoned valid media");
+        }
+        using var flooding = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var invalid = new byte[72]; invalid[0] = 0x80; invalid[1] = 111; invalid[3] = 33; invalid[11] = 42;
+        var flood = Task.Run(Flood, CancellationToken.None);
+        try
+        {
+            while (receiver.GetDiagnostics().RejectedRecords == rejected + 1) await Task.Delay(5, ct);
+            ct.ThrowIfCancellationRequested();
+            await receiver.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(1), ct);
+            ct.ThrowIfCancellationRequested();
+        }
+        finally { flooding.Cancel(); await flood; }
+        async Task Flood()
+        {
+            try
+            {
+                while (true)
+                {
+                    for (var i = 0; i < 32; i++) { flooding.Token.ThrowIfCancellationRequested(); await left.SendDatagramAsync(invalid, flooding.Token); }
+                    // Keep the producer cooperative: this tests receiver disposal,
+                    // not an accidental synchronous test-producer starvation loop.
+                    await Task.Delay(1, flooding.Token);
+                }
+            }
+            catch (OperationCanceledException) when (flooding.IsCancellationRequested) { }
+        }
+    }
     private static async Task<byte[]> Read(DtlsSrtpTransport peer, CancellationToken ct)
     {
         await foreach (var data in peer.ReceiveApplicationDatagramsAsync(ct)) return data;

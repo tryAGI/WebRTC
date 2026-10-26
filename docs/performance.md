@@ -337,3 +337,20 @@ tag comparison and strict attribute-envelope checks. Stack input is capped at
 2 KiB; larger valid STUN datagrams use a cleared framework pool buffer returned
 on every path. Tests cover either side of that boundary and the maximum framed
 message size, plus existing independent SHA-1/SHA-256 vectors and tampering.
+
+
+## Authentication bursts and native allocation ownership
+
+The manual `authentication-load.yml` lane runs `--suite auth-load` in three
+fresh processes per Linuxx64/arm64, macOS and Windows runner, followed by
+`--suite auth-load-control`. `scripts/check-authentication-load.py` validates
+complete cohorts, numeric counters and zero baseline delivery loss; its
+`--control` mode requires the real deliberately dropped packet. No treatment
+loss budget is implied. [Results and limitations](authentication-load-20261024.md)
+include the observed macOS reliability defect.
+
+The manual `native-owners.yml` lane uses the owned-child controller's `--owners`
+option and three interleaved empty/peer pairs on one runner. It adds native-stack
+groups, thread-pool counters and post-disposal quiet periods. Instrumented captures
+cannot borrow ordinary memory budgets. Raw stack reports remain private to the
+job; only numeric CSV/JSON is uploaded. See [native attribution methodology](native-owner-attribution-20261024.md).

@@ -6,4 +6,5 @@
   <ItemGroup>
     <ProjectReference Include="../../libs/WebRTC/WebRTC.csproj" />
   </ItemGroup>
+  <ItemGroup><Compile Include="../../libs/WebRTC/UdpReceiveSource.cs" Link="UdpReceiveSource.cs" /></ItemGroup>
 </Project>

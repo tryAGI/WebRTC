@@ -2,7 +2,8 @@
 
 ## Current authored code
 
-All runtime code and committed tests in this initial repository are newly authored.
+All runtime code is newly authored. Committed tests are authored except for
+the explicitly listed upstream native-symbol diagnostic fixture below.
 No source, pseudocode, test implementation or fixture has been copied or translated
 from SIPSorcery, Pion or RFC appendices. Protocol constants and field layouts are
 implemented from the cited standards. Authentication fixtures are independently
@@ -393,3 +394,28 @@ reported 146.56 ms maximum wire-clock drift; its precise original stall source w
 not captured. The explicit delayed-first-dispatch fixture now verifies the activation
 contract deterministically. This changes test-producer scheduling, not library or
 Advantage pacing. No source, encoded fixture, runtime dependency or notices are imported.
+
+
+## .NET native-symbol diagnostic fixture
+
+`tests/diagnostics/NativeSymbols/dotnet/pal_swiftbindings.swift` is an unchanged
+MIT-licensed source fixture from dotnet/dotnet commit
+`4099f83977f4d29604a9aeb971fb0a7bc1d5f699`, path
+`src/runtime/src/native/libs/System.Security.Cryptography.Native.Apple/pal_swiftbindings.swift`.
+Original file-level license header and adjacent upstream `LICENSE.TXT` are retained.
+Source SHA256: `0ae3e543906cb338abac4c0628a8883dee87d7c8d77b8b756548a2cc2dc0231d`.
+License SHA256: `ae48df11a335dc1a615f4f938b69cba73bcf4485c4f97af49b38efb0f216353b`.
+Copyright belongs to the .NET Foundation and Contributors. The actual license
+was checked at this pinned revision before import. Its sole consumer is the
+manual native-symbol reconstruction experiment. The compiled object is never
+linked or packaged; this does not import or replace any runtime crypto.
+
+## Experimental compiler EH source fixture
+
+The diagnostic-only emitter adapter in scripts/prepare-compiler-eh-candidate.py
+operates on MIT .NET runtime source at6aa72daa24f66c01c3d7b6a32519e9d21396deec,
+DwarfInfo.cs/DwarfAbbrev.cs. Headers/license/input hashes were checked and are
+recorded in docs/compiler-eh-candidate-20261024.md. Original notice is preserved
+in tests/diagnostics/CompilerEhCandidate/LICENSE.TXT. The planner/structural
+fixtures are authored. No runtime implementation or upstream compiler binary is
+vendored or substituted into the canonical package.

@@ -65,7 +65,38 @@ stages, bounded packet capture and .NET metrics. Collection runs in a consumer-o
 publication loop, separate from audio processing. Kernel arrival and physical playback
 remain explicit unknowns. See [diagnostics and collection example](https://github.com/tryAGI/WebRTC/blob/main/docs/diagnostics.md).
 
-## Measured hot paths
+## Zero-allocation hot paths
+
+**0 managed bytes per operation** is enforced for measured, warmed SRTP/SRTCP
+crypto with preallocated caller buffers, selected packet/STUN operations, and
+empty-ciphertext GMAC/replay rejection. The exact-zero suite covers147 raw samples
+per platform on Linux x64/arm64, macOS arm64 and Windows x64, in JIT and NativeAOT.
+These are regression contracts for those operations, not an allocation-free claim
+for the complete WebRTC connection or native cryptography.
+
+| Scope | Managed allocation boundary |
+| --- | --- |
+| Warmed authenticated crypto, selected span/STUN operations | **0 B**, within measured preallocated/warmed conditions |
+| Empty-ciphertext GMAC and replay rejection | **0 B**, within the covered profiles/cases |
+| Payload-bearing GCM authentication failure | **Nonzero** framework exception cost |
+| Asynchronous transport and owned packet/frame outputs | **Nonzero**; outputs can outlive the next receive |
+| Setup/rekey, cold pool misses, cancellation and optional tracing | Outside the warmed zero-allocation contract |
+
+Native allocations/RSS, physical energy and end-to-end audio are separate
+measurements. See [reproduction and limitations](https://github.com/tryAGI/WebRTC/blob/main/docs/performance.md)
+and [allocation boundaries](https://github.com/tryAGI/WebRTC/blob/main/docs/zero-allocation-boundaries-20261024.md).
+
+Reusing the socket receive-source address removed about **144 managed bytes per
+received packet** in matched four-platform loopback cohorts; all 96 measured
+configuration medians decreased. Owned outputs still allocate. See the
+[before/after measurements and validation limits](https://github.com/tryAGI/WebRTC/blob/main/docs/zero-allocation-boundaries-20261024.md#matched-udp-allocation-result).
+
+An opt-in [Apple crypto attribution benchmark](https://github.com/tryAGI/WebRTC/blob/main/docs/apple-crypto-attribution-20261024.md)
+compares the same optimized driver against unchanged framework bridge source
+built-Onone/-O, with checked valid/bad-tag opens and three fresh processes each.
+Separate timer-only and hostile-load stack controls keep host scheduling effects
+visible; these are diagnostics, not whole-transport zero-allocation or audio SLO claims.
+
 
 Empty-ciphertext GCM (GMAC) rejection now has exact zero managed-allocation
 contracts: empty RTP, header-only encrypted RTCP and authentication-only SRTCP,
@@ -78,9 +109,18 @@ failures retain their measured framework exception costs. See
 | JIT, Linux x64/arm64, macOS arm64, Windows x64 | 192–464 | 0 |
 | NativeAOT, same platforms | 240 | 0 |
 
-Caller buffers are preallocated. Replay rejection was already zero. The executed
-macOS NativeAOT measurements have a separate [SDK debug-symbol quality blocker](https://github.com/tryAGI/WebRTC/issues/20);
-strict benchmark builds now fail on its two tool diagnostics.
+Caller buffers are preallocated. Replay rejection was already zero. The default macOS SDK retains a separate [debug-symbol quality blocker](https://github.com/tryAGI/WebRTC/issues/20).
+A pinned source-built compiler/debug-input experiment now passes full rooted
+execution and DWARF verification with zero raw diagnostics; it does not replace
+the installed SDK or make earlier warned benchmark builds clean. See the
+[source-level repair and scope](https://github.com/tryAGI/WebRTC/blob/main/docs/compiler-eh-candidate-20261024.md).
+
+The opt-in authenticated-media stress lane also injects real bad-tag UDP bursts
+alongside valid audio, with a deliberate packet-loss control. Four-platform runs
+completed 3.6 million corrupted sends without observed corrupted plaintext
+admission; the macOS cohort lost valid traffic under higher bursts. That remains
+an [open reliability issue](https://github.com/tryAGI/WebRTC/issues/22), not a
+hostile-load performance guarantee. See the [full measurements and limits](https://github.com/tryAGI/WebRTC/blob/main/docs/authentication-load-20261024.md).
 
 Managed and NativeAOT builds now pass the same 147 exact zero-allocation samples
 on Linux x64/arm64, macOS arm64 and Windows x64. Separate reviewed NativeAOT

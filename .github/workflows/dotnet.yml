@@ -33,7 +33,7 @@ jobs:
         run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - name: Pack exact source
         run: |
-          dotnet pack src/libs/WebRTC/WebRTC.csproj -c Release -o artifacts/package \
+          dotnet pack src/libs/WebRTC/WebRTC.csproj -c Release -warnaserror -o artifacts/package \
             -p:RepositoryCommit="$GITHUB_SHA" -p:SourceRevisionId="$GITHUB_SHA"
       - name: Verify package
         run: python3 scripts/verify-package.py artifacts/package "$GITHUB_SHA"

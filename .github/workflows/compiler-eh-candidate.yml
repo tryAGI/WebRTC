@@ -1,0 +1,91 @@
+name: Verify upstream compiler EH hierarchy candidate
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  hierarchy:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet build tests/diagnostics/DwarfEhPlanner -c Release -warnaserror
+      - run: |
+          mkdir -p artifacts/eh
+          dotnet run --project tests/diagnostics/DwarfEhPlanner -c Release --no-build > artifacts/eh/tree.json
+          python3 scripts/check-eh-hierarchy-dwarf.py artifacts/eh/tree.json artifacts/eh/llvm
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: eh-structural-${{ github.sha }}
+          path: artifacts/eh
+          if-no-files-found: error
+          retention-days: 30
+  compiler:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Pinned upstream source fixture for compiler-only validation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: dotnet/runtime
+          ref: 6aa72daa24f66c01c3d7b6a32519e9d21396deec # v10.0.13
+          path: artifacts/upstream-runtime
+      - run: |
+          mkdir -p artifacts/compiler-evidence
+          python3 scripts/prepare-compiler-eh-candidate.py artifacts/upstream-runtime
+      - name: Build actual pinned compiler from source without modifying installed SDK
+        working-directory: artifacts/upstream-runtime
+        shell: bash
+        run: ./build.sh clr.alljits+clr.tools -rc Release -lc Release -arch arm64 -os osx -p:TreatWarningsAsErrors=true --cmakeargs "-DCMAKE_POLICY_DEFAULT_CMP0156=NEW -DCMAKE_POLICY_DEFAULT_CMP0179=NEW" 2>&1 | tee ../compiler-evidence/build.log
+      - name: Require clean raw native diagnostics and retain compiler identity
+        run: python3 scripts/check-compiler-build.py artifacts/upstream-runtime artifacts/compiler-evidence/build.log artifacts/compiler-evidence/build-proof.json
+      - name: Strict minimal repro using candidate compiler and official framework
+        run: |
+          tools="$GITHUB_WORKSPACE/artifacts/upstream-runtime/artifacts/bin/coreclr/osx.arm64.Release/ilc/"
+          test -x "${tools}ilc"
+          dotnet publish tests/diagnostics/AotDwarfRanges -c Release -r osx-arm64 -p:PublishAot=true -p:RuntimeFrameworkVersion=10.0.13 -p:IlcToolsPath="$tools" -warnaserror -o artifacts/candidate-repro
+          artifacts/candidate-repro/AotDwarfRanges
+          python3 scripts/check-native-dwarf-repro.py artifacts/candidate-repro/AotDwarfRanges.dSYM artifacts/candidate-repro/proof.json
+      - name: Verify real debugger frames, source lines and EH locals
+        run: |
+          tools="$GITHUB_WORKSPACE/artifacts/upstream-runtime/artifacts/bin/coreclr/osx.arm64.Release/ilc/"
+          dotnet publish tests/diagnostics/AotDebuggerSemantics -c Release -r osx-arm64 -p:PublishAot=true -p:RuntimeFrameworkVersion=10.0.13 -p:IlcToolsPath="$tools" -warnaserror -o artifacts/debugger-semantics
+          python3 scripts/check-native-dwarf-repro.py artifacts/debugger-semantics/AotDebuggerSemantics.dSYM artifacts/debugger-semantics/dwarf-proof.json
+          python3 scripts/check-eh-debugger.py artifacts/debugger-semantics/AotDebuggerSemantics tests/diagnostics/AotDebuggerSemantics/Program.cs artifacts/debugger-semantics/semantics-proof.json
+      - name: Rooted smoke with complete debug verification
+        run: |
+          tools="$GITHUB_WORKSPACE/artifacts/upstream-runtime/artifacts/bin/coreclr/osx.arm64.Release/ilc/"
+          dotnet restore src/tests/WebRTC.AotSmoke -r osx-arm64 -p:PublishAot=true -p:RuntimeFrameworkVersion=10.0.13 -warnaserror
+          python3 scripts/prepare-native-debug-shadow.py "$HOME/.nuget/packages/microsoft.netcore.app.runtime.nativeaot.osx-arm64/10.0.13/runtimes/osx-arm64/native/libSystem.Security.Cryptography.Native.Apple.a" "$GITHUB_WORKSPACE/artifacts/debug-input"
+          export TRYAGI_NATIVE_DEBUG_INPUT="$GITHUB_WORKSPACE/artifacts/debug-input/manifest.json"
+          export PATH="$GITHUB_WORKSPACE/artifacts/debug-input/tool-bin:$PATH"
+          dotnet publish src/tests/WebRTC.AotSmoke -c Release -r osx-arm64 -p:PublishAot=true -p:RuntimeFrameworkVersion=10.0.13 -p:IlcToolsPath="$tools" -warnaserror -o artifacts/candidate-smoke
+          xcrun dwarfdump --verify artifacts/candidate-smoke/WebRTC.AotSmoke.dSYM
+          artifacts/candidate-smoke/WebRTC.AotSmoke
+      - name: Preserve source diff
+        if: always()
+        run: |
+          mkdir -p artifacts/compiler-evidence
+          git -C artifacts/upstream-runtime diff -- src/coreclr/tools/aot/ILCompiler.Compiler/Compiler/ObjectWriter/Dwarf/DwarfInfo.cs src/coreclr/tools/aot/ILCompiler.Compiler/Compiler/ObjectWriter/Dwarf/DwarfAbbrev.cs src/tasks/Crossgen2Tasks/Crossgen2Tasks.csproj src/tasks/installer.tasks/installer.tasks.csproj > artifacts/compiler-evidence/candidate.patch
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: eh-compiler-${{ github.sha }}
+          path: |
+            artifacts/compiler-evidence
+            artifacts/candidate-repro/proof.json
+            artifacts/debugger-semantics/*.json
+            artifacts/debugger-semantics/lldb.log
+            artifacts/debug-input/*proof.json
+          if-no-files-found: error
+          retention-days: 30

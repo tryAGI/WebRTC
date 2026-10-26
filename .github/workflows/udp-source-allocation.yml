@@ -1,0 +1,45 @@
+name: Matched UDP source allocation cohorts
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact source commit for a matched before or after cohort
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  media:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - shell: bash
+        run: echo "BENCHMARK_SOURCE=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - run: dotnet build src/tests/WebRTC.ProtocolTests -c Release -warnaserror
+      - run: dotnet run --project src/tests/WebRTC.ProtocolTests -c Release --no-build
+      - run: dotnet build src/tests/WebRTC.Performance -c Release -warnaserror
+      - name: Three fresh-process media observations
+        shell: bash
+        run: |
+          mkdir -p artifacts/udp-source
+          for repetition in 1 2 3; do
+            GITHUB_SHA="$BENCHMARK_SOURCE" dotnet src/tests/WebRTC.Performance/bin/Release/net10.0/WebRTC.Performance.dll --suite media > "artifacts/udp-source/media-$repetition.csv"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: udp-source-${{ matrix.os }}-${{ env.BENCHMARK_SOURCE }}
+          path: artifacts/udp-source
+          if-no-files-found: error
+          retention-days: 30

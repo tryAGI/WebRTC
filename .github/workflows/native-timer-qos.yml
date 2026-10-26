@@ -1,0 +1,42 @@
+name: Native timer process-owned QoS control
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: |
+          mkdir -p artifacts/native-qos
+          clang -O2 -Wall -Wextra -Werror -fobjc-arc -framework Foundation tests/diagnostics/NativeTimers/activity.m -o artifacts/native-qos/timers
+          for repetition in 1 2 3; do
+            modes=(default initiated activity)
+            if [ "$repetition" = 2 ]; then modes=(activity default initiated); fi
+            if [ "$repetition" = 3 ]; then modes=(initiated activity default); fi
+            for mode in "${modes[@]}"; do
+              if [ "$mode" = activity ]; then
+                TRYAGI_NATIVE_ACTIVITY=latency-critical artifacts/native-qos/timers > "artifacts/native-qos/$mode-$repetition.csv"
+              elif [ "$mode" = initiated ]; then
+                TRYAGI_NATIVE_QOS=user-initiated artifacts/native-qos/timers > "artifacts/native-qos/$mode-$repetition.csv"
+              else
+                artifacts/native-qos/timers > "artifacts/native-qos/$mode-$repetition.csv"
+              fi
+            done
+            python3 scripts/check-native-qos.py "artifacts/native-qos/default-$repetition.csv" "artifacts/native-qos/initiated-$repetition.csv" "artifacts/native-qos/proof-$repetition.json" --activity "artifacts/native-qos/activity-$repetition.csv"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-qos-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            artifacts/native-qos/*.csv
+            artifacts/native-qos/*.json
+          if-no-files-found: error
+          retention-days: 30

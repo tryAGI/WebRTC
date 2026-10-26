@@ -5,6 +5,7 @@ using tryAGI.WebRTC;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("UDP source cache owns endpoints and resolves stable IPv4/IPv6 without allocation", UdpReceiveSourceChecks.Run),
     ("DTLS identities own fresh fingerprints through disposal", IdentityTests.FreshAndOwned),
     ("ICE server URI RFC7064/7065 vectors and canonical transport", IceServerUriTests.Vectors),
     ("ICE server URI malformed, ambiguous and restricted addresses", IceServerUriTests.Malformed),

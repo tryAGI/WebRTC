@@ -1,0 +1,59 @@
+name: Native SDK symbol recovery
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_source:
+        description: Compile exact MIT-licensed framework source as a debug-only probe, never linked
+        type: boolean
+        default: true
+      unoptimized:
+        description: Test implicit unoptimized mode identified in the original object
+        type: boolean
+        default: true
+      original_prefix:
+        description: Reproduce original debug paths in job-owned actual module data
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  symbols:
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Require exact SDK and native host
+        run: |
+          test "$(uname -m)" = arm64
+          test -d "$DEVELOPER_DIR"
+          xcrun swiftc --version
+      - name: Resolve unchanged official framework pack
+        run: dotnet restore src/tests/WebRTC.AotSmoke -r osx-arm64 -p:PublishAot=true -p:RuntimeFrameworkVersion=10.0.13 -warnaserror
+      - name: Regenerate real matching SDK module data
+        env:
+          SOURCE_OPTION: ${{ inputs.upstream_source && '--upstream-source' || '' }}
+          OPTIMIZATION_OPTION: ${{ inputs.unoptimized && '--unoptimized' || '' }}
+          PREFIX_OPTION: ${{ inputs.original_prefix && '--original-prefix' || '' }}
+        run: python3 scripts/prepare-native-symbols.py "$HOME/.nuget/packages/microsoft.netcore.app.runtime.nativeaot.osx-arm64/10.0.13/runtimes/osx-arm64/native/libSystem.Security.Cryptography.Native.Apple.a" "$GITHUB_WORKSPACE/artifacts/native-symbols" $SOURCE_OPTION $OPTIMIZATION_OPTION $PREFIX_OPTION
+      - name: Publish strict native smoke with explicit module path maps
+        run: |
+          options="$(cat artifacts/native-symbols/dsym-options.txt)"
+          dotnet publish src/tests/WebRTC.AotSmoke -c Release -r osx-arm64 -p:PublishAot=true -p:RuntimeFrameworkVersion=10.0.13 -warnaserror "-p:DsymUtilOptions=$options" -o artifacts/smoke
+      - name: Execute full native smoke
+        run: artifacts/smoke/WebRTC.AotSmoke
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-symbol-proof-${{ github.sha }}
+          path: |
+            artifacts/native-symbols/*proof.json
+            artifacts/native-symbols/signature-mismatch.json
+          if-no-files-found: error
+          retention-days: 30

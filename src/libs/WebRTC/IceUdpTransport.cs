@@ -412,8 +412,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
     private async Task ReceiveLoopAsync()
     {
         var buffer = new byte[65536];
-        EndPoint sourceTemplate = _socket.AddressFamily == AddressFamily.InterNetwork
-            ? new IPEndPoint(IPAddress.Any, 0) : new IPEndPoint(IPAddress.IPv6Any, 0);
+        var receiveSource = new UdpReceiveSource(_socket.AddressFamily);
         try
         {
             while (!_lifetime.IsCancellationRequested)
@@ -421,14 +420,14 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
                 var owner = Volatile.Read(ref Diagnostics);
                 var trace = owner?.Begin(PacketDirection.Receive, DiagnosticPath.HostUdp, DiagnosticGeneration, 0) ?? default;
                 trace.Mark(PacketStage.ReceiveArmed);
-                SocketReceiveFromResult received;
-                try { received = await _socket.ReceiveFromAsync(buffer, SocketFlags.None, sourceTemplate, _lifetime.Token).ConfigureAwait(false); }
+                int received;
+                try { received = await _socket.ReceiveFromAsync(buffer, SocketFlags.None, receiveSource.Address, _lifetime.Token).ConfigureAwait(false); }
                 catch (SocketException exception) when (IsRemoteNetworkError(exception) && !_lifetime.IsCancellationRequested) { continue; }
-                if (!ReferenceEquals(trace.Owner, Volatile.Read(ref Diagnostics))) trace = Volatile.Read(ref Diagnostics)?.Begin(PacketDirection.Receive, DiagnosticPath.HostUdp, DiagnosticGeneration, received.ReceivedBytes) ?? default;
-                trace.Size(received.ReceivedBytes); trace.Mark(PacketStage.ManagedReceiveCompleted, durationTicks: 0);
+                if (!ReferenceEquals(trace.Owner, Volatile.Read(ref Diagnostics))) trace = Volatile.Read(ref Diagnostics)?.Begin(PacketDirection.Receive, DiagnosticPath.HostUdp, DiagnosticGeneration, received) ?? default;
+                trace.Size(received); trace.Mark(PacketStage.ManagedReceiveCompleted, durationTicks: 0);
                 var handling = trace.Owner == null ? 0 : Stopwatch.GetTimestamp();
-                var source = (IPEndPoint)received.RemoteEndPoint;
-                var length = received.ReceivedBytes;
+                var source = receiveSource.Resolve();
+                var length = received;
                 if (length == 0) continue;
                 await HandleDatagramAsync(_hostPath, buffer.AsMemory(0, length), source, trace).ConfigureAwait(false);
                 trace.Mark(PacketStage.ReceiveHandlerCompleted, durationTicks: handling == 0 ? 0 : Stopwatch.GetTimestamp() - handling);

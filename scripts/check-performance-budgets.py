@@ -42,12 +42,27 @@ def read_csv(path, header, allow_tiering_control=False):
         raise BudgetViolation('Library and harness source identity must match')
     cohort = '|'.join((runtime, os_family, architecture, 'cpu=' + settings['cpu_count'],
                        'server_gc=' + settings['server_gc'], 'dynamic_code=' + settings['dynamic_code']))
+    logging = settings.get('native_stack_logging', 'off')
+    if logging != 'off':
+        if not allow_tiering_control or logging != '1':
+            raise BudgetViolation('Native stack logging is a diagnostic cohort, not an ordinary budget cohort')
+        cohort += '|native_stack_logging=1'
+    worker_lines = [line for line in lines[4:] if line.startswith('# configured_worker_minimum=')]
+    if len(worker_lines) > 1: raise BudgetViolation('Duplicate worker minimum metadata')
+    worker_minimum = 0
+    if worker_lines:
+        match = re.fullmatch(r'# configured_worker_minimum=(0|24);quiescence=(True|False)', worker_lines[0])
+        if not match: raise BudgetViolation('Invalid worker minimum metadata')
+        worker_minimum = int(match[1])
+    if worker_minimum and not allow_tiering_control:
+        raise BudgetViolation('Worker minimum is a diagnostic cohort, not an ordinary budget cohort')
     lines = lines[:4] + [line for line in lines[4:] if not line.startswith('#')]
     tiering = settings.get('tiered_compilation', 'default')
     if tiering != 'default':
         if not allow_tiering_control or tiering not in ('0', '1'):
             raise BudgetViolation('Non-default tiering is a diagnostic cohort, not a reviewed budget cohort')
         cohort += '|tiered_compilation=' + tiering
+    if worker_minimum: cohort += '|worker_minimum=' + str(worker_minimum)
     if len(lines) < 5 or not lines[4].startswith(header + ','):
         raise BudgetViolation('Unexpected result schema')
     rows = list(csv.DictReader(line for line in lines[4:] if not line.startswith('#')))

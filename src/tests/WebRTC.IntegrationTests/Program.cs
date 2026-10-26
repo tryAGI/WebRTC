@@ -119,6 +119,8 @@ foreach (var profile in Enum.GetValues<SrtpProfile>())
 foreach (var profile in Enum.GetValues<SrtpProfile>())
     cases.Add(($"DTLS exporter and bidirectional protected media: {profile}", () => DtlsTests.Exchange(profile)));
 cases.Add(("ICE receive boundary preserves independent transmit budget", DtlsReceiveBoundsTests.IceBoundary));
+foreach (var profile in Enum.GetValues<SrtpProfile>())
+    cases.Add(($"SRTP receive scratch preserves owned media and disposal under rejection {profile}", () => DtlsReceiveBoundsTests.MediaOwnership(profile)));
 foreach (var bound in new[] { 1200, 2048 })
     cases.Add(($"DTLS receive boundary {bound} is independent of transmit MTU", () => DtlsReceiveBoundsTests.Exchange(bound)));
 foreach (var scenario in new[] { "canonical-unordered", "canonical-ordered", "padded-ordered", "ordered-reject", "padded-reject", "unknown-reject", "remote-reject", "open-reject" })
