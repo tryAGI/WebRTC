@@ -419,3 +419,19 @@ recorded in docs/compiler-eh-candidate-20261024.md. Original notice is preserved
 in tests/diagnostics/CompilerEhCandidate/LICENSE.TXT. The planner/structural
 fixtures are authored. No runtime implementation or upstream compiler binary is
 vendored or substituted into the canonical package.
+
+### October 2026 grouped peer dependency refresh
+
+The isolated peer now resolves Pion DTLS v3.1.15, ICE v4.4.8 and RTP v1.10.6.
+These remain test-only public API dependencies. Regenerated linked-module notices
+with the Dockerfile's pinned Go 1.26.9 image; the diff changes only the three module
+version lines, and the original license words are unchanged. No upstream source,
+fixture or implementation was copied or translated.
+
+The macOS NativeAOT publish wrapper carries the `dsymutil` task-classification
+fix from [dotnet/runtime#124266](https://github.com/dotnet/runtime/pull/124266)
+for SDKs that have not backported it. It copies only the compiler build targets
+into the output directory and preserves the installed SDK, compiler binaries,
+debug symbols and `-warnaserror`. Tool output remains visible; the regression
+probe requires a genuine nonzero `dsymutil` exit to fail MSBuild. SDKs containing
+the upstream attribute use their original targets unchanged.
