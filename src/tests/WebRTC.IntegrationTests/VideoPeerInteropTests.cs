@@ -3,6 +3,37 @@ using tryAGI.WebRTC;
 
 internal static partial class VideoPeerTests
 {
+    private static async Task<EncodedVideoFrame> VideoAtTimestamp(
+        IAsyncEnumerable<EncodedVideoFrame> frames, uint timestamp, CancellationToken cancellationToken)
+    {
+        await foreach (var frame in frames.WithCancellation(cancellationToken))
+            if (frame.Timestamp == timestamp) return frame;
+        throw new IOException($"Video stream ended before expected timestamp {timestamp}.");
+    }
+
+    internal static async Task FinalFramePublication()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var frames = System.Threading.Channels.Channel.CreateUnbounded<EncodedVideoFrame>();
+        var middle = new EncodedVideoFrame(VideoCodec.H264, 1, 3000, 1, 1, true, [1]);
+        var final = middle with { Timestamp = 6000, Payload = [2] };
+        await frames.Writer.WriteAsync(middle, deadline.Token);
+        var pending = VideoAtTimestamp(frames.Reader.ReadAllAsync(deadline.Token), 6000, deadline.Token);
+        Check(!pending.IsCompleted); // The earlier frame must not satisfy final-frame admission.
+        await frames.Writer.WriteAsync(final, deadline.Token);
+        Check(ReferenceEquals(final, await pending));
+
+        frames.Writer.Complete();
+        try { await VideoAtTimestamp(frames.Reader.ReadAllAsync(), 9000, deadline.Token); throw new InvalidOperationException("Missing final frame accepted"); }
+        catch (IOException) { }
+        var absent = System.Threading.Channels.Channel.CreateUnbounded<EncodedVideoFrame>();
+        using var canceled = new CancellationTokenSource();
+        var wait = VideoAtTimestamp(absent.Reader.ReadAllAsync(canceled.Token), 6000, canceled.Token);
+        canceled.Cancel();
+        try { await wait; throw new IOException("Missing final frame ignored cancellation"); }
+        catch (OperationCanceledException) { }
+    }
+
     internal static async Task Pion(Uri uri, VideoCodec codec, bool offerer, bool passive, bool rtcp = false)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10)); var ct = deadline.Token;
@@ -34,7 +65,9 @@ internal static partial class VideoPeerTests
             await peer.SendVideoRtpAsync(codec == VideoCodec.H264 ? new byte[] { 0x65, 0x22, 0x33 } : new byte[] { 0x10, 1, 2, 3 }, 3000, true, ct);
             await peer.SendVideoRtpAsync(codec == VideoCodec.H264 ? new byte[] { 0x65, 0x44, 0x55 } : new byte[] { 0x10, 1, 4, 5 }, 6000, true, ct);
             while (peer.GetVideoDiagnostics().CompletedFrames < (codec == VideoCodec.H264 ? 2 : 3)) await Task.Delay(5, ct);
-            var video = await First(peer.ReceiveVideoAsync(ct), ct);
+            // Assembly counters precede channel publication; consume until the final
+            // echoed timestamp instead of treating a diagnostic counter as a barrier.
+            var video = await VideoAtTimestamp(peer.ReceiveVideoAsync(ct), 6000, ct);
             Check(video.Timestamp == 6000 && video.Codec == codec && video.Payload.SequenceEqual(codec == VideoCodec.H264 ? new byte[] { 0, 0, 0, 1, 0x65, 0x44, 0x55 } : new byte[] { 1, 4, 5 }));
             var stats = (await http.GetFromJsonAsync(new Uri(uri, $"/session/{id}/stats"), InteropJson.Default.SessionStats, ct))!;
             Check(stats is { Audio: 1, Video: 3, Failures: 0 });

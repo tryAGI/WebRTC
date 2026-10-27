@@ -270,6 +270,7 @@ cases.Add(("TURN stream TLS caller cancellation joins handshake", () => TurnStre
 cases.Add(("TURN stream TLS connection deadline closes handshake", () => TurnStreamTests.HandshakeCancellation(true)));
 cases.Add(("TURN stream coalesced padded ChannelData frames", TurnStreamTests.Coalesced));
 cases.Add(("TURN stream silent control never retransmits and canceled wait preserves owner", TurnStreamTests.NoRetransmit));
+cases.Add(("Video final-frame publication waits for timestamp and preserves missing-frame failure", VideoPeerTests.FinalFramePublication));
 Uri? pionUri = null;
 string? caseFilter = null;
 if (args.Length % 2 != 0) throw new ArgumentException("Expected explicit option/value pairs.");
