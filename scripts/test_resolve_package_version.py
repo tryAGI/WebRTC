@@ -1,4 +1,5 @@
 import importlib.util
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -29,6 +30,26 @@ class ResolvePackageVersionTests(unittest.TestCase):
     def test_rejects_non_numeric_development_version(self):
         with self.assertRaisesRegex(ValueError, "numeric 0.x development version"):
             module.resolve_version("0.2.10-preview", ["0.2.10-dev.65"])
+
+    def test_project_version_restores_before_minver(self):
+        captured = None
+
+        def runner(arguments, **options):
+            nonlocal captured
+            captured = (arguments, options)
+            return subprocess.CompletedProcess(
+                arguments,
+                0,
+                stdout="0.2.10-dev.53\n",
+            )
+
+        self.assertEqual(
+            "0.2.10-dev.53",
+            module.project_version(Path("src/libs/WebRTC/WebRTC.csproj"), runner),
+        )
+        self.assertIn("-restore", captured[0])
+        self.assertIn("-t:MinVer", captured[0])
+        self.assertTrue(captured[1]["check"])
 
 
 if __name__ == "__main__":

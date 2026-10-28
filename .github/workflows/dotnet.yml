@@ -35,8 +35,7 @@ jobs:
         id: package-version
         if: github.ref == 'refs/heads/main'
         run: |
-          computed_version=$(dotnet msbuild src/libs/WebRTC/WebRTC.csproj -nologo -t:MinVer -getProperty:PackageVersion | python3 -c 'import json, sys; print(json.load(sys.stdin)["Properties"]["PackageVersion"])')
-          resolved_version=$(python3 scripts/resolve-package-version.py "$computed_version")
+          resolved_version=$(python3 scripts/resolve-package-version.py src/libs/WebRTC/WebRTC.csproj)
           echo "value=$resolved_version" >> "$GITHUB_OUTPUT"
       - name: Pack exact source
         run: |

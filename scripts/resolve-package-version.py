@@ -2,8 +2,10 @@
 """Choose a registry-monotonic development package version."""
 import json
 import re
+import subprocess
 import sys
 import urllib.request
+from pathlib import Path
 
 
 DEVELOPMENT_VERSION = re.compile(r"^(0\.\d+\.\d+-[0-9A-Za-z]+\.)(\d+)$")
@@ -39,7 +41,27 @@ def registry_versions() -> list[str]:
     return versions
 
 
+def project_version(project: Path, runner=subprocess.run) -> str:
+    result = runner(
+        [
+            "dotnet", "msbuild", str(project), "-nologo", "-restore", "-t:MinVer",
+            "-getProperty:PackageVersion",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    output = result.stdout.strip()
+    if output.startswith("{"):
+        value = json.loads(output).get("Properties", {}).get("PackageVersion")
+    else:
+        value = output
+    if not isinstance(value, str) or not value:
+        raise ValueError("MinVer did not return a package version")
+    return value
+
+
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        raise SystemExit("Usage: resolve-package-version.py CURRENT_VERSION")
-    print(resolve_version(sys.argv[1], registry_versions()))
+        raise SystemExit("Usage: resolve-package-version.py PROJECT")
+    print(resolve_version(project_version(Path(sys.argv[1])), registry_versions()))
