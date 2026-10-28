@@ -51,6 +51,17 @@ class ResolvePackageVersionTests(unittest.TestCase):
         self.assertIn("-t:MinVer", captured[0])
         self.assertTrue(captured[1]["check"])
 
+    def test_publish_workflow_passes_resolved_version_to_minver(self):
+        workflow = (Path(__file__).parents[1] / ".github/workflows/dotnet.yml").read_text()
+        self.assertIn(
+            'version_arguments+=("-p:MinVerVersionOverride=$package_version")',
+            workflow,
+        )
+        self.assertNotIn(
+            'version_arguments+=("-p:PackageVersion=$package_version")',
+            workflow,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

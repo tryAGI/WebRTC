@@ -42,7 +42,10 @@ jobs:
           package_version='${{ steps.package-version.outputs.value }}'
           version_arguments=()
           if [[ -n "$package_version" ]]; then
-            version_arguments+=("-p:PackageVersion=$package_version")
+            # MinVer owns PackageVersion during pack. Feed the resolved monotonic
+            # version through its supported override so the packed identity, file
+            # name, and repository proof all describe the same source.
+            version_arguments+=("-p:MinVerVersionOverride=$package_version")
           fi
           dotnet pack src/libs/WebRTC/WebRTC.csproj -c Release -warnaserror -o artifacts/package \
             -p:RepositoryCommit="$GITHUB_SHA" -p:SourceRevisionId="$GITHUB_SHA" "${version_arguments[@]}"
