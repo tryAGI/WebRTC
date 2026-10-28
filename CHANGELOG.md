@@ -5,6 +5,12 @@ Version `0.x` is experimental. Release notes are also available on
 
 ## Unreleased
 
+- Add address-free ICE check-response lifecycle diagnostics: sent and accepted
+  consent counts plus fixed rejection categories for unexpected type, unknown
+  transaction, path/source mismatch, integrity, authenticated error, missing
+  mapped address and expired response. This distinguishes consent reply loss
+  from locally rejected replies without retaining credentials or packet data.
+
 - Remove the per-packet incremental HMAC object from STUN SHA-1/SHA-256
   verification, using bounded stack input or cleared/returned pooled storage for
   larger messages. Preserve strict authentication framing and fixed-time tags.

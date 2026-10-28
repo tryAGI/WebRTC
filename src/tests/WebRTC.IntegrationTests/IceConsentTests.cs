@@ -37,6 +37,12 @@ internal static class IceConsentTests
             if (await ice.Completion.WaitAsync(TimeSpan.FromSeconds(2), ct) is not IOException error ||
                 !error.Message.Contains("revoked", StringComparison.Ordinal) || ice.IsConnected)
                 throw new InvalidOperationException("Authenticated revocation did not stop outbound traffic immediately.");
+#if !WEBRTC_PUBLISHED_CONSENT_REGRESSION
+            var diagnostics = ice.GetDiagnostics();
+            if (diagnostics.CheckResponseRejections is null ||
+                diagnostics.CheckResponseRejections.Single(entry => entry.Reason == IceCheckResponseRejectionReason.ErrorResponse).Count != 1)
+                throw new InvalidOperationException("Authenticated consent revocation was not retained as an error response.");
+#endif
         }
         finally
         {
@@ -109,8 +115,19 @@ internal static class IceConsentTests
             var winner = await Task.WhenAny(renewed.Task, ice.Completion).WaitAsync(ct);
             if (winner != renewed.Task) throw new InvalidOperationException("Consent expired despite authenticated replies to previous requests.");
             await renewed.Task;
-            if (!ice.IsConnected || ice.GetDiagnostics().ConsentAge >= TimeSpan.FromMilliseconds(500))
+#if !WEBRTC_PUBLISHED_CONSENT_REGRESSION
+            while (ice.GetDiagnostics().AcceptedConsentResponses < 15) await Task.Delay(5, ct);
+#endif
+            var diagnostics = ice.GetDiagnostics();
+            if (!ice.IsConnected || diagnostics.ConsentAge >= TimeSpan.FromMilliseconds(500))
                 throw new InvalidOperationException("Delayed consent responses did not renew the selected pair.");
+#if !WEBRTC_PUBLISHED_CONSENT_REGRESSION
+            if (diagnostics.SentConsentRequests < 15 || diagnostics.AcceptedConsentResponses < 15)
+                throw new InvalidOperationException("Consent request/acceptance diagnostics did not retain the delayed-response lifecycle.");
+            if (diagnostics.CheckResponseRejections is null ||
+                diagnostics.CheckResponseRejections.Any(entry => entry.Count != 0))
+                throw new InvalidOperationException("Valid delayed consent responses were misclassified as rejected.");
+#endif
             await ice.SendDatagramAsync("still-authorized"u8.ToArray(), ct);
             Volatile.Write(ref stopResponses, true);
             if (await ice.Completion.WaitAsync(ct) is not IOException)
@@ -121,6 +138,12 @@ internal static class IceConsentTests
                 throw new InvalidOperationException("Expired consent admitted application traffic.");
             }
             catch (IOException) { }
+#if !WEBRTC_PUBLISHED_CONSENT_REGRESSION
+            var afterExpiry = ice.GetDiagnostics();
+            if (afterExpiry.CheckResponseRejections is null ||
+                afterExpiry.CheckResponseRejections.Single(entry => entry.Reason == IceCheckResponseRejectionReason.UnknownTransaction).Count == 0)
+                throw new InvalidOperationException("Consumed consent-response replay was not classified as an unknown transaction.");
+#endif
         }
         finally
         {

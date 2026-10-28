@@ -7,11 +7,21 @@ public enum IceDatagramRejectionReason
 }
 public readonly record struct IceDatagramRejectionCount(IceDatagramRejectionReason Reason, long Count);
 
+/// <summary>First failed predicate for a parsed STUN check response. Counts are address-free and retained after shutdown.</summary>
+public enum IceCheckResponseRejectionReason
+{
+    UnexpectedType, UnknownTransaction, PathMismatch, SourceMismatch, IntegrityFailure,
+    ErrorResponse, MissingMappedAddress, ExpiredConsentResponse
+}
+public readonly record struct IceCheckResponseRejectionCount(IceCheckResponseRejectionReason Reason, long Count);
+
 
 public sealed partial class IceUdpTransport
 {
     private const int DataRejectionReasonCount = (int)IceDatagramRejectionReason.ConsentExpired + 1;
+    private const int CheckResponseRejectionReasonCount = (int)IceCheckResponseRejectionReason.ExpiredConsentResponse + 1;
     private readonly long[] _dataRejections = new long[DataRejectionReasonCount];
+    private readonly long[] _checkResponseRejections = new long[CheckResponseRejectionReasonCount];
     /// <summary>Fixed seven-category, immutable copy retained after shutdown/disposal. Contains no endpoints or packet content.
     /// Counts rejected non-STUN datagrams before DTLS; excludes relay framing rejection and queue overflow.</summary>
     public IReadOnlyList<IceDatagramRejectionCount> GetDatagramRejectionCounts()
@@ -20,6 +30,17 @@ public sealed partial class IceUdpTransport
         {
             var counts = new IceDatagramRejectionCount[DataRejectionReasonCount];
             for (var n = 0; n < counts.Length; n++) counts[n] = new((IceDatagramRejectionReason)n, _dataRejections[n]);
+            return Array.AsReadOnly(counts);
+        }
+    }
+    /// <summary>Fixed eight-category snapshot of parsed STUN response rejection. It contains no endpoints,
+    /// transaction identifiers, credentials or packet content.</summary>
+    public IReadOnlyList<IceCheckResponseRejectionCount> GetCheckResponseRejectionCounts()
+    {
+        lock (_gate)
+        {
+            var counts = new IceCheckResponseRejectionCount[CheckResponseRejectionReasonCount];
+            for (var n = 0; n < counts.Length; n++) counts[n] = new((IceCheckResponseRejectionReason)n, _checkResponseRejections[n]);
             return Array.AsReadOnly(counts);
         }
     }

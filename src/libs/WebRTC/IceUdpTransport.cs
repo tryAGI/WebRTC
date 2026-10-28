@@ -45,7 +45,9 @@ public sealed record IceUdpTransportDiagnostics(
     long SentChecks, long Retransmissions, long ValidatedRequests, long RoleConflicts, long DroppedDatagrams,
     int BufferedEarlyChecks, IceCandidateType? SelectedRemoteCandidateType = null,
     IceCandidateType? SelectedLocalCandidateType = null, IPEndPoint? SelectedLocalEndPoint = null,
-    int LocalPaths = 1, int PendingRelayPermissions = 0, TimeSpan? CheckRoundTripTimeAge = null, TimeSpan? ConsentAge = null);
+    int LocalPaths = 1, int PendingRelayPermissions = 0, TimeSpan? CheckRoundTripTimeAge = null, TimeSpan? ConsentAge = null,
+    long SentConsentRequests = 0, long AcceptedConsentResponses = 0,
+    IReadOnlyList<IceCheckResponseRejectionCount>? CheckResponseRejections = null);
 
 /// <summary>
 /// Single-component UDP ICE connectivity over an owned host base and up to three owned UDP TURN allocations.
@@ -86,7 +88,8 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
     private bool _started, _stopped;
     private int _disposed;
     private Task? _disposeTask;
-    private long _sentChecks, _retransmissions, _validatedRequests, _roleConflicts, _droppedDatagrams;
+    private long _sentChecks, _sentConsentRequests, _acceptedConsentResponses;
+    private long _retransmissions, _validatedRequests, _roleConflicts, _droppedDatagrams;
 
     public IPEndPoint LocalEndPoint
     {
@@ -238,7 +241,8 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
                 _sentChecks, _retransmissions, _validatedRequests, _roleConflicts, Interlocked.Read(ref _droppedDatagrams), _earlyChecks.Count,
                 _selected?.Candidate.Type, _selected?.Path.Candidate.Type, _selected?.Path.Candidate.EndPoint,
                 _paths.Count(PathAllowed), _paths.Sum(p => p.PendingPermissions.Count),
-                _lastRoundTripAt == 0 ? null : Stopwatch.GetElapsedTime(_lastRoundTripAt), _selected == null ? null : Stopwatch.GetElapsedTime(_lastConsentAt));
+                _lastRoundTripAt == 0 ? null : Stopwatch.GetElapsedTime(_lastRoundTripAt), _selected == null ? null : Stopwatch.GetElapsedTime(_lastConsentAt),
+                _sentConsentRequests, _acceptedConsentResponses, GetCheckResponseRejectionCounts());
     }
 
     private void ValidateCandidate(IceCandidate candidate)
@@ -379,6 +383,7 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         transaction.NextSendAt = Add(now, _options.InitialRetransmissionTimeout * (1 << Math.Min(transaction.Attempts - 1, 3)));
         _lastCheckSentAt = now;
         _sentChecks++;
+        if (transaction.Consent) _sentConsentRequests++;
         return (transaction.Pair.Path, transaction.Packet, transaction.Pair.Candidate.TransportEndPoint);
     }
 
@@ -508,11 +513,19 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
 
     private void HandleResponse(LocalPath path, StunMessage message, IPEndPoint source)
     {
-        if (message.Type is not (BindingSuccess or BindingError) ||
-            !_transactions.TryGetValue(Convert.ToHexString(message.TransactionId), out var transaction) ||
-            path != transaction.Pair.Path || !source.Equals(transaction.Pair.Candidate.TransportEndPoint) || !message.VerifyMessageIntegritySha1(_remoteKey!)) return;
+        if (message.Type is not (BindingSuccess or BindingError))
+        { RejectCheckResponse(IceCheckResponseRejectionReason.UnexpectedType); return; }
+        if (!_transactions.TryGetValue(Convert.ToHexString(message.TransactionId), out var transaction))
+        { RejectCheckResponse(IceCheckResponseRejectionReason.UnknownTransaction); return; }
+        if (path != transaction.Pair.Path)
+        { RejectCheckResponse(IceCheckResponseRejectionReason.PathMismatch); return; }
+        if (!source.Equals(transaction.Pair.Candidate.TransportEndPoint))
+        { RejectCheckResponse(IceCheckResponseRejectionReason.SourceMismatch); return; }
+        if (!message.VerifyMessageIntegritySha1(_remoteKey!))
+        { RejectCheckResponse(IceCheckResponseRejectionReason.IntegrityFailure); return; }
         if (message.Type == BindingError)
         {
+            RejectCheckResponse(IceCheckResponseRejectionReason.ErrorResponse);
             // RFC 7675 section 5.2: an authenticated 403 revokes consent now,
             // rather than leaving a dead pair transmitting until its timer expires.
             if (transaction.Consent && message.TryGetUniqueAttribute(ErrorCode, out var consentError) &&
@@ -528,9 +541,11 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
             }
             return;
         }
-        if (!message.TryGetXorMappedEndpoint(out _)) return;
+        if (!message.TryGetXorMappedEndpoint(out _))
+        { RejectCheckResponse(IceCheckResponseRejectionReason.MissingMappedAddress); return; }
         if (transaction.Consent && Elapsed(transaction.LastSendAt) >= _options.ConsentTimeout)
         {
+            RejectCheckResponse(IceCheckResponseRejectionReason.ExpiredConsentResponse);
             _transactions.Remove(transaction.Id);
             return;
         }
@@ -540,13 +555,19 @@ public sealed partial class IceUdpTransport : IAsyncDisposable
         if (transaction.Consent)
         {
             if (Elapsed(_lastConsentAt) < _options.ConsentTimeout)
-            { _lastConsentAt = Stopwatch.GetTimestamp(); Volatile.Read(ref Diagnostics)?.Lifecycle(PacketStage.Consent, transaction.LastSendAt); }
+            {
+                _acceptedConsentResponses++;
+                _lastConsentAt = Stopwatch.GetTimestamp();
+                Volatile.Read(ref Diagnostics)?.Lifecycle(PacketStage.Consent, transaction.LastSendAt);
+            }
             return;
         }
         transaction.Pair.Validated = true;
         if ((_role == IceRole.Controlling && transaction.UseCandidate && transaction.Role == _role) ||
             (_role == IceRole.Controlled && transaction.Pair.RemoteNominated)) SelectPair(transaction.Pair);
     }
+
+    private void RejectCheckResponse(IceCheckResponseRejectionReason reason) => _checkResponseRejections[(int)reason]++;
 
     private void BufferEarlyCheck(LocalPath path, StunMessage message, IPEndPoint source)
     {

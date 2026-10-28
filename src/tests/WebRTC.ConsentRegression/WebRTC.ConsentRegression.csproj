@@ -2,6 +2,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
+    <DefineConstants>$(DefineConstants);WEBRTC_PUBLISHED_CONSENT_REGRESSION</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="tryAGI.WebRTC" Version="[0.2.9]" />
