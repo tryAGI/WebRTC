@@ -22,6 +22,9 @@ jobs:
     needs: validate
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v0.')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,11 +74,16 @@ jobs:
           path: artifacts/package/*
           if-no-files-found: error
           retention-days: 30
+      - name: NuGet login (trusted publishing)
+        id: nuget_login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: havendv
       - name: Publish immutable package
         env:
-          NUGET_KEY: ${{ secrets.NUGET_KEY }}
+          NUGET_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
         run: |
-          test -n "$NUGET_KEY" || { echo 'Existing NUGET_KEY must be enabled for tryAGI/WebRTC'; exit 1; }
+          test -n "$NUGET_KEY" || { echo 'NuGet trusted publishing login returned no key'; exit 1; }
           python3 scripts/publish-package.py artifacts/package "$GITHUB_SHA"
 
   release:
